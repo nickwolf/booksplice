@@ -1,0 +1,19 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AudiobookConverter.Cli/AudiobookConverter.Cli.csproj" />
+    <Project Path="src/AudiobookConverter.Core/AudiobookConverter.Core.csproj" />
+    <Project Path="src/AudiobookConverter.FFmpeg/AudiobookConverter.FFmpeg.csproj" />
+    <Project Path="src/AudiobookConverter.Gui/AudiobookConverter.Gui.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AudiobookConverter.Acceptance.Tests/AudiobookConverter.Acceptance.Tests.csproj" />
+    <Project Path="tests/AudiobookConverter.Cli.Tests/AudiobookConverter.Cli.Tests.csproj" />
+    <Project Path="tests/AudiobookConverter.Core.Tests/AudiobookConverter.Core.Tests.csproj" />
+    <Project Path="tests/AudiobookConverter.FFmpeg.Tests/AudiobookConverter.FFmpeg.Tests.csproj" />
+    <Project Path="tests/AudiobookConverter.Gui.Tests/AudiobookConverter.Gui.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/AudiobookConverter.Benchmarks/AudiobookConverter.Benchmarks.csproj" />
+    <Project Path="tools/AudiobookConverter.FixtureGenerator/AudiobookConverter.FixtureGenerator.csproj" />
+  </Folder>
+</Solution>
