@@ -88,6 +88,9 @@ project.fragment.lock.json
 artifacts/
 .artifacts/
 
+# Acquired native media tools
+/artifacts/tools/ffmpeg/
+
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt
 
