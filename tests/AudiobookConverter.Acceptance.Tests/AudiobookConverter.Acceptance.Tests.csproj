@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AudiobookConverter.Gui\AudiobookConverter.Gui.csproj" />
+    <ProjectReference Include="..\..\src\AudiobookConverter.FFmpeg\AudiobookConverter.FFmpeg.csproj" />
   </ItemGroup>
 
 </Project>
