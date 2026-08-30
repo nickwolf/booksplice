@@ -20,7 +20,7 @@ jobs:
       - run: dotnet format --verify-no-changes --no-restore
 
   secret-scan:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
