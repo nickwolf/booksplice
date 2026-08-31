@@ -39,10 +39,6 @@ Input tags not mapped by a profile are retained using their original key spellin
 
 ## Mp3tag round-trip
 
-Desktop Mp3tag 3.36.1 was opened with a synthetic M4B under disposable APPDATA and LOCALAPPDATA directories. A controlled GUI Ctrl+S preserved its standard `title`, `album`, `artist`, `album_artist`, and `composer` tags, but ffprobe no longer reported the synthetic custom `SERIES`, `SERIES-PART`, `ASIN`, `WWWAUDIOFILE`, `PUBLISHER`, or `ITUNESMEDIATYPE` tags. The attempted isolation also changed the live Mp3tag profile inventory, so the round-trip is not accepted. No original media was opened or written. Custom-field support and audio-essence hash equality remain unverified.
+The original FFmpeg mdta save-through did not preserve the required custom fields. That result motivated the TagLibSharp 2.3.0 adapter. The adapter writes `TITLE`, `ALBUM`, `ARTIST`, `ALBUMARTIST`, and `COMPOSER` through native MP4 fields and writes `SERIES`, `SERIES-PART`, `ASIN`, `WWWAUDIOFILE`, `PUBLISHER`, and `ITUNESMEDIATYPE` as `com.apple.iTunes` freeform atoms. The standard fields and all six required freeform fields are structurally verified by the adapter tests and ffprobe inspection, and adapter tagging preserves the AAC audio-essence hash exactly.
 
-## Portable validation attempt
-
-The official winget package `FlorianHeidenreich.Mp3tag` version `3.36.1` was downloaded and its installer hash was verified by winget. The installer was invoked once with `/TYPE=portable`, `/VERYSILENT`, `/SUPPRESSMSGBOXES`, `/NORESTART`, and `/SP-`, targeting a disposable private directory. It exited without producing a portable executable or local configuration. The portable isolation gate therefore failed before any media was opened, and no GUI save was attempted.
-
-The live profile inventory was captured before and after the installer attempt. Both inventories contained 131 files and the manifest SHA-256 was `45944A4725E4F8657CF7BD6BCC03BE14CE42DE7DBD66A7BECE38922CBFEA29B7`. This confirms that the failed portable attempt did not change the live profile. The custom-field and portable round-trip behavior remains unverified.
+A real Mp3tag save-through of adapter output is deliberately deferred to private manual acceptance issue #23. Loading, Audible matching, and saving are part of the normal user GUI workflow. GUI automation is not used because the earlier attempt modified profile state. This documentation does not claim that the adapter output has survived an Mp3tag save.
