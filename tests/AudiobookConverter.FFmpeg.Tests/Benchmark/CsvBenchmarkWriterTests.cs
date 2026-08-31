@@ -47,4 +47,54 @@ public sealed class CsvBenchmarkWriterTests
     try { System.Globalization.CultureInfo.CurrentCulture = new("fr-FR"); CsvBenchmarkWriter.Append(path, BenchmarkResult.Example with { SourceSeconds = 1.25m }); Assert.Contains(",1.25,", File.ReadAllText(path), StringComparison.Ordinal); }
     finally { System.Globalization.CultureInfo.CurrentCulture = prior; if (File.Exists(path)) File.Delete(path); }
   }
+
+  [Fact]
+  public void Append_keeps_a_single_header_when_reopened()
+  {
+    var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".csv");
+    try
+    {
+      CsvBenchmarkWriter.Append(path, BenchmarkResult.Example);
+      CsvBenchmarkWriter.Append(path, BenchmarkResult.Example with { RunId = BenchmarkResult.NewRunId() });
+      Assert.Equal(1, File.ReadLines(path).Count(line => line == CsvBenchmarkWriter.Header));
+      Assert.Equal(3, File.ReadLines(path).Count());
+    }
+    finally { if (File.Exists(path)) File.Delete(path); }
+  }
+
+  [Fact]
+  public void NewRunId_returns_nonempty_unique_ids()
+  {
+    var ids = Enumerable.Range(0, 32).Select(_ => BenchmarkResult.NewRunId()).ToArray();
+    Assert.All(ids, id => Assert.Matches("^[a-f0-9]{32}$", id));
+    Assert.Equal(ids.Length, ids.Distinct(StringComparer.Ordinal).Count());
+  }
+
+  [Fact]
+  public void Append_keeps_an_immediately_visible_row_when_later_work_throws()
+  {
+    var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".csv");
+    try
+    {
+      CsvBenchmarkWriter.Append(path, BenchmarkResult.Example);
+      Assert.Throws<InvalidOperationException>((Action)(() => throw new InvalidOperationException("later benchmark failed")));
+      Assert.Contains("case-mp3-mono-096", File.ReadAllText(path), StringComparison.Ordinal);
+    }
+    finally { if (File.Exists(path)) File.Delete(path); }
+  }
+
+  [Fact]
+  public async Task Append_keeps_an_immediately_visible_row_when_later_work_is_cancelled()
+  {
+    var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".csv");
+    using var cancellation = new CancellationTokenSource();
+    try
+    {
+      CsvBenchmarkWriter.Append(path, BenchmarkResult.Example);
+      cancellation.Cancel();
+      await Assert.ThrowsAsync<TaskCanceledException>(() => Task.FromCanceled(cancellation.Token));
+      Assert.Contains("case-mp3-mono-096", File.ReadAllText(path), StringComparison.Ordinal);
+    }
+    finally { if (File.Exists(path)) File.Delete(path); }
+  }
 }

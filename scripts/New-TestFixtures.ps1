@@ -1,3 +1,7 @@
-param([string]$Output = "artifacts/fixtures", [string]$Tools = "artifacts/tools/ffmpeg")
+param([string]$Output = "artifacts/fixtures", [string]$Tools = "artifacts/tools/ffmpeg", [switch]$Long)
 $repo = Split-Path -Parent $PSScriptRoot
-dotnet run --project (Join-Path $repo "tools/AudiobookConverter.FixtureGenerator") -- (Join-Path $repo $Output) (Join-Path $repo $Tools)
+$toolPath = Join-Path $repo $Tools
+if (-not (Test-Path (Join-Path $toolPath "ffmpeg.exe"))) { $toolPath = (Get-ChildItem -Path $toolPath -Directory | Where-Object { Test-Path (Join-Path $_.FullName "ffmpeg.exe") } | Select-Object -First 1 -ExpandProperty FullName) }
+$fixtureArguments = @((Join-Path $repo $Output), $toolPath)
+if ($Long) { $fixtureArguments += "--long" }
+dotnet (Join-Path $repo "tools/AudiobookConverter.FixtureGenerator/bin/Debug/net10.0/AudiobookConverter.FixtureGenerator.dll") @fixtureArguments
