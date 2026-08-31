@@ -16,11 +16,14 @@ public sealed class BenchmarkRunner(IProcessRunner runner, IMediaProbe probe, Me
     var process = await runner.RunAsync(new ProcessSpec(tools.FFmpegPath, ["-hide_banner", "-y", "-i", testCase.SourcePath, "-c:a", "aac", "-b:a", "128k", outputPath]), null, cancellationToken).ConfigureAwait(false);
     stopwatch.Stop();
     MediaProbeResult? output = null;
-    var status = process.ExitCode == 0 ? "ok" : "failed";
+    var status = process.ExitCode == 0 ? "ok" : (testCase.ExpectedCorrupt ? "expected-failure" : "failed");
+    var reason = process.ExitCode == 0 ? "" : (testCase.ExpectedCorrupt ? "corrupt input rejected by encoder" : $"ffmpeg exit code {process.ExitCode}");
     if (process.ExitCode == 0) output = await probe.ProbeAsync(outputPath, cancellationToken).ConfigureAwait(false);
     var sourceSeconds = source.Duration;
     var wall = (decimal)stopwatch.Elapsed.TotalSeconds;
     var outputAudio = output is { AudioStreams.Count: > 0 } ? output.AudioStreams[0] : null;
-    return new BenchmarkResult(Guid.NewGuid().ToString("N"), testCase.CaseId, sourceSeconds, input?.CodecName, input?.Channels, input?.SampleRate, wall, (decimal?)process.ChildCpuTime?.TotalSeconds, outputAudio?.CodecName, output?.AudioStreams.Count, File.Exists(outputPath) ? new FileInfo(outputPath).Length : null, sourceSeconds is > 0 ? sourceSeconds / wall : null, status);
+    var bytes = File.Exists(outputPath) ? new FileInfo(outputPath).Length : 0;
+    if (status == "ok" && (bytes == 0 || outputAudio is null || output?.Duration is null || sourceSeconds is null || Math.Abs(output.Duration.Value - sourceSeconds.Value) > 0.25m)) { status = "failed"; reason = "output missing, no audio stream, or duration outside 0.25 second tolerance"; }
+    return new BenchmarkResult(Guid.NewGuid().ToString("N"), testCase.CaseId, sourceSeconds, input?.CodecName, input?.Channels, input?.SampleRate, wall, (decimal?)process.ChildCpuTime?.TotalSeconds, outputAudio?.CodecName, output?.AudioStreams.Count, bytes == 0 ? null : bytes, sourceSeconds is > 0 ? sourceSeconds / wall : null, status, reason);
   }
 }

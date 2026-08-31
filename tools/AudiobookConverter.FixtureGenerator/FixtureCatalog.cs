@@ -15,5 +15,10 @@ public static class FixtureCatalog
     new("case-aac-mismatch-32000", "aac/mismatch-32000.m4a", ["-f", "lavfi", "-i", "sine=frequency=550:duration=1", "-ac", "1", "-ar", "32000", "-c:a", "aac", "-b:a", "96k"], new Dictionary<string,string>{{"codec","aac"},{"sample_rate","32000"}}, ["mismatched-sample-rate"]),
     new("case-silence", "silence/silence.wav", ["-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "1", "-c:a", "pcm_s16le"], new Dictionary<string,string>{{"codec","pcm_s16le"}}, ["silence"]),
     new("case-pink-noise", "noise/pink.wav", ["-f", "lavfi", "-i", "anoisesrc=color=pink:duration=1", "-c:a", "pcm_s16le"], new Dictionary<string,string>{{"codec","pcm_s16le"}}, ["pink-noise"])
+    ,new("case-unicode-path", "unicode/テスト-日本語.m4a", ["-f", "lavfi", "-i", "sine=frequency=880:duration=1", "-c:a", "aac"], new Dictionary<string,string>{{"codec","aac"}}, ["unicode-path"])
+    ,new("case-many-short-tracks", "many-tracks/001.m4a", ["-f", "lavfi", "-i", "sine=frequency=330:duration=1", "-c:a", "aac"], new Dictionary<string,string>{{"codec","aac"}}, ["many-short-tracks"])
+    ,new("case-jpeg-cover", "covers/jpeg.m4a", ["-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:a", "aac"], new Dictionary<string,string>{{"codec","aac"},{"cover","jpeg"}}, ["jpeg-cover"])
+    ,new("case-png-cover", "covers/png.m4a", ["-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:a", "aac"], new Dictionary<string,string>{{"codec","aac"},{"cover","png"}}, ["png-cover"])
+    ,new("case-chaptered", "chapters/chaptered.m4a", ["-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:a", "aac", "-metadata", "title=Chaptered"], new Dictionary<string,string>{{"codec","aac"},{"chapters","1"}}, ["chapters"])
   ];
 }
