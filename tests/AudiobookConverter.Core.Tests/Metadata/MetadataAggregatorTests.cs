@@ -54,7 +54,11 @@ public sealed class MetadataAggregatorTests
 
     Assert.Equal(AggregationState.Conflicting, title.State);
     Assert.Equal("Chapter One", title.Value);
-    Assert.Equal("TITLE", title.Candidates[0].SourceKey);
+    Assert.Collection(title.Candidates,
+      candidate => Assert.Equal(("Disc One", "one.m4a", "ALBUM"), (candidate.Value, candidate.SourceFile, candidate.SourceKey)),
+      candidate => Assert.Equal(("Disc Two", "two.m4a", "ALBUM"), (candidate.Value, candidate.SourceFile, candidate.SourceKey)),
+      candidate => Assert.Equal(("Chapter One", "one.m4a", "TITLE"), (candidate.Value, candidate.SourceFile, candidate.SourceKey)),
+      candidate => Assert.Equal(("Chapter One", "two.m4a", "TITLE"), (candidate.Value, candidate.SourceFile, candidate.SourceKey)));
     Assert.DoesNotContain(SemanticField.Track, metadata.Fields.Keys);
     Assert.DoesNotContain(SemanticField.Disc, metadata.Fields.Keys);
   }
