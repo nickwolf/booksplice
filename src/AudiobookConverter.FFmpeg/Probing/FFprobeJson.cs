@@ -1,0 +1,39 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace AudiobookConverter.FFmpeg.Probing;
+
+internal sealed class FFprobeDocument
+{
+  [JsonPropertyName("streams")] public List<FFprobeStream>? Streams { get; set; }
+  [JsonPropertyName("format")] public FFprobeFormat? Format { get; set; }
+  [JsonPropertyName("chapters")] public List<FFprobeChapter>? Chapters { get; set; }
+}
+internal sealed class FFprobeStream
+{
+  public int Index { get; set; }
+  [JsonPropertyName("codec_name")] public string? CodecName { get; set; }
+  [JsonPropertyName("codec_type")] public string? CodecType { get; set; }
+  public int? Channels { get; set; }
+  [JsonPropertyName("sample_rate")] public string? SampleRate { get; set; }
+  public string? Duration { get; set; }
+  [JsonPropertyName("time_base")] public string? TimeBase { get; set; }
+  public int? Width { get; set; }
+  public int? Height { get; set; }
+  [JsonPropertyName("disposition")] public FFprobeDisposition? Disposition { get; set; }
+  public Dictionary<string, JsonElement>? Tags { get; set; }
+}
+internal sealed class FFprobeDisposition { [JsonPropertyName("attached_pic")] public int AttachedPic { get; set; } }
+internal sealed class FFprobeFormat
+{
+  public string? Duration { get; set; }
+  public Dictionary<string, JsonElement>? Tags { get; set; }
+}
+internal sealed class FFprobeChapter
+{
+  public long Id { get; set; }
+  [JsonPropertyName("start_time")] public string? StartTime { get; set; }
+  [JsonPropertyName("end_time")] public string? EndTime { get; set; }
+  [JsonPropertyName("time_base")] public string? TimeBase { get; set; }
+  public Dictionary<string, JsonElement>? Tags { get; set; }
+}
