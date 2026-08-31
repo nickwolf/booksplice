@@ -175,6 +175,39 @@ public sealed class SourceDiscovererTests : IDisposable
   }
 
   [Fact]
+  public async Task DiscoverAsync_limits_active_probes_to_analysis_concurrency_and_starts_them_in_parallel()
+  {
+    _fixture.CreateFile("01.mp3");
+    _fixture.CreateFile("02.mp3");
+    _fixture.CreateFile("03.mp3");
+    var probe = new BlockingProbe(expectedParallelism: 2);
+    var discovery = new SourceDiscoverer(probe, analysisConcurrency: 2).DiscoverAsync(_fixture.Root, CancellationToken.None);
+
+    try
+    {
+      await probe.WaitForExpectedParallelismAsync();
+      Assert.Equal(2, probe.MaximumActive);
+    }
+    finally { probe.Release(); }
+
+    var result = await discovery.WaitAsync(TimeSpan.FromSeconds(5));
+    Assert.Equal(3, result.Files.Count);
+  }
+
+  [Fact]
+  public async Task DiscoverAsync_propagates_cancellation_when_a_probe_is_in_flight()
+  {
+    _fixture.CreateFile("chapter.mp3");
+    using var cancellation = new CancellationTokenSource();
+    var probe = new CancellationBlockingProbe();
+    var discovery = new SourceDiscoverer(probe, analysisConcurrency: 2).DiscoverAsync(_fixture.Root, cancellation.Token);
+
+    await probe.WaitForProbeAsync();
+    cancellation.Cancel();
+
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await discovery.WaitAsync(TimeSpan.FromSeconds(5)));
+  }
+  [Fact]
   public async Task DiscoverAsync_propagates_cancellation()
   {
     _fixture.CreateFile("chapter.mp3");
@@ -207,6 +240,55 @@ public sealed class SourceDiscovererTests : IDisposable
     await process.WaitForExitAsync();
     Assert.True(process.ExitCode == 0, await process.StandardError.ReadToEndAsync());
   }
+  private sealed class BlockingProbe(int expectedParallelism) : IMediaProbe
+  {
+    private readonly TaskCompletionSource _expectedParallelismReached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _active;
+    private int _maximumActive;
+
+    public int MaximumActive => Volatile.Read(ref _maximumActive);
+
+    public async Task WaitForExpectedParallelismAsync() => await _expectedParallelismReached.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+    public void Release() => _release.TrySetResult();
+
+    public async Task<MediaProbeResult> ProbeAsync(string inputPath, CancellationToken cancellationToken = default)
+    {
+      var active = Interlocked.Increment(ref _active);
+      SetMaximumActive(active);
+      if (active == expectedParallelism) _expectedParallelismReached.TrySetResult();
+      try
+      {
+        await _release.Task.WaitAsync(cancellationToken);
+        return SuccessfulProbeResult();
+      }
+      finally { Interlocked.Decrement(ref _active); }
+    }
+
+    private void SetMaximumActive(int active)
+    {
+      int observed;
+      do { observed = Volatile.Read(ref _maximumActive); }
+      while (active > observed && Interlocked.CompareExchange(ref _maximumActive, active, observed) != observed);
+    }
+  }
+
+  private sealed class CancellationBlockingProbe : IMediaProbe
+  {
+    private readonly TaskCompletionSource _probeStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public async Task WaitForProbeAsync() => await _probeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+    public async Task<MediaProbeResult> ProbeAsync(string inputPath, CancellationToken cancellationToken = default)
+    {
+      _probeStarted.TrySetResult();
+      await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+      return SuccessfulProbeResult();
+    }
+  }
+
+  private static MediaProbeResult SuccessfulProbeResult() => new([], [], [], new TagCollection([]), new Dictionary<string, string>(), [], 1);
   private sealed class TestMediaProbe(Func<string, Exception?>? failure = null) : IMediaProbe
   {
     public List<string> Inputs { get; } = [];
@@ -216,7 +298,7 @@ public sealed class SourceDiscovererTests : IDisposable
       cancellationToken.ThrowIfCancellationRequested();
       Inputs.Add(inputPath);
       if (failure?.Invoke(inputPath) is { } exception) throw exception;
-      return Task.FromResult(new MediaProbeResult([], [], [], new TagCollection([]), new Dictionary<string, string>(), [], 1));
+      return Task.FromResult(SuccessfulProbeResult());
     }
   }
 
