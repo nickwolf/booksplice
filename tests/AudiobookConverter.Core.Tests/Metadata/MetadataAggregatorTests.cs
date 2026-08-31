@@ -109,6 +109,29 @@ public sealed class MetadataAggregatorTests
     Assert.False(tags.ContainsKey("DISCNUMBER"));
   }
 
+  [Fact]
+  public void AggregateKeepsConflictingAlbumStateWhenTitleIsUnusable()
+  {
+    var metadata = _aggregator.Aggregate([File("C:\\Books\\Fallback Book\\one.m4a", "one.m4a", ("ALBUM", "First"), ("TITLE", "Chapter One")), File("C:\\Books\\Fallback Book\\two.m4a", "two.m4a", ("ALBUM", "Second"), ("TITLE", "Chapter Two"))]);
+    var title = metadata.Get(SemanticField.BookTitle);
+    Assert.Equal(AggregationState.Conflicting, title.State); Assert.Equal("Fallback Book", title.Value); Assert.Equal(3, title.Candidates.Count);
+  }
+
+  [Fact]
+  public void AggregateKeepsConflictingAlbumStateWhenSharedTitleIsProvisional()
+  {
+    var metadata = _aggregator.Aggregate([File("one.m4a", ("ALBUM", "First"), ("TITLE", "Shared")), File("two.m4a", ("ALBUM", "Second"), ("TITLE", "Shared"))]);
+    var title = metadata.Get(SemanticField.BookTitle);
+    Assert.Equal(AggregationState.Conflicting, title.State); Assert.Equal("Shared", title.Value); Assert.Equal(4, title.Candidates.Count);
+  }
+
+  [Fact]
+  public void AggregateSelectsPartialAlbumWithoutErasingItsState()
+  {
+    var metadata = _aggregator.Aggregate([File("one.m4a", ("ALBUM", "Book")), File("two.m4a")]);
+    var title = metadata.Get(SemanticField.BookTitle);
+    Assert.Equal(AggregationState.PartiallyMissing, title.State); Assert.Equal("Book", title.Value); Assert.Single(title.Candidates);
+  }
   private static SourceFile File(string relativePath, params (string Key, string Value)[] tags)
     => File(relativePath, relativePath, tags);
 

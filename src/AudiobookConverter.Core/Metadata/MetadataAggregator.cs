@@ -62,17 +62,21 @@ public sealed class MetadataAggregator : IMetadataAggregator
   private static AggregatedValue AggregateBookTitle(IReadOnlyList<SourceFile> files)
   {
     var album = AggregateKeys(SemanticField.BookTitle, files, ["ALBUM", "album"]);
-    if (album.State == AggregationState.Consistent) return album;
-
+    if (album.State is AggregationState.Consistent or AggregationState.PartiallyMissing) return album;
     var title = AggregateKeys(SemanticField.BookTitle, files, ["TITLE", "title"]);
+    if (album.State == AggregationState.Conflicting)
+    {
+      if (title.State == AggregationState.Consistent) return WithProvisionalValue(album, title.Value, title.Candidates);
+      var root = SourceRoot(files);
+      return root is null ? album : WithProvisionalValue(album, root, [new MetadataCandidate(root, root, "source-root")]);
+    }
     if (title.State == AggregationState.Consistent) return title;
-
-    var root = SourceRoot(files);
-    return root is null
-      ? AggregatedValue.Missing(SemanticField.BookTitle)
-      : new AggregatedValue(SemanticField.BookTitle, AggregationState.Consistent, root, [new MetadataCandidate(root, root, "source-root")]);
+    var sourceRoot = SourceRoot(files);
+    return sourceRoot is null ? AggregatedValue.Missing(SemanticField.BookTitle) : new AggregatedValue(SemanticField.BookTitle, AggregationState.Consistent, sourceRoot, [new MetadataCandidate(sourceRoot, sourceRoot, "source-root")]);
   }
 
+  private static AggregatedValue WithProvisionalValue(AggregatedValue evidence, string? value, IReadOnlyList<MetadataCandidate> provisionalCandidates)
+    => new(evidence.Field, evidence.State, value, evidence.Candidates.Concat(provisionalCandidates).ToArray());
   private static AggregatedValue AggregateField(SemanticField field, IReadOnlyList<SourceFile> files)
   {
     if (field == SemanticField.Author)
