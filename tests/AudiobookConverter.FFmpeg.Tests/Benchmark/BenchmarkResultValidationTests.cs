@@ -75,18 +75,28 @@ public sealed class BenchmarkResultValidationTests
   }
 
   [Fact]
+  public void ValidateCollection_rejects_duplicate_run_ids()
+  {
+    var row = BenchmarkResult.Example.ToColumns();
+    Assert.Contains(BenchmarkResultValidator.ValidateCollection(CsvBenchmarkWriter.Header.Split(','), [row, row]), error => error.Contains("duplicate", StringComparison.Ordinal));
+  }
+
+  [Fact]
   public void ConcurrencySummary_recomputes_average_and_improvement()
   {
     var rows = new List<BenchmarkResult>();
     AddRound(rows, 1, 1, 74.059023631m); AddRound(rows, 1, 2, 72.6138202343m);
     AddRound(rows, 3, 1, 215.4684471995m); AddRound(rows, 3, 2, 206.4549563429m);
     AddRound(rows, 4, 1, 248.9511372721m); AddRound(rows, 4, 2, 241.1136688774m);
+    AddRound(rows, 2, 1, 149.2156510389m); AddRound(rows, 2, 2, 147.1071895414m);
     AddRound(rows, 6, 1, 329.1433625971m); AddRound(rows, 8, 1, 338.3193700742m);
     Assert.Equal(73.33642193265m, BenchmarkConcurrencySummary.AverageAggregateRealtimeFactor(rows, 1));
+    Assert.Equal(148.16142029015m, BenchmarkConcurrencySummary.AverageAggregateRealtimeFactor(rows, 2));
     Assert.Equal(210.9617017712m, BenchmarkConcurrencySummary.AverageAggregateRealtimeFactor(rows, 3));
     Assert.Equal(16.15m, decimal.Round(BenchmarkConcurrencySummary.PercentImprovement(rows, 3, 4), 2));
     Assert.Equal(34.33m, decimal.Round(BenchmarkConcurrencySummary.PercentImprovement(rows, 4, 6), 2));
     Assert.Equal(2.79m, decimal.Round(BenchmarkConcurrencySummary.PercentImprovement(rows, 6, 8), 2));
+    Assert.Equal(6, BenchmarkConcurrencySummary.RecommendConcurrency(rows, [1, 2, 3, 4, 6, 8]));
   }
 
   private static void AddRound(List<BenchmarkResult> rows, int concurrency, int round, decimal aggregate)

@@ -30,6 +30,8 @@ public static partial class BenchmarkResultValidator
   {
     var errors = rows.SelectMany(row => Validate(header, row)).ToList();
     if (errors.Count > 0) return errors;
+    var runIds = rows.Select(row => header.Zip(row).ToDictionary(pair => pair.First, pair => pair.Second, StringComparer.Ordinal)["run_id"]);
+    if (runIds.Count() != runIds.Distinct(StringComparer.Ordinal).Count()) errors.Add("duplicate run_id values");
     var concurrencyRows = rows.Select(row => header.Zip(row).ToDictionary(pair => pair.First, pair => pair.Second, StringComparer.Ordinal)).Where(row => row["operation"] == "concurrency");
     foreach (var round in concurrencyRows.GroupBy(row => row["round_id"], StringComparer.Ordinal))
     {

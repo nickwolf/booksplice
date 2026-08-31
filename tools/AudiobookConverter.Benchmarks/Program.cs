@@ -15,6 +15,7 @@ public static class Program
     var tools = new MediaToolLocator(toolDir).Resolve();
     var runner = new BenchmarkRunner(new ProcessRunner(), new FFprobeMediaProbe(new ProcessRunner(), tools), tools);
     var options = new BenchmarkRunOptions(Value(args, "--strategy") ?? "direct-concat-transcode", Int(args, "--bitrate", 128), Value(args, "--channel-mode") ?? "preserve", Value(args, "--validation") ?? "lightweight", Int(args, "--concurrency", 1), Value(args, "--storage-class") ?? "private-copy-to-local", Value(args, "--operation") ?? "", Value(args, "--round-id") ?? "");
+    var columns = new List<string[]>();
     foreach (var item in cases)
     {
       var mediaDirectory = mediaOutput ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(outputPath))!, "media");
@@ -23,8 +24,12 @@ public static class Program
       BenchmarkResult result;
       try { result = await runner.RunAsync(item, output, options).ConfigureAwait(false); }
       catch { result = new BenchmarkResult(BenchmarkResult.NewRunId(), item.CaseId, null, null, null, null, null, null, null, null, null, null, null, null, null, "failed", "benchmark processing failed"); }
+      var row = result.ToColumns();
+      if (BenchmarkResultValidator.Validate(CsvBenchmarkWriter.Header.Split(','), row).Count > 0) throw new InvalidDataException("benchmark result failed validation");
+      columns.Add(row);
       CsvBenchmarkWriter.Append(outputPath, result);
     }
+    if (BenchmarkResultValidator.ValidateCollection(CsvBenchmarkWriter.Header.Split(','), columns).Count > 0) throw new InvalidDataException("benchmark results failed collection validation");
     return 0;
   }
 

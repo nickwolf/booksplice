@@ -13,4 +13,14 @@ public static class BenchmarkConcurrencySummary
     var baseline = AverageAggregateRealtimeFactor(rows, baselineConcurrency);
     return (AverageAggregateRealtimeFactor(rows, candidateConcurrency) / baseline - 1m) * 100m;
   }
+
+  public static int RecommendConcurrency(IEnumerable<BenchmarkResult> rows, IReadOnlyList<int> testedLevels, decimal materialImprovementPercent = 10m)
+  {
+    if (testedLevels.Count == 0) throw new InvalidDataException("no tested concurrency levels");
+    var recommendation = testedLevels[0];
+    for (var index = 1; index < testedLevels.Count; index++)
+      if (PercentImprovement(rows, testedLevels[index - 1], testedLevels[index]) >= materialImprovementPercent) recommendation = testedLevels[index];
+      else break;
+    return recommendation;
+  }
 }
