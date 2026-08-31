@@ -14,6 +14,8 @@ public sealed class FFprobeMediaProbeTests
 
     var result = await probe.ProbeAsync(FixturePath, CancellationToken.None);
 
+    Assert.Equal(["-v", "warning", "-print_format", "json", "-show_format", "-show_streams", "-show_chapters", "-show_error", FixturePath], runner.LastSpec!.Arguments);
+
     Assert.Single(result.AudioStreams);
     Assert.Equal("aac", result.AudioStreams[0]!.CodecName);
     Assert.Single(result.AttachedPictures);
@@ -45,6 +47,16 @@ public sealed class FFprobeMediaProbeTests
     var probe = new FFprobeMediaProbe(runner, new MediaToolSet("", "ffprobe", "", ""));
     await Assert.ThrowsAsync<MediaProbeException>(() => probe.ProbeAsync("-leading-hyphen", CancellationToken.None));
     Assert.Equal("-leading-hyphen", runner.LastSpec!.Arguments[^1]);
+  }
+
+  [Fact]
+  public async Task ProbeAsyncRejectsMalformedChapterTimeData()
+  {
+    var runner = new FixtureRunner("{\"chapters\":[{\"id\":1,\"start_time\":\"bad\",\"end_time\":\"2\",\"time_base\":\"1/0\"}]}");
+    var probe = new FFprobeMediaProbe(runner, new MediaToolSet("", "ffprobe", "", ""));
+    var exception = await Assert.ThrowsAsync<MediaProbeException>(() => probe.ProbeAsync("book\n\"quoted\".m4b", CancellationToken.None));
+    Assert.Contains("start_time", exception.Message);
+    Assert.Equal("book\n\"quoted\".m4b", runner.LastSpec!.Arguments[^1]);
   }
 
   private static string FixturePath => Path.Combine(AppContext.BaseDirectory, "Fixtures", "ffprobe-complete.json");

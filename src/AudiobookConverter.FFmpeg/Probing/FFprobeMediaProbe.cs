@@ -25,7 +25,7 @@ public sealed class FFprobeMediaProbe : IMediaProbe
     var formatTags = ToTags(document.Format?.Tags);
     var audio = (document.Streams ?? []).Where(s => string.Equals(s.CodecType, "audio", StringComparison.OrdinalIgnoreCase)).Select(ToAudio).ToArray();
     var covers = (document.Streams ?? []).Where(s => s.Disposition?.AttachedPic == 1).Select(s => new MediaAttachedPicture(s.Index, s.CodecName, s.Width, s.Height, ToRawTags(s.Tags))).ToArray();
-    var chapters = (document.Chapters ?? []).Select(c => new MediaChapter(c.Id, RequiredDecimal(c.StartTime), RequiredDecimal(c.EndTime), Rational(c.TimeBase), ToRawTags(c.Tags))).ToArray();
+    var chapters = (document.Chapters ?? []).Select(c => new MediaChapter(c.Id, RequiredTimestamp(c.StartTime, "start_time"), RequiredTimestamp(c.EndTime, "end_time"), RequiredRational(c.TimeBase), ToRawTags(c.Tags))).ToArray();
     return new MediaProbeResult(audio, covers, chapters, formatTags, ToRawTags(document.Format?.Tags), warnings, Decimal(document.Format?.Duration));
   }
   private static AudioTrack ToAudio(FFprobeStream s) => new(s.Index, s.CodecName, s.CodecType, s.Channels, Int(s.SampleRate), Decimal(s.Duration), Rational(s.TimeBase), ToRawTags(s.Tags));
@@ -33,9 +33,17 @@ public sealed class FFprobeMediaProbe : IMediaProbe
   private static Dictionary<string, string> ToRawTags(Dictionary<string, JsonElement>? tags) => (tags ?? []).ToDictionary(p => p.Key, p => p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() ?? "" : p.Value.ToString(), StringComparer.Ordinal);
   private static int? Int(string? value) => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : null;
   private static decimal? Decimal(string? value) => decimal.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var n) ? n : null;
-  private static decimal RequiredDecimal(string? value) => Decimal(value) ?? 0;
-  private static Rational? Rational(string? value)
-  { var p = value?.Split('/'); return p?.Length == 2 && long.TryParse(p[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) && long.TryParse(p[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var d) ? new Rational(n, d) : null; }
+  private static decimal RequiredTimestamp(string? value, string field)
+  {
+    if (value is null) throw new MediaProbeException($"ffprobe returned a chapter without {field}.", []);
+    if (Decimal(value) is { } decimalValue) return decimalValue;
+    if (ParseRational(value) is { } rational) return (decimal)rational.ToDouble();
+    throw new MediaProbeException($"ffprobe returned an invalid {field} value '{value}'.", []);
+  }
+  private static Rational? Rational(string? value) => value is null ? null : ParseRational(value);
+  private static Rational RequiredRational(string? value) => value is null ? throw new MediaProbeException("ffprobe returned a chapter without time_base.", []) : ParseRational(value) ?? throw new MediaProbeException($"ffprobe returned an invalid time_base value '{value}'.", []);
+  private static Rational? ParseRational(string value)
+  { var p = value.Split('/'); if (p.Length != 2 || !long.TryParse(p[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) || !long.TryParse(p[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var d) || d == 0) return null; return new Rational(n, d); }
 }
 
 public sealed class MediaProbeException : Exception

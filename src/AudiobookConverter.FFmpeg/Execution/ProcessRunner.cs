@@ -61,12 +61,12 @@ public sealed class ProcessRunner : IProcessRunner
     {
       if (retained.Length > 0) retained.AppendLine();
       retained.Append(line);
-      progress?.Report(Sanitize(line));
+      progress?.Report(SanitizeForProgress(line));
     }
   }
 
-  private static string Sanitize(string line)
-    => System.Text.RegularExpressions.Regex.Replace(line, @"(?i)([A-Z]:\\|/|\\\\)[^\s]+", "<path>");
+  internal static string SanitizeForProgress(string line)
+    => System.Text.RegularExpressions.Regex.Replace(line, @"(?i)(?:[a-z]:|\\\\|/)[^\r\n]*", "<path>");
 }
 
 public sealed class ProcessExecutionException(string message, Exception innerException) : Exception(message, innerException);
