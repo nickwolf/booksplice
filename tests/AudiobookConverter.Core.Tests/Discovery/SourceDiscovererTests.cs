@@ -57,6 +57,68 @@ public sealed class SourceDiscovererTests : IDisposable
   }
 
   [Fact]
+  public async Task DiscoverAsync_reports_an_unsupported_single_file_input()
+  {
+    var path = _fixture.CreateFile("notes.txt");
+
+    var result = await Discover().DiscoverAsync(path, CancellationToken.None);
+
+    var error = Assert.Single(result.Errors);
+    Assert.Equal("discovery.input-unsupported", error.Code);
+    Assert.Equal(Path.GetFullPath(path), error.FullPath);
+  }
+
+  [Fact]
+  public async Task DiscoverAsync_does_not_follow_a_reparse_point_directory_input()
+  {
+    var external = new TemporaryDirectory();
+    var link = Path.Combine(_fixture.Root, "external");
+    try
+    {
+      external.CreateFile("outside.mp3");
+      await CreateJunctionAsync(link, external.Root);
+
+      var result = await Discover().DiscoverAsync(link, CancellationToken.None);
+
+      Assert.Empty(result.Files);
+      Assert.Contains(result.Warnings, warning => warning.Code == "discovery.reparse-point-skipped" && warning.FullPath == Path.GetFullPath(link));
+    }
+    finally { if (Directory.Exists(link)) Directory.Delete(link); external.Dispose(); }
+  }
+
+  [Fact]
+  public async Task DiscoverAsync_does_not_probe_a_file_input_reached_through_a_reparse_point()
+  {
+    var external = new TemporaryDirectory();
+    var link = Path.Combine(_fixture.Root, "external");
+    try
+    {
+      var outside = external.CreateFile("outside.mp3");
+      await CreateJunctionAsync(link, external.Root);
+
+      var result = await Discover().DiscoverAsync(Path.Combine(link, Path.GetFileName(outside)), CancellationToken.None);
+
+      Assert.Empty(result.Files);
+      Assert.Contains(result.Warnings, warning => warning.Code == "discovery.reparse-point-skipped" && warning.FullPath == Path.GetFullPath(link));
+    }
+    finally { if (Directory.Exists(link)) Directory.Delete(link); external.Dispose(); }
+  }
+
+  [Fact]
+  public async Task DiscoverAsync_deduplicates_hard_links_and_probes_the_deterministic_path()
+  {
+    var first = _fixture.CreateFile("01.mp3");
+    await CreateHardLinkAsync(Path.Combine(_fixture.Root, "02.mp3"), first);
+    var probe = new TestMediaProbe();
+
+    var result = await new SourceDiscoverer(probe, analysisConcurrency: 2).DiscoverAsync(_fixture.Root, CancellationToken.None);
+
+    var file = Assert.Single(result.Files);
+    Assert.Equal("01.mp3", file.RelativePath);
+    Assert.Equal(Path.GetFullPath(first), file.FullPath);
+    Assert.Equal((IEnumerable<string>)[Path.GetFullPath(first)], probe.Inputs);
+  }
+  [Fact]
   public async Task DiscoverAsync_deduplicates_normalized_file_paths()
   {
     var path = _fixture.CreateFile("chapter.mp3");
@@ -132,17 +194,27 @@ public sealed class SourceDiscovererTests : IDisposable
 
   public void Dispose() => _fixture.Dispose();
 
+  private static async Task CreateHardLinkAsync(string linkPath, string targetPath)
+  {
+    using var process = Process.Start(new ProcessStartInfo("cmd.exe", $"/c mklink /H \"{linkPath}\" \"{targetPath}\"") { CreateNoWindow = true, RedirectStandardError = true, UseShellExecute = false })!;
+    await process.WaitForExitAsync();
+    Assert.True(process.ExitCode == 0, await process.StandardError.ReadToEndAsync());
+  }
   private static async Task CreateJunctionAsync(string linkPath, string targetPath)
   {
+    Directory.CreateDirectory(Path.GetDirectoryName(linkPath)!);
     using var process = Process.Start(new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{linkPath}\" \"{targetPath}\"") { CreateNoWindow = true, RedirectStandardError = true, UseShellExecute = false })!;
     await process.WaitForExitAsync();
     Assert.True(process.ExitCode == 0, await process.StandardError.ReadToEndAsync());
   }
   private sealed class TestMediaProbe(Func<string, Exception?>? failure = null) : IMediaProbe
   {
+    public List<string> Inputs { get; } = [];
+
     public Task<MediaProbeResult> ProbeAsync(string inputPath, CancellationToken cancellationToken = default)
     {
       cancellationToken.ThrowIfCancellationRequested();
+      Inputs.Add(inputPath);
       if (failure?.Invoke(inputPath) is { } exception) throw exception;
       return Task.FromResult(new MediaProbeResult([], [], [], new TagCollection([]), new Dictionary<string, string>(), [], 1));
     }
