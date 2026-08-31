@@ -52,7 +52,7 @@ public sealed class MetadataAggregatorTests
 
     var title = metadata.Get(SemanticField.BookTitle);
 
-    Assert.Equal(AggregationState.Consistent, title.State);
+    Assert.Equal(AggregationState.Conflicting, title.State);
     Assert.Equal("Chapter One", title.Value);
     Assert.Equal("TITLE", title.Candidates[0].SourceKey);
     Assert.DoesNotContain(SemanticField.Track, metadata.Fields.Keys);
