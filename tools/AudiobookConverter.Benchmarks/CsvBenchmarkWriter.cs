@@ -4,7 +4,7 @@ namespace AudiobookConverter.Benchmarks;
 
 public static class CsvBenchmarkWriter
 {
-  public const string Header = "run_id,case_id,source_seconds,input_codec,input_channels,input_sample_rate,wall_seconds,child_cpu_seconds,output_codec,output_tracks,output_channels,output_sample_rate,output_seconds,output_bytes,realtime_factor,validation_status,validation_reason,strategy,target_bitrate_kbps,channel_mode,validation_mode,concurrency,aggregate_realtime_factor,storage_class,manual_responsiveness";
+  public const string Header = "run_id,case_id,source_seconds,input_codec,input_channels,input_sample_rate,wall_seconds,child_cpu_seconds,output_codec,output_tracks,output_channels,output_sample_rate,output_seconds,output_bytes,realtime_factor,validation_status,validation_reason,strategy,target_bitrate_kbps,channel_mode,validation_mode,concurrency,aggregate_realtime_factor,storage_class,manual_responsiveness,operation,round_id";
   public static string Write(IEnumerable<BenchmarkResult> results)
   {
     var builder = new StringBuilder().AppendLine(Header);

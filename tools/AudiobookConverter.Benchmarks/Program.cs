@@ -14,7 +14,7 @@ public static class Program
     var cases = CorpusManifestLoader.Load(corpusPath);
     var tools = new MediaToolLocator(toolDir).Resolve();
     var runner = new BenchmarkRunner(new ProcessRunner(), new FFprobeMediaProbe(new ProcessRunner(), tools), tools);
-    var options = new BenchmarkRunOptions(Value(args, "--strategy") ?? "direct-concat-transcode", Int(args, "--bitrate", 128), Value(args, "--channel-mode") ?? "preserve", Value(args, "--validation") ?? "lightweight", Int(args, "--concurrency", 1), Value(args, "--storage-class") ?? "private-copy-to-local");
+    var options = new BenchmarkRunOptions(Value(args, "--strategy") ?? "direct-concat-transcode", Int(args, "--bitrate", 128), Value(args, "--channel-mode") ?? "preserve", Value(args, "--validation") ?? "lightweight", Int(args, "--concurrency", 1), Value(args, "--storage-class") ?? "private-copy-to-local", Value(args, "--operation") ?? "", Value(args, "--round-id") ?? "");
     foreach (var item in cases)
     {
       var mediaDirectory = mediaOutput ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(outputPath))!, "media");

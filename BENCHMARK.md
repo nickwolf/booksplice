@@ -43,18 +43,18 @@ Filter concat was the fastest measured strategy on this one real compatible set.
 
 ## Concurrency and storage
 
-The concurrency matrix used the copied 419 second 96 kbps MP3 case, 64 kbps AAC direct transcode, local output, and 2 rounds at 1 through 4 concurrent jobs. Aggregate realtime factor is total source duration divided by the slowest job wall time in a round. Child CPU is per job. Manual responsiveness is `not-measured`, and peak working set is not available.
+The concurrency matrix used the copied 419 second 96 kbps MP3 case, 64 kbps AAC direct transcode, and local output. Each member row has `operation=concurrency`, a safe anonymous `round_id`, and the round's repeated `aggregate_realtime_factor`. That value is exactly total member source duration divided by the slowest member wall time. A round is valid only when its member count equals its concurrency setting and all members carry the same aggregate value. Child CPU is per job. Manual responsiveness is `not-measured`, and peak working set is not available.
 
 | Concurrent jobs | Rounds | Aggregate realtime factor | Mean child CPU seconds | Errors |
 | --- | ---: | ---: | ---: | ---: |
-| 1 | 3 | 74.75 | 6.35 | 0 |
-| 2 | 2 | 148.17 | 6.29 | 0 |
+| 1 | 2 | 73.34 | 6.38 | 0 |
+| 2 | 2 | 148.16 | 6.29 | 0 |
 | 3 | 2 | 210.96 | 6.45 | 0 |
 | 4 | 2 | 245.03 | 7.14 | 0 |
 | 6 | 1 | 329.14 | 6.87 | 0 |
 | 8 | 1 | 338.32 | 7.04 | 0 |
 
-The 4-job result improved aggregate throughput by 16.1 percent over 3 jobs, exceeding the campaign's 10 percent material-improvement threshold, so 6 jobs was run. Six improved by 34.3 percent over 4, so 8 was run. Eight improved by 2.8 percent over 6, below the threshold. The automatic boundary recommendation for this host is therefore 6 concurrent conversions, with a manual override.
+The 4-job result improved aggregate throughput by 16.15 percent over 3 jobs, exceeding the campaign's 10 percent material-improvement threshold, so 6 jobs was run. Six improved by 34.33 percent over 4, so 8 was run. Eight improved by 2.79 percent over 6, below the threshold. The automatic boundary recommendation for this host is therefore 6 concurrent conversions, with a manual override.
 
 The storage comparison used the same hash-verified 419 second real MP3 source and local output, with 3 repetitions per class. Reading directly from the read-only source storage averaged 5.62 seconds and 74.58 realtime factor. Reading its hash-identical local copy averaged 5.61 seconds and 74.75 realtime factor. The difference is within this campaign's timing noise, so local copying is a safety and isolation choice rather than a measured throughput requirement on this host.
 
