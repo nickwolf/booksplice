@@ -1,0 +1,5 @@
+{
+  "schemaVersion": "1",
+  "disposition": "not-practical",
+  "reason": "Official release 6.6.8 offers a portable desktop asset, but no reproducible noninteractive conversion interface was documented or installed; unattended GUI automation is excluded."
+}
