@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Diagnostics;
 using AudiobookConverter.Core.Analysis;
 using AudiobookConverter.Core.Covers;
 using AudiobookConverter.Core.Discovery;
@@ -119,6 +120,58 @@ public sealed class CoverDiscovererTests : IDisposable
   }
 
   [Fact]
+  public async Task DiscoverAsync_rejects_a_png_without_iend()
+  {
+    var png = TinyPng(10, 10);
+    _fixture.CreateFile("truncated.png", png[..^12]);
+
+    var result = await Discover().DiscoverAsync(_fixture.Root, [], CancellationToken.None);
+
+    Assert.Equal("cover.invalid-header", Assert.Single(result.Rejections).Code);
+  }
+
+  [Fact]
+  public async Task DiscoverAsync_rejects_a_jpeg_without_eoi()
+  {
+    _fixture.CreateFile("truncated.jpg", TinyJpeg(10, 10)[..^2]);
+
+    var result = await Discover().DiscoverAsync(_fixture.Root, [], CancellationToken.None);
+
+    Assert.Equal("cover.invalid-header", Assert.Single(result.Rejections).Code);
+  }
+
+  [Fact]
+  public async Task DiscoverAsync_skips_a_reparse_point_source_root()
+  {
+    using var external = new TemporaryDirectory();
+    external.CreateFile("cover.png", TinyPng(10, 10));
+    var link = Path.Combine(_fixture.Root, "linked-root");
+    try
+    {
+      await CreateJunctionAsync(link, external.Root);
+      var result = await Discover().DiscoverAsync(link, [], CancellationToken.None);
+      Assert.Empty(result.Candidates);
+      Assert.Equal("cover.reparse-point-skipped", Assert.Single(result.Rejections).Code);
+    }
+    finally { if (Directory.Exists(link)) Directory.Delete(link); }
+  }
+
+  [Fact]
+  public async Task DiscoverAsync_rejects_a_reparse_point_payload()
+  {
+    using var external = new TemporaryDirectory();
+    external.CreateFile("cover.png", TinyPng(10, 10));
+    var link = Path.Combine(_fixture.Root, "linked");
+    try
+    {
+      await CreateJunctionAsync(link, external.Root);
+      var result = await new CoverDiscoverer().DiscoverAsync(_fixture.Root, [], CancellationToken.None);
+      Assert.Equal("cover.reparse-point-skipped", Assert.Single(result.Rejections).Code);
+    }
+    finally { if (Directory.Exists(link)) Directory.Delete(link); }
+  }
+
+  [Fact]
   public async Task DiscoverAsync_does_not_discover_unsupported_extensions()
   {
     _fixture.CreateFile("cover.gif", [1, 2, 3]);
@@ -158,6 +211,54 @@ public sealed class CoverDiscovererTests : IDisposable
   }
 
   [Fact]
+  public async Task DiscoverAsync_propagates_cancellation_from_an_in_progress_read()
+  {
+    using var cancellation = new CancellationTokenSource();
+    var discoverer = new CoverDiscoverer(new CancellingPayloadOpener(cancellation));
+
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => discoverer.DiscoverAsync(_fixture.Root, [Source("01.mp3", Picture(0, "Cover"))], cancellation.Token));
+  }
+
+  [Fact]
+  public async Task DiscoverAsync_rejects_decoded_memory_above_the_limit()
+  {
+    _fixture.CreateFile("memory.png", TinyPng(10_000, 10_000));
+
+    var result = await Discover().DiscoverAsync(_fixture.Root, [], CancellationToken.None);
+
+    Assert.Equal("cover.decoded-memory-too-large", Assert.Single(result.Rejections).Code);
+  }
+
+  [Fact]
+  public async Task DiscoverAsync_does_not_treat_frontline_as_front_cover()
+  {
+    var result = await Discover(TinyPng(10, 10)).DiscoverAsync(_fixture.Root, [Source("01.mp3", Picture(0, "frontline recording"))], CancellationToken.None);
+
+    Assert.Equal(CoverSemanticType.Other, Assert.Single(result.Candidates).SemanticType);
+  }
+
+  [Fact]
+  public async Task DiscoverAsync_is_deterministic_when_probed_files_arrive_in_a_different_order()
+  {
+    var bytes = TinyPng(10, 10);
+    var first = await Discover(bytes).DiscoverAsync(_fixture.Root, [Source("02.mp3", Picture(0, "Cover")), Source("01.mp3", Picture(0, "Cover"))], CancellationToken.None);
+    var second = await Discover(bytes).DiscoverAsync(_fixture.Root, [Source("01.mp3", Picture(0, "Cover")), Source("02.mp3", Picture(0, "Cover"))], CancellationToken.None);
+
+    Assert.Equal(first.Selected!.SourceIdentity, second.Selected!.SourceIdentity);
+  }
+
+  [Fact]
+  public async Task DiscoverAsync_exposes_the_options_overload_through_the_interface()
+  {
+    var bytes = TinyPng(10, 10);
+    var hash = Hash(bytes);
+    _fixture.CreateFile("art.png", bytes);
+    var result = await DiscoverViaInterface(Discover(), _fixture.Root, new CoverDiscoveryOptions(hash));
+
+    Assert.Equal(hash, result.SelectedContentHash);
+  }
+
+  [Fact]
   public async Task DiscoverAsync_succeeds_without_art()
   {
     var result = await Discover().DiscoverAsync(_fixture.Root, [], CancellationToken.None);
@@ -169,12 +270,38 @@ public sealed class CoverDiscovererTests : IDisposable
   }
 
   private static CoverDiscoverer Discover(byte[]? embeddedBytes = null) => new(new TestPayloadOpener(embeddedBytes));
+#pragma warning disable CA1859 // The test verifies the public interface contract.
+  private static Task<CoverDiscoveryResult> DiscoverViaInterface(ICoverDiscoverer discoverer, string root, CoverDiscoveryOptions options)
+    => discoverer.DiscoverAsync(root, [], options, CancellationToken.None);
+#pragma warning restore CA1859
 
   private SourceFile Source(string path, MediaAttachedPicture picture) => new(Path.Combine(_fixture.Root, path), path, new([], [picture], [], new TagCollection([]), new Dictionary<string, string>(), [], 1));
   private static MediaAttachedPicture Picture(int index, string title) => new(index, "mjpeg", null, null, new Dictionary<string, string> { ["title"] = title });
   private static string Hash(byte[] value) => Convert.ToHexString(SHA256.HashData(value)).ToLowerInvariant();
-  private static byte[] TinyPng(int width, int height) => [137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, (byte)(width >> 24), (byte)(width >> 16), (byte)(width >> 8), (byte)width, (byte)(height >> 24), (byte)(height >> 16), (byte)(height >> 8), (byte)height, 8, 6, 0, 0, 0];
+  private static byte[] TinyPng(int width, int height)
+  {
+    var value = new List<byte>([137, 80, 78, 71, 13, 10, 26, 10]);
+    value.AddRange(PngChunk("IHDR", [(byte)(width >> 24), (byte)(width >> 16), (byte)(width >> 8), (byte)width, (byte)(height >> 24), (byte)(height >> 16), (byte)(height >> 8), (byte)height, 8, 6, 0, 0, 0]));
+    value.AddRange(PngChunk("IDAT", [])); value.AddRange(PngChunk("IEND", []));
+    return value.ToArray();
+  }
   private static byte[] TinyJpeg(int width, int height) => [255, 216, 255, 192, 0, 17, 8, (byte)(height >> 8), (byte)height, (byte)(width >> 8), (byte)width, 3, 1, 17, 0, 2, 17, 0, 3, 17, 0, 255, 217];
+
+  private static byte[] PngChunk(string type, byte[] data)
+  {
+    var typeBytes = System.Text.Encoding.ASCII.GetBytes(type);
+    var value = new byte[12 + data.Length];
+    System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(value, (uint)data.Length);
+    typeBytes.CopyTo(value, 4); data.CopyTo(value, 8);
+    System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(value.AsSpan(8 + data.Length), Crc32(value.AsSpan(4, data.Length + 4)));
+    return value;
+  }
+  private static uint Crc32(ReadOnlySpan<byte> value)
+  {
+    var crc = 0xffffffffU;
+    foreach (var item in value) { crc ^= item; for (var bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ ((crc & 1) == 0 ? 0U : 0xedb88320U); }
+    return ~crc;
+  }
 
   public void Dispose() => _fixture.Dispose();
 
@@ -187,6 +314,18 @@ public sealed class CoverDiscovererTests : IDisposable
   {
     public ValueTask<Stream> OpenReadAsync(CoverPayloadReference payload, CancellationToken cancellationToken) => throw new IOException("denied");
   }
+  private sealed class CancellingPayloadOpener(CancellationTokenSource cancellation) : ICoverPayloadOpener
+  {
+    public ValueTask<Stream> OpenReadAsync(CoverPayloadReference payload, CancellationToken cancellationToken) => ValueTask.FromResult<Stream>(new CancellingStream(cancellation));
+  }
+  private sealed class CancellingStream(CancellationTokenSource cancellation) : MemoryStream(TinyPng(10, 10))
+  {
+    public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+    {
+      cancellation.Cancel();
+      return base.ReadAsync(buffer, cancellationToken);
+    }
+  }
   private sealed class TemporaryDirectory : IDisposable
   {
     public TemporaryDirectory() { Root = Path.Combine(Path.GetTempPath(), $"AudiobookConverter-{Guid.NewGuid():N}"); Directory.CreateDirectory(Root); }
@@ -197,5 +336,10 @@ public sealed class CoverDiscovererTests : IDisposable
       using var stream = File.Create(path); stream.Write(bytes); if (length is { } target) stream.SetLength(target); return path;
     }
     public void Dispose() { if (Directory.Exists(Root)) Directory.Delete(Root, true); }
+  }
+  private static async Task CreateJunctionAsync(string linkPath, string targetPath)
+  {
+    using var process = Process.Start(new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{linkPath}\" \"{targetPath}\"") { CreateNoWindow = true, RedirectStandardError = true, UseShellExecute = false })!;
+    await process.WaitForExitAsync(); Assert.True(process.ExitCode == 0, await process.StandardError.ReadToEndAsync());
   }
 }

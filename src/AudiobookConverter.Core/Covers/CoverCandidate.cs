@@ -26,7 +26,7 @@ public sealed record CoverCandidate(
   public string SourceIdentity => EmbeddedPictureIndex is { } index ? $"{SourcePath}#{index}" : SourcePath;
 }
 
-public sealed record CoverPayloadReference(CoverOrigin Origin, string SourcePath, int? EmbeddedPictureIndex, string StableIdentity, CoverSemanticType SemanticType = CoverSemanticType.Other);
+public sealed record CoverPayloadReference(CoverOrigin Origin, string SourcePath, int? EmbeddedPictureIndex, string StableIdentity, CoverSemanticType SemanticType = CoverSemanticType.Other, string? SourceRoot = null);
 
 public interface ICoverPayloadOpener
 {
@@ -39,6 +39,21 @@ public sealed class FileSystemCoverPayloadOpener : ICoverPayloadOpener
   {
     cancellationToken.ThrowIfCancellationRequested();
     if (payload.Origin != CoverOrigin.ExternalFile) throw new NotSupportedException("Embedded cover payloads require an adapter.");
-    return ValueTask.FromResult<Stream>(new FileStream(payload.SourcePath, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.SequentialScan));
+    var fullPath = Path.GetFullPath(payload.SourcePath);
+    if (payload.SourceRoot is { } root && !IsUnderRoot(Path.GetFullPath(root), fullPath)) throw new IOException("The cover path is outside the source root.");
+    if ((File.GetAttributes(fullPath) & FileAttributes.ReparsePoint) != 0) throw new IOException("A reparse-point cover payload is not allowed.");
+    var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.SequentialScan);
+    try
+    {
+      if ((File.GetAttributes(fullPath) & FileAttributes.ReparsePoint) != 0) throw new IOException("A reparse-point cover payload is not allowed.");
+      return ValueTask.FromResult<Stream>(stream);
+    }
+    catch { stream.Dispose(); throw; }
+  }
+
+  private static bool IsUnderRoot(string root, string path)
+  {
+    var relative = Path.GetRelativePath(root, path);
+    return !Path.IsPathRooted(relative) && !relative.StartsWith("..", StringComparison.Ordinal);
   }
 }

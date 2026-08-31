@@ -15,4 +15,5 @@ public sealed record CoverDiscoveryResult(
 public interface ICoverDiscoverer
 {
   Task<CoverDiscoveryResult> DiscoverAsync(string sourceRoot, IReadOnlyList<Discovery.SourceFile> files, CancellationToken cancellationToken);
+  Task<CoverDiscoveryResult> DiscoverAsync(string sourceRoot, IReadOnlyList<Discovery.SourceFile> files, CoverDiscoveryOptions options, CancellationToken cancellationToken);
 }
