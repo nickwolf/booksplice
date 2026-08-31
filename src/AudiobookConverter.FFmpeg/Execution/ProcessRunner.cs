@@ -32,11 +32,12 @@ public sealed class ProcessRunner : IProcessRunner
         }
         if (!process.HasExited)
         {
-          process.Kill(entireProcessTree: true);
-          await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+          try { process.Kill(entireProcessTree: true); }
+          catch (InvalidOperationException) when (process.HasExited) { }
         }
+        await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
         await Task.WhenAll(outputTask, errorTask).ConfigureAwait(false);
-        throw;
+        throw new OperationCanceledException(cancellationToken);
       }
       await Task.WhenAll(outputTask, errorTask).ConfigureAwait(false);
       return new ProcessResult(process.ExitCode, stdout.ToString(), stderr.ToString());
@@ -50,7 +51,7 @@ public sealed class ProcessRunner : IProcessRunner
 
   private static ProcessStartInfo CreateStartInfo(ProcessSpec spec)
   {
-    var info = new ProcessStartInfo { FileName = spec.FileName, WorkingDirectory = spec.WorkingDirectory ?? "", UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
+    var info = new ProcessStartInfo { FileName = spec.FileName, WorkingDirectory = spec.WorkingDirectory ?? "", UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8, CreateNoWindow = true };
     foreach (var argument in spec.Arguments) info.ArgumentList.Add(argument);
     return info;
   }

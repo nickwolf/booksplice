@@ -59,6 +59,22 @@ public sealed class FFprobeMediaProbeTests
     Assert.Equal("book\n\"quoted\".m4b", runner.LastSpec!.Arguments[^1]);
   }
 
+  [Fact]
+  public async Task ProbeAsyncRejectsZeroDenominatorChapterRational()
+  {
+    var runner = new FixtureRunner("{\"chapters\":[{\"start_time\":\"0\",\"end_time\":\"2\",\"time_base\":\"1/0\"}]}");
+    var exception = await Assert.ThrowsAsync<MediaProbeException>(() => new FFprobeMediaProbe(runner, new MediaToolSet("", "ffprobe", "", "")).ProbeAsync("book", CancellationToken.None));
+    Assert.Contains("time_base", exception.Message);
+  }
+
+  [Fact]
+  public async Task ProbeAsyncRejectsNullRequiredChapterTime()
+  {
+    var runner = new FixtureRunner("{\"chapters\":[{\"start_time\":null,\"end_time\":\"2\",\"time_base\":\"1/1\"}]}");
+    var exception = await Assert.ThrowsAsync<MediaProbeException>(() => new FFprobeMediaProbe(runner, new MediaToolSet("", "ffprobe", "", "")).ProbeAsync("book", CancellationToken.None));
+    Assert.Contains("start_time", exception.Message);
+  }
+
   private static string FixturePath => Path.Combine(AppContext.BaseDirectory, "Fixtures", "ffprobe-complete.json");
 
   private sealed class FixtureRunner(string output, int exitCode = 0, string error = "") : IProcessRunner
