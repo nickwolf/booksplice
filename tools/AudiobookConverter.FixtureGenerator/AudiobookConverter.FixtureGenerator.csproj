@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AudiobookConverter.Core\AudiobookConverter.Core.csproj" />
+    <ProjectReference Include="..\..\src\AudiobookConverter.FFmpeg\AudiobookConverter.FFmpeg.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

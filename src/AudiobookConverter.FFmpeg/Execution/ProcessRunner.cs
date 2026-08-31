@@ -9,9 +9,11 @@ public sealed class ProcessRunner : IProcessRunner
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(spec.FileName);
     using var process = new Process { StartInfo = CreateStartInfo(spec) };
+    var cpuBefore = TimeSpan.Zero;
     try
     {
       if (!process.Start()) throw new InvalidOperationException($"Unable to start process '{spec.FileName}'.");
+      cpuBefore = process.TotalProcessorTime;
       var stdout = new StringBuilder();
       var stderr = new StringBuilder();
       var outputTask = DrainAsync(process.StandardOutput, stdout, progress);
@@ -40,7 +42,7 @@ public sealed class ProcessRunner : IProcessRunner
         throw new OperationCanceledException(cancellationToken);
       }
       await Task.WhenAll(outputTask, errorTask).ConfigureAwait(false);
-      return new ProcessResult(process.ExitCode, stdout.ToString(), stderr.ToString());
+      return new ProcessResult(process.ExitCode, stdout.ToString(), stderr.ToString(), process.TotalProcessorTime - cpuBefore);
     }
     catch (OperationCanceledException) { throw; }
     catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException)
