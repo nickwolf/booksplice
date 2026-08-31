@@ -63,7 +63,8 @@ public sealed class OrderResolver : IOrderResolver
         foreach (var duplicate in duplicates) evidence.Add(new OrderEvidence(anyDiscPresent ? "ordering.metadata.duplicate-disc-track" : "ordering.metadata.duplicate-track", Array.AsReadOnly(duplicate.ToArray())));
       }
     }
-    var credible = allTracksValid && (!anyDiscPresent || allDiscsValid) && uniqueKeys;
+    var coherentSequences = !anyDiscPresent || AddSequenceEvidence(entries, evidence);
+    var credible = allTracksValid && (!anyDiscPresent || allDiscsValid) && uniqueKeys && coherentSequences;
     var orderedFiles = credible
       ? anyDiscPresent
         ? entries.OrderBy(entry => entry.Disc.Value).ThenBy(entry => entry.Track.Value).ThenBy(entry => entry.File.RelativePath, NaturalPaths).Select(entry => entry.File).ToArray()
@@ -80,8 +81,28 @@ public sealed class OrderResolver : IOrderResolver
       var numericPart = value.Split('/', 2)[0].Trim();
       return int.TryParse(numericPart, NumberStyles.None, CultureInfo.InvariantCulture, out var number) && number > 0 ? new TagNumber(true, true, number) : new TagNumber(true, false, 0);
     }
+
     return new TagNumber(false, false, 0);
   }
+
+  private static bool AddSequenceEvidence(IEnumerable<MetadataEntry> entries, List<OrderEvidence> evidence)
+  {
+    var materializedEntries = entries.ToArray();
+    var coherentDiscs = IsOneBasedSequence(materializedEntries.Select(entry => entry.Disc.Value));
+    if (!coherentDiscs) evidence.Add(new OrderEvidence("ordering.metadata.incoherent-disc-sequence", Array.AsReadOnly(materializedEntries.Select(entry => FileId(entry.File)).ToArray())));
+
+    var coherentTracks = true;
+    foreach (var disc in materializedEntries.GroupBy(entry => entry.Disc.Value))
+    {
+      if (IsOneBasedSequence(disc.Select(entry => entry.Track.Value))) continue;
+      coherentTracks = false;
+      evidence.Add(new OrderEvidence("ordering.metadata.incoherent-track-sequence", Array.AsReadOnly(disc.Select(entry => FileId(entry.File)).ToArray())));
+    }
+    return coherentDiscs && coherentTracks;
+  }
+
+  private static bool IsOneBasedSequence(IEnumerable<int> values)
+    => values.Distinct().Order().SequenceEqual(Enumerable.Range(1, values.Distinct().Count()));
 
   private static bool SameOrder(OrderCandidate left, OrderCandidate right) => left.FileIds.SequenceEqual(right.FileIds, StringComparer.Ordinal);
   private static string FileId(SourceFile file) => file.RelativePath;

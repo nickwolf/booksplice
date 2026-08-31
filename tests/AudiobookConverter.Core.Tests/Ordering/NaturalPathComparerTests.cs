@@ -45,4 +45,14 @@ public sealed class NaturalPathComparerTests
 
     Assert.Equal((IEnumerable<string>)["CD01/Track01.m4a", "CD02/Track01.m4a", "Part 1.m4a", "Part 2.m4a"], paths);
   }
+
+  [Fact]
+  public void Compare_uses_full_path_ordinal_tie_breaking_after_equal_numeric_values()
+  {
+    var paths = new[] { "Part 2 A.m4a", "Part 02 Z.m4a" };
+
+    Array.Sort(paths, _comparer);
+
+    Assert.Equal((IEnumerable<string>)["Part 02 Z.m4a", "Part 2 A.m4a"], paths);
+  }
 }

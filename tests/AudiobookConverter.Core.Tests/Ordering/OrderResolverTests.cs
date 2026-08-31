@@ -80,6 +80,33 @@ public sealed class OrderResolverTests
   }
 
   [Fact]
+  public void Resolve_keeps_gapped_disc_numbers_as_not_credible_evidence()
+  {
+    var resolution = _resolver.Resolve([
+      File("01.m4a", ("DISC", "1"), ("TRACK", "1")),
+      File("03.m4a", ("DISC", "3"), ("TRACK", "1"))
+    ]);
+
+    var metadata = Assert.Single(resolution.Candidates, candidate => candidate.Id == OrderCandidateId.Metadata);
+    Assert.False(metadata.IsCredible);
+    Assert.Contains(metadata.Evidence, evidence => evidence.Code == "ordering.metadata.incoherent-disc-sequence");
+  }
+
+  [Fact]
+  public void Resolve_keeps_gapped_track_numbers_within_a_disc_as_not_credible_evidence()
+  {
+    var resolution = _resolver.Resolve([
+      File("01.m4a", ("DISC", "1"), ("TRACK", "1")),
+      File("03.m4a", ("DISC", "1"), ("TRACK", "3"))
+    ]);
+
+    var metadata = Assert.Single(resolution.Candidates, candidate => candidate.Id == OrderCandidateId.Metadata);
+    Assert.False(metadata.IsCredible);
+    Assert.Contains(metadata.Evidence, evidence => evidence.Code == "ordering.metadata.incoherent-track-sequence");
+  }
+
+
+  [Fact]
   public void Resolve_raises_confidence_when_complete_tags_agree_with_natural_paths()
   {
     var resolution = _resolver.Resolve([

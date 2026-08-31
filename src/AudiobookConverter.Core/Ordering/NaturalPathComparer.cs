@@ -13,8 +13,9 @@ public sealed class NaturalPathComparer : IComparer<string>
     {
       if (char.IsAsciiDigit(left[leftIndex]) && char.IsAsciiDigit(right[rightIndex]))
       {
-        var numericResult = CompareNumericRun(left, ref leftIndex, right, ref rightIndex);
+        var numericResult = CompareNumericRun(left, ref leftIndex, right, ref rightIndex, out var sourceSpellingsDiffer);
         if (numericResult != 0) return numericResult;
+        if (sourceSpellingsDiffer) return string.Compare(left, right, StringComparison.Ordinal);
         continue;
       }
       var insensitiveResult = string.Compare(left, leftIndex, right, rightIndex, 1, StringComparison.OrdinalIgnoreCase);
@@ -25,7 +26,7 @@ public sealed class NaturalPathComparer : IComparer<string>
     return string.Compare(left, right, StringComparison.Ordinal);
   }
 
-  private static int CompareNumericRun(string left, ref int leftIndex, string right, ref int rightIndex)
+  private static int CompareNumericRun(string left, ref int leftIndex, string right, ref int rightIndex, out bool sourceSpellingsDiffer)
   {
     var leftStart = leftIndex;
     var rightStart = rightIndex;
@@ -33,6 +34,7 @@ public sealed class NaturalPathComparer : IComparer<string>
     while (rightIndex < right.Length && char.IsAsciiDigit(right[rightIndex])) rightIndex++;
     var leftSignificant = left[leftStart..leftIndex].TrimStart('0');
     var rightSignificant = right[rightStart..rightIndex].TrimStart('0');
+    sourceSpellingsDiffer = !left.AsSpan(leftStart, leftIndex - leftStart).SequenceEqual(right.AsSpan(rightStart, rightIndex - rightStart));
     if (leftSignificant.Length == 0) leftSignificant = "0";
     if (rightSignificant.Length == 0) rightSignificant = "0";
     var lengthResult = leftSignificant.Length.CompareTo(rightSignificant.Length);
