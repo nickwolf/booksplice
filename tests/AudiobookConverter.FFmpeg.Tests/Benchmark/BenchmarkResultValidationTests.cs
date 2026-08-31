@@ -93,6 +93,11 @@ public sealed class BenchmarkResultValidationTests
     Assert.Equal(73.33642193265m, BenchmarkConcurrencySummary.AverageAggregateRealtimeFactor(rows, 1));
     Assert.Equal(148.16142029015m, BenchmarkConcurrencySummary.AverageAggregateRealtimeFactor(rows, 2));
     Assert.Equal(210.9617017712m, BenchmarkConcurrencySummary.AverageAggregateRealtimeFactor(rows, 3));
+    Assert.Equal(245.03240307475m, BenchmarkConcurrencySummary.AverageAggregateRealtimeFactor(rows, 4));
+    Assert.Equal(329.1433625971m, BenchmarkConcurrencySummary.AverageAggregateRealtimeFactor(rows, 6));
+    Assert.Equal(338.3193700742m, BenchmarkConcurrencySummary.AverageAggregateRealtimeFactor(rows, 8));
+    Assert.Equal(102.03m, decimal.Round(BenchmarkConcurrencySummary.PercentImprovement(rows, 1, 2), 2));
+    Assert.Equal(42.39m, decimal.Round(BenchmarkConcurrencySummary.PercentImprovement(rows, 2, 3), 2));
     Assert.Equal(16.15m, decimal.Round(BenchmarkConcurrencySummary.PercentImprovement(rows, 3, 4), 2));
     Assert.Equal(34.33m, decimal.Round(BenchmarkConcurrencySummary.PercentImprovement(rows, 4, 6), 2));
     Assert.Equal(2.79m, decimal.Round(BenchmarkConcurrencySummary.PercentImprovement(rows, 6, 8), 2));
