@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AudiobookConverter.FFmpeg\AudiobookConverter.FFmpeg.csproj" />
+    <ProjectReference Include="..\..\tools\AudiobookConverter.Benchmarks\AudiobookConverter.Benchmarks.csproj" />
   </ItemGroup>
 
 </Project>

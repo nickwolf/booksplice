@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "cases"],
+  "properties": {
+    "schemaVersion": { "type": "string", "minLength": 1 },
+    "generatedBy": { "type": "string", "minLength": 1 },
+    "cases": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/case" } }
+  },
+  "$defs": {
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["caseId", "sourcePath", "traits", "expectedOrder", "copyPermission", "groups"],
+      "properties": {
+        "caseId": { "type": "string", "minLength": 1, "pattern": "^case-[a-z0-9-]+$" },
+        "sourcePath": { "type": "string", "minLength": 1 },
+        "traits": { "$ref": "#/$defs/nonEmptyUniqueStrings" },
+        "expectedOrder": { "$ref": "#/$defs/fileNames" },
+        "groups": { "$ref": "#/$defs/nonEmptyUniqueStrings" },
+        "copyPermission": { "type": "boolean" },
+        "arguments": { "type": "array", "items": { "type": "string" } },
+        "expectedProperties": { "type": "object", "additionalProperties": { "type": "string" } },
+        "expectedCorrupt": { "type": "boolean" }
+      }
+    },
+    "nonEmptyUniqueStrings": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "fileNames": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "pattern": "^[^/\\\\]+$" } }
+  }
+}

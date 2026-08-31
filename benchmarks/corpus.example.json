@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1",
+  "cases": [
+    {
+      "caseId": "case-mp3-mono-096",
+      "sourcePath": "C:\\benchmark-workspace\\case-mp3-mono-096",
+      "traits": ["speech", "mono", "96kbps", "many-tracks"],
+      "expectedOrder": ["001.mp3", "002.mp3"],
+      "groups": ["quality", "concurrency", "abc"],
+      "copyPermission": true
+    }
+  ]
+}
