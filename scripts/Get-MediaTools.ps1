@@ -4,7 +4,9 @@ param(
     [string]$ManifestPath,
 
     [Parameter(Mandatory = $true)]
-    [string]$DestinationRoot
+    [string]$DestinationRoot,
+
+    [string]$ArchivePath
 )
 
 Set-StrictMode -Version Latest
@@ -58,6 +60,145 @@ function Assert-Matches {
 
     if ($Output -notmatch $Pattern) {
         throw "Pinned media tools do not report required capability '$Capability'."
+    }
+}
+
+function Expand-ValidatedZipArchive {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$LiteralPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$DestinationPath
+    )
+
+    $destinationFullPath = [IO.Path]::GetFullPath($DestinationPath)
+    $destinationPrefix = $destinationFullPath.TrimEnd(
+        [IO.Path]::DirectorySeparatorChar,
+        [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    $invalidFileNameCharacters = [IO.Path]::GetInvalidFileNameChars()
+    $reservedDeviceNames = @(
+        'CON', 'PRN', 'AUX', 'NUL',
+        'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+        'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
+    )
+    $validatedEntries = [Collections.Generic.List[object]]::new()
+    $canonicalTargets = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $archive = [IO.Compression.ZipFile]::OpenRead($LiteralPath)
+
+    try {
+        if ($archive.Entries.Count -gt 10000) {
+            throw "Media tool archive contains too many ZIP entries."
+        }
+
+        [long]$totalUncompressedBytes = 0
+        foreach ($entry in $archive.Entries) {
+            $entryName = $entry.FullName
+            if ([string]::IsNullOrWhiteSpace($entryName)) {
+                throw 'Media tool archive contains an unsafe ZIP entry path: the entry name is empty.'
+            }
+
+            $normalizedEntryName = $entryName.Replace('\', '/')
+            if ($normalizedEntryName.StartsWith('/', [StringComparison]::Ordinal) -or
+                $normalizedEntryName -match '^[A-Za-z]:' -or
+                [IO.Path]::IsPathRooted($entryName)) {
+                throw "Media tool archive contains an unsafe ZIP entry path '$entryName': rooted paths are not allowed."
+            }
+
+            $isDirectoryEntry = $normalizedEntryName.EndsWith('/', [StringComparison]::Ordinal)
+            $trimmedEntryName = $normalizedEntryName.TrimEnd('/')
+            $segments = @($trimmedEntryName.Split('/'))
+            if ($segments.Count -eq 0) {
+                throw "Media tool archive contains an unsafe ZIP entry path '$entryName'."
+            }
+
+            foreach ($segment in $segments) {
+                if ([string]::IsNullOrWhiteSpace($segment) -or
+                    $segment -in @('.', '..') -or
+                    $segment.EndsWith('.', [StringComparison]::Ordinal) -or
+                    $segment.EndsWith(' ', [StringComparison]::Ordinal) -or
+                    $segment.IndexOfAny($invalidFileNameCharacters) -ge 0) {
+                    throw "Media tool archive contains an unsafe ZIP entry path '$entryName'."
+                }
+
+                $deviceName = $segment.Split('.')[0].ToUpperInvariant()
+                if ($deviceName -in $reservedDeviceNames) {
+                    throw "Media tool archive contains an unsafe ZIP entry path '$entryName': reserved device names are not allowed."
+                }
+            }
+
+            $relativePath = [string]::Join([string][IO.Path]::DirectorySeparatorChar, [string[]]$segments)
+            $targetPath = [IO.Path]::GetFullPath([IO.Path]::Combine($destinationFullPath, $relativePath))
+            if (-not $targetPath.StartsWith($destinationPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "Media tool archive contains an unsafe ZIP entry path '$entryName': canonical path escapes the extraction root."
+            }
+
+            if (-not $canonicalTargets.Add($targetPath)) {
+                throw "Media tool archive contains duplicate ZIP destinations for '$entryName'."
+            }
+
+            $attributeBytes = [BitConverter]::GetBytes([int]$entry.ExternalAttributes)
+            $externalAttributes = [BitConverter]::ToUInt32($attributeBytes, 0)
+            $unixFileType = ($externalAttributes -shr 16) -band 0xF000
+            $dosAttributes = $externalAttributes -band 0xFFFF
+            $isReparsePoint = ($dosAttributes -band [uint32][IO.FileAttributes]::ReparsePoint) -ne 0
+            $isUnsafeUnixType = $unixFileType -notin @(0, 0x4000, 0x8000)
+            if ($isReparsePoint -or $isUnsafeUnixType) {
+                throw "Media tool archive contains an unsafe link or reparse-style ZIP entry '$entryName'."
+            }
+
+            if ($unixFileType -eq 0x4000) {
+                $isDirectoryEntry = $true
+            }
+            elseif ($isDirectoryEntry -and $unixFileType -eq 0x8000) {
+                throw "Media tool archive contains inconsistent file metadata for directory entry '$entryName'."
+            }
+
+            if ($isDirectoryEntry -and $entry.Length -ne 0) {
+                throw "Media tool archive contains data in directory entry '$entryName'."
+            }
+
+            $totalUncompressedBytes += $entry.Length
+            if ($entry.Length -gt 2GB -or $totalUncompressedBytes -gt 4GB) {
+                throw 'Media tool archive exceeds the conservative extraction size limit.'
+            }
+
+            $validatedEntries.Add([pscustomobject]@{
+                Entry = $entry
+                TargetPath = $targetPath
+                IsDirectory = $isDirectoryEntry
+            })
+        }
+
+        foreach ($validatedEntry in $validatedEntries) {
+            if ($validatedEntry.IsDirectory) {
+                [IO.Directory]::CreateDirectory($validatedEntry.TargetPath) | Out-Null
+                continue
+            }
+
+            $parentPath = [IO.Path]::GetDirectoryName($validatedEntry.TargetPath)
+            [IO.Directory]::CreateDirectory($parentPath) | Out-Null
+            $inputStream = $validatedEntry.Entry.Open()
+            try {
+                $outputStream = [IO.File]::Open(
+                    $validatedEntry.TargetPath,
+                    [IO.FileMode]::CreateNew,
+                    [IO.FileAccess]::Write,
+                    [IO.FileShare]::None)
+                try {
+                    $inputStream.CopyTo($outputStream)
+                }
+                finally {
+                    $outputStream.Dispose()
+                }
+            }
+            finally {
+                $inputStream.Dispose()
+            }
+        }
+    }
+    finally {
+        $archive.Dispose()
     }
 }
 
@@ -182,11 +323,19 @@ if (Test-Path -LiteralPath $destinationPath) {
 }
 
 $downloadDirectory = Join-Path ([IO.Path]::GetTempPath()) "audiobookconverter-ffmpeg-$([guid]::NewGuid().ToString('N'))"
-$archivePath = Join-Path $downloadDirectory $asset
+$workingArchivePath = Join-Path $downloadDirectory $asset
 $extractPath = Join-Path $downloadDirectory 'extracted'
 $stagingPath = Join-Path $resolvedDestinationRoot ".$release.$([guid]::NewGuid().ToString('N')).staging"
 $assetUri = "https://github.com/$provider/releases/download/$release/$asset"
 $destinationRootExisted = Test-Path -LiteralPath $resolvedDestinationRoot
+$resolvedArchiveSourcePath = $null
+
+if (-not [string]::IsNullOrWhiteSpace($ArchivePath)) {
+    $resolvedArchiveSourcePath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ArchivePath)
+    if (-not (Test-Path -LiteralPath $resolvedArchiveSourcePath -PathType Leaf)) {
+        throw "Local media tool archive was not found at '$ArchivePath'."
+    }
+}
 
 if ($destinationRootExisted -and -not (Test-Path -LiteralPath $resolvedDestinationRoot -PathType Container)) {
     throw "Media tool destination root '$resolvedDestinationRoot' exists but is not a directory."
@@ -196,16 +345,22 @@ try {
     New-Item -ItemType Directory -Path $downloadDirectory | Out-Null
     New-Item -ItemType Directory -Path $extractPath | Out-Null
 
-    Write-Output "Downloading pinned media tools from '$assetUri'."
-    Invoke-WebRequest -Uri $assetUri -OutFile $archivePath
+    if ($null -eq $resolvedArchiveSourcePath) {
+        Write-Output "Downloading pinned media tools from '$assetUri'."
+        Invoke-WebRequest -Uri $assetUri -OutFile $workingArchivePath
+    }
+    else {
+        Write-Output "Using explicitly supplied local media tool archive."
+        Copy-Item -LiteralPath $resolvedArchiveSourcePath -Destination $workingArchivePath
+    }
 
-    $actualSha256 = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $actualSha256 = (Get-FileHash -LiteralPath $workingArchivePath -Algorithm SHA256).Hash.ToLowerInvariant()
     if (-not [string]::Equals($actualSha256, $expectedSha256, [StringComparison]::Ordinal)) {
         throw "Downloaded media tool archive failed SHA-256 verification. Expected '$expectedSha256', received '$actualSha256'."
     }
 
     Write-Output "Verified archive SHA-256 '$actualSha256'."
-    Expand-Archive -LiteralPath $archivePath -DestinationPath $extractPath
+    Expand-ValidatedZipArchive -LiteralPath $workingArchivePath -DestinationPath $extractPath
 
     $ffmpegCandidates = @(Get-ChildItem -LiteralPath $extractPath -Filter 'ffmpeg.exe' -File -Recurse)
     if ($ffmpegCandidates.Count -ne 1) {
