@@ -9,8 +9,9 @@ namespace AudiobookConverter.Benchmarks;
 
 public sealed class BenchmarkRunner(IProcessRunner runner, IMediaProbe probe, MediaToolSet tools)
 {
-  public async Task<BenchmarkResult> RunAsync(BenchmarkCase testCase, string outputPath, CancellationToken cancellationToken = default)
+  public async Task<BenchmarkResult> RunAsync(BenchmarkCase testCase, string outputPath, BenchmarkRunOptions? options = null, CancellationToken cancellationToken = default)
   {
+    options ??= new BenchmarkRunOptions();
     MediaProbeResult? source = null; MediaProbeResult? output = null; ProcessResult? process = null; string? inputPath = null; string? concat = null;
     var stopwatch = new Stopwatch();
     try
@@ -18,12 +19,15 @@ public sealed class BenchmarkRunner(IProcessRunner runner, IMediaProbe probe, Me
       (source, inputPath, concat) = await PrepareSourceAsync(testCase, cancellationToken).ConfigureAwait(false);
       ValidateSource(testCase, source);
       stopwatch.Start();
-      process = await runner.RunAsync(new ProcessSpec(tools.FFmpegPath, ["-hide_banner", "-loglevel", "error", "-y", .. (concat is null ? new[] { "-i", inputPath } : new[] { "-f", "concat", "-safe", "0", "-i", inputPath }), "-map", "0:a:0", "-c:a", "aac", "-b:a", "128k", outputPath]), null, cancellationToken).ConfigureAwait(false);
+      var channelArguments = options.ChannelMode switch { "mono" => new[] { "-ac", "1" }, "stereo" => new[] { "-ac", "2" }, _ => Array.Empty<string>() };
+      var codecArguments = options.StreamCopy ? new[] { "-c:a", "copy" } : new[] { "-c:a", "aac", "-b:a", options.TargetBitrateKbps.ToString(CultureInfo.InvariantCulture) + "k" };
+      process = await runner.RunAsync(new ProcessSpec(tools.FFmpegPath, ["-hide_banner", "-loglevel", "error", "-y", .. (concat is null ? new[] { "-i", inputPath } : new[] { "-f", "concat", "-safe", "0", "-i", inputPath }), "-map", "0:a:0", .. codecArguments, .. channelArguments, outputPath]), null, cancellationToken).ConfigureAwait(false);
       stopwatch.Stop();
       if (process.ExitCode != 0) return Result(testCase, source, null, process, stopwatch, testCase.ExpectedCorrupt ? "expected-failure" : "failed", testCase.ExpectedCorrupt ? "corrupt input rejected by encoder" : $"ffmpeg exit code {process.ExitCode}", outputPath);
       output = await probe.ProbeAsync(outputPath, cancellationToken).ConfigureAwait(false);
       var validation = ValidateOutput(source, output, outputPath);
-      return Result(testCase, source, output, process, stopwatch, validation ?? "ok", validation is null ? "" : "output validation failed", outputPath);
+      if (validation is null && options.ValidationMode == "full-decode") validation = await DecodeToNullAsync(outputPath, cancellationToken).ConfigureAwait(false);
+      return Result(testCase, source, output, process, stopwatch, validation ?? "ok", validation is null ? "" : "output validation failed", outputPath, options);
     }
     catch (OperationCanceledException)
     {
@@ -60,10 +64,17 @@ public sealed class BenchmarkRunner(IProcessRunner runner, IMediaProbe probe, Me
 
   private static bool Matches(BenchmarkCase item, string key, string? actual) => item.ExpectedProperties is null || !item.ExpectedProperties.TryGetValue(key, out var expected) || string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase);
   private static string? ValidateOutput(MediaProbeResult source, MediaProbeResult output, string outputPath) => !File.Exists(outputPath) || new FileInfo(outputPath).Length == 0 || output.AudioStreams.Count == 0 || source.Duration is not > 0 || output.Duration is not > 0 || Math.Abs(source.Duration.Value - output.Duration.Value) > 0.25m ? "failed" : null;
-  private static BenchmarkResult Result(BenchmarkCase item, MediaProbeResult? source, MediaProbeResult? output, ProcessResult? process, Stopwatch watch, string status, string reason, string outputPath)
+  private async Task<string?> DecodeToNullAsync(string outputPath, CancellationToken cancellationToken)
+  {
+    var decode = await runner.RunAsync(new ProcessSpec(tools.FFmpegPath, ["-hide_banner", "-loglevel", "error", "-i", outputPath, "-f", "null", "-"]), null, cancellationToken).ConfigureAwait(false);
+    return decode.ExitCode == 0 ? null : "full decode validation failed";
+  }
+
+  private static BenchmarkResult Result(BenchmarkCase item, MediaProbeResult? source, MediaProbeResult? output, ProcessResult? process, Stopwatch watch, string status, string reason, string outputPath, BenchmarkRunOptions? options = null)
   {
     var input = source is { AudioStreams.Count: > 0 } ? source.AudioStreams[0] : null; var audio = output is { AudioStreams.Count: > 0 } ? output.AudioStreams[0] : null; var bytes = File.Exists(outputPath) ? new FileInfo(outputPath).Length : 0;
     var wall = (decimal?)watch.Elapsed.TotalSeconds;
-    return new BenchmarkResult(BenchmarkResult.NewRunId(), item.CaseId, source?.Duration, input?.CodecName, input?.Channels, input?.SampleRate, wall, (decimal?)process?.ChildCpuTime?.TotalSeconds, audio?.CodecName, output?.AudioStreams.Count, audio?.Channels, audio?.SampleRate, output?.Duration, bytes == 0 ? null : bytes, source?.Duration is > 0 && wall is > 0 ? source.Duration / wall : null, status, reason);
+    options ??= new BenchmarkRunOptions();
+    return new BenchmarkResult(BenchmarkResult.NewRunId(), item.CaseId, source?.Duration, input?.CodecName, input?.Channels, input?.SampleRate, wall, (decimal?)process?.ChildCpuTime?.TotalSeconds, audio?.CodecName, output?.AudioStreams.Count, audio?.Channels, audio?.SampleRate, output?.Duration, bytes == 0 ? null : bytes, source?.Duration is > 0 && wall is > 0 ? source.Duration / wall : null, status, reason, options.Strategy, options.TargetBitrateKbps, options.ChannelMode, options.ValidationMode, options.Concurrency, null, options.StorageClass);
   }
 }
