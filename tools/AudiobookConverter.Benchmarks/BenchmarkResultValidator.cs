@@ -18,6 +18,7 @@ public static partial class BenchmarkResultValidator
     if (!ValidationStates.Contains(values["validation_status"])) errors.Add("validation_status is unknown");
     foreach (var value in values.Values) if (LooksPrivate(value)) { errors.Add("private path found in result row"); break; }
     foreach (var field in new[] { "source_seconds", "wall_seconds", "realtime_factor" }) if (!PositiveFinite(values[field])) errors.Add($"{field} must be finite and greater than zero");
+    if (!string.IsNullOrWhiteSpace(values["aggregate_realtime_factor"]) && !PositiveFinite(values["aggregate_realtime_factor"])) errors.Add("aggregate_realtime_factor must be finite and greater than zero");
     if (values["validation_status"] == "ok") foreach (var field in new[] { "strategy", "target_bitrate_kbps", "channel_mode", "validation_mode", "concurrency", "storage_class", "manual_responsiveness" }) if (string.IsNullOrWhiteSpace(values[field])) errors.Add($"completed row is missing {field}");
     return errors;
   }

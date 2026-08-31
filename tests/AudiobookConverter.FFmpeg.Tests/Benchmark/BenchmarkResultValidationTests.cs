@@ -48,4 +48,12 @@ public sealed class BenchmarkResultValidationTests
     var header = CsvBenchmarkWriter.Header.Split(',').Where(name => name != "strategy").ToArray();
     Assert.Contains(BenchmarkResultValidator.Validate(header, BenchmarkResult.Example.ToColumns()), error => error.Contains("missing required column", StringComparison.Ordinal));
   }
+
+  [Fact]
+  public void Validate_rejects_nonfinite_aggregate_realtime_factor()
+  {
+    var row = BenchmarkResult.Example.ToColumns();
+    row[22] = "NaN";
+    Assert.Contains(BenchmarkResultValidator.Validate(CsvBenchmarkWriter.Header.Split(','), row), error => error.Contains("aggregate_realtime_factor", StringComparison.Ordinal));
+  }
 }
