@@ -65,3 +65,22 @@ No installed AudioBookConverter entry was found in standard program directories,
 ## Limits
 
 This is bounded operational evidence, not a universal encoder ranking. Results can vary with source complexity, cache state, storage topology, and hardware. Task 6 must cover gender, music, and listening quality. A future campaign should add a confirmed higher-than-128 kbps real source, broader mixed-codec and chapter cases, repeated 6 and 8 job rounds, memory and disk sampling, and a manual ABC comparison if its settings can be captured reproducibly.
+
+## Task 6 listening profiles
+
+The blind listening pass used 25 anonymous samples: 5 excerpts, each encoded as native AAC-LC at 48, 64, 80, 96, and 128 kbps. Sample identities and candidate order were hidden during scoring. No artifacts were reported in any sample.
+
+Four groups were effectively ties with low confidence. One group clearly favored 128 kbps, with 96 kbps second, at medium confidence. Aggregate naturalness and clarity weakly favored 80, 96, and 128 kbps over 48 and 64 kbps, but differences were small and mostly low confidence.
+
+The decision rule was to choose a consistent clear winner. When no clear winner exists, choose the middle bitrate within the indistinguishable better cluster rather than the lowest bitrate. V1 therefore freezes these profiles:
+
+| Profile ID | AAC mode | Bitrate | Channels | Sample rate | Version |
+| --- | --- | ---: | --- | --- | ---: |
+| `efficient` | Native AAC-LC | 48 kbps | Preserve source channels | Preserve compatible source | 1 |
+| `balanced` | Native AAC-LC | 80 kbps | Preserve source channels | Preserve compatible source | 1 |
+| `high-quality` | Native AAC-LC | 96 kbps | Preserve source channels | Preserve compatible source | 1 |
+| `preserve-more` | Native AAC-LC | 128 kbps | Preserve source channels | Preserve compatible source | 1 |
+
+The current local recommendation for later settings initialization is `high-quality` at 96 kbps. This recommendation is a local product decision based on the evidence and does not belong in the profile catalog.
+
+This bounded listening pass did not confirm narrator gender or music traits. It does not establish universal perceptual superiority for any bitrate or encoder setting. Results can vary with source material, listening conditions, and hardware.

@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "description": "Synthetic example only. Real sample mappings remain private and are not represented here.",
+  "candidates_kbps": [48, 64, 80, 96, 128],
+  "entries": [
+    {
+      "group": "synthetic-group-01",
+      "neutral_filename": "synthetic-group-01/sample-01.m4a",
+      "candidate_bitrate_kbps": 80
+    },
+    {
+      "group": "synthetic-group-01",
+      "neutral_filename": "synthetic-group-01/sample-02.m4a",
+      "candidate_bitrate_kbps": 96
+    }
+  ]
+}
