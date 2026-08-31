@@ -1,5 +1,13 @@
 # Third-party notices
 
+## TagLibSharp
+
+- Project: [TagLibSharp](https://github.com/mono/taglib-sharp)
+- Version: `2.3.0`
+- License: GNU Lesser General Public License, version 2.1 only
+
+The managed dependency writes native iTunes MP4 atoms and iTunes freeform atoms for the local Mp3tag metadata profile.
+
 Audiobook Converter can acquire and use the following third-party components. The downloaded binaries are build artifacts and are not committed to this repository.
 
 ## FFmpeg
