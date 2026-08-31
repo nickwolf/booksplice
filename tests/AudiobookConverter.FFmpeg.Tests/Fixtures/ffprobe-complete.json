@@ -1,0 +1,9 @@
+{
+  "streams": [
+    { "index": 0, "codec_name": "aac", "codec_type": "audio", "sample_rate": "44100", "channels": 2, "duration": "123.500", "time_base": "1/44100", "tags": { "Language": "eng" } },
+    { "index": 1, "codec_name": "mjpeg", "codec_type": "video", "disposition": { "attached_pic": 1 }, "width": 600, "height": 600, "tags": { "title": "Cover" } }
+  ],
+  "format": { "filename": "Example Book.m4b", "format_name": "mov,mp4,m4a,3gp,3g2,mj2", "duration": "123.500", "tags": { "album": "Example Book", "Artist": "A\nB", "COMMENT": "quoted \"metadata\"" } },
+  "chapters": [ { "id": 0, "start_time": "0/1", "end_time": "60.25", "time_base": "1/1000", "tags": { "title": "One" } }, { "id": 1, "start_time": "60", "end_time": "123.5", "time_base": "1/1", "tags": { "title": "Two" } } ],
+  "error": null
+}
