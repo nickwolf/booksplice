@@ -14,25 +14,38 @@ public sealed class FileOutputDirectoryProbe : IOutputDirectoryProbe
 {
   public async Task<OutputProbeResult> ProbeAsync(string directory, CancellationToken cancellationToken = default)
   {
-    if (!Directory.Exists(directory) || !File.GetAttributes(directory).HasFlag(FileAttributes.Directory)) return new(false, "destination-unavailable");
-    var path = Path.Combine(directory, $".audiobookconverter-probe-{Guid.NewGuid():N}.tmp");
+    string? path = null;
+    OutputProbeResult? result = null;
+    OperationCanceledException? cancellation = null;
     try
     {
+      if (!Directory.Exists(directory) || !File.GetAttributes(directory).HasFlag(FileAttributes.Directory)) return new(false, "destination-unavailable");
+      path = Path.Combine(directory, $".audiobookconverter-probe-{Guid.NewGuid():N}.tmp");
       await using (var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
       {
         await stream.FlushAsync(cancellationToken);
         stream.Flush(true);
       }
       cancellationToken.ThrowIfCancellationRequested();
-      File.Delete(path);
-      return new(true, "ok");
+      result = OutputProbeResult.Success();
     }
-    catch (OperationCanceledException) { throw; }
+    catch (OperationCanceledException ex) { cancellation = ex; }
     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
     {
-      if (File.Exists(path)) try { File.Delete(path); } catch { }
-      return new(false, "probe-failed", ex.Message);
+      result = new(false, "probe-failed", ex.Message);
     }
+    catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
+    {
+      result = new(false, "probe-failed", ex.Message);
+    }
+    if (path is not null && File.Exists(path))
+    {
+      try { File.Delete(path); }
+      catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+      { return new(false, "cleanup-failed", ex.Message); }
+    }
+    if (cancellation is not null) throw cancellation;
+    return result ?? new(false, "probe-failed");
   }
 }
 

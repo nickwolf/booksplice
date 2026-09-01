@@ -42,6 +42,15 @@ public sealed class FirstLaunchServiceTests
     Assert.False(result.Completed); Assert.Equal(0, store.Saves); Assert.False(Directory.Exists(root));
   }
 
+  [Fact]
+  public async Task File_destination_reports_probe_failure_without_persisting()
+  {
+    var root = Path.Combine(Path.GetTempPath(), "abc-file-" + Guid.NewGuid()); File.WriteAllText(root, "existing");
+    var store = new RecordingStore(); var settings = AppSettings.Defaults with { OutputDirectory = root };
+    var result = await new FirstLaunchService(store).CompleteAsync(settings);
+    Assert.False(result.Completed); Assert.Equal("destination-unavailable", result.Code); Assert.Equal(0, store.Saves); Assert.Equal("existing", File.ReadAllText(root));
+  }
+
   private sealed class RecordingProbe : IOutputDirectoryProbe
   {
     public OutputProbeResult Result { get; set; } = OutputProbeResult.Success();
