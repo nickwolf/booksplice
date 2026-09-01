@@ -23,15 +23,16 @@ public sealed class ConversionPlanner : IConversionPlanner
     var diagnostics = new List<AnalysisDiagnostic>();
     var metadata = ApplyEdits(analysis.BookMetadata, options.MetadataEdits);
     var title = metadata.Get(SemanticField.BookTitle).Value;
-    if (string.IsNullOrWhiteSpace(title)) return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.title-required", AnalysisDiagnosticSeverity.Error, "A usable book title is required.")]));
+    if (string.IsNullOrWhiteSpace(title)) title = analysis.SourceRootName;
     if (string.IsNullOrWhiteSpace(options.DestinationDirectory) || !Directory.Exists(options.DestinationDirectory)) return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.destination-unavailable", AnalysisDiagnosticSeverity.Error, "The destination directory is unavailable.")]));
-    var output = _outputNames.CreateRequestedPath(options.DestinationDirectory, title, analysis.SourceRoot, options.CollisionPolicy);
+    var output = _outputNames.CreateRequestedPath(options.DestinationDirectory, title, analysis.SourceRootName, options.CollisionPolicy);
     var eligibility = StreamCopyEligibility.Evaluate(analysis.OrderedFiles);
     var strategy = eligibility.IsEligible ? AudioStrategy.AacStreamCopy : analysis.OrderedFiles.Count == 1 ? AudioStrategy.DirectTranscode : analysis.OrderedFiles.Count <= FilterConcatMaximumFiles ? AudioStrategy.FilterConcatTranscode : AudioStrategy.SegmentedTranscode;
     var reasons = eligibility.IsEligible ? Array.Empty<string>() : eligibility.ReasonCodes.Concat(strategy == AudioStrategy.SegmentedTranscode ? ["strategy.filter-concat-file-limit"] : []).ToArray();
     SpaceEstimate space;
     try { space = Estimate(analysis, options.QualityProfile, strategy, _storage.GetAvailableBytes(options.DestinationDirectory)); }
-    catch (OverflowException) { return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.space-overflow", AnalysisDiagnosticSeverity.Error, "Space requirements exceed the supported range.")])); }
+    catch (OverflowException) { return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("space.overflow", AnalysisDiagnosticSeverity.Error, "Space requirements exceed the supported range.")])); }
+    catch (SizeEvidenceException) { return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("space.size-evidence-missing", AnalysisDiagnosticSeverity.Error, "Copy size evidence is unavailable or invalid.")])); }
     if (space.AvailableBytes is null) return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.destination-space-unavailable", AnalysisDiagnosticSeverity.Error, "Destination free space could not be read.")]));
     if (space.AvailableBytes < space.TotalRequiredBytes) return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.insufficient-space", AnalysisDiagnosticSeverity.Error, "The destination does not have enough available space.")]));
     var cover = string.IsNullOrWhiteSpace(options.SelectedCoverHash) ? analysis.Cover.Selected : analysis.Cover.Candidates.SingleOrDefault(c => string.Equals(c.ContentHash, options.SelectedCoverHash, StringComparison.OrdinalIgnoreCase));
@@ -49,11 +50,20 @@ public sealed class ConversionPlanner : IConversionPlanner
   private static SpaceEstimate Estimate(BookAnalysis analysis, QualityProfile profile, AudioStrategy strategy, long? available)
   {
     decimal final = strategy == AudioStrategy.AacStreamCopy
-      ? analysis.OrderedFiles.Sum(file => (decimal)(file.ProbeResult.SourceByteSize ?? throw new OverflowException()))
+      ? analysis.OrderedFiles.Aggregate(0m, (sum, file) => checked(sum + CopyBytes(file)))
       : checked((decimal)analysis.Chapters.TotalDurationMicroseconds / 1_000_000m * profile.AudioBitrateKbps * 125m);
     var finalBytes = checked((long)decimal.Ceiling(final * ContainerAndMetadataOverhead));
     var temporary = strategy == AudioStrategy.SegmentedTranscode ? checked(finalBytes * 2) : finalBytes;
-    var total = checked((long)decimal.Ceiling(checked((decimal)(finalBytes + temporary)) * SafetyMargin));
-    return new SpaceEstimate(finalBytes, temporary, total, available, available is null ? null : available - total);
+    var combined = checked(finalBytes + temporary);
+    var total = checked((long)decimal.Ceiling(checked((decimal)combined * SafetyMargin)));
+    return new SpaceEstimate(finalBytes, temporary, total, available, available is null ? null : checked(available.Value - total));
   }
+  private static decimal CopyBytes(Discovery.SourceFile file)
+  {
+    if (file.ProbeResult.SourceByteSize is { } size) return size > 0 ? size : throw new SizeEvidenceException();
+    var stream = file.ProbeResult.AudioStreams.SingleOrDefault();
+    if (stream?.BitRate is not > 0 || stream.Duration is not > 0) throw new SizeEvidenceException();
+    return checked(stream.BitRate.Value / 8m * stream.Duration.Value);
+  }
+  private sealed class SizeEvidenceException : Exception;
 }

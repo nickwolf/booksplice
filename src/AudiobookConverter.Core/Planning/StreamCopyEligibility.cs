@@ -32,7 +32,8 @@ public sealed class StreamCopyEligibility
       if (stream.TimeBase is not { Numerator: > 0, Denominator: > 0 }) reasons.Add("stream-copy.time-base.missing");
       if (string.IsNullOrWhiteSpace(stream.CodecTag)) reasons.Add("stream-copy.codec-tag.missing");
       if (string.IsNullOrWhiteSpace(stream.ExtradataSha256)) reasons.Add("stream-copy.extradata-hash.missing");
-      if (stream.StartTime is < 0) reasons.Add("stream-copy.timestamp.negative");
+      if (stream.StartTime is null) reasons.Add("stream-copy.timestamp.missing");
+      else if (stream.StartTime != 0) reasons.Add(stream.StartTime < 0 ? "stream-copy.timestamp.negative" : "stream-copy.timestamp.nonzero");
       if (!IsMp4Family(file.ProbeResult.FormatNames)) reasons.Add("stream-copy.container.unsupported");
       if (string.Equals(Path.GetExtension(file.FullPath), ".m4b", StringComparison.OrdinalIgnoreCase)) reasons.Add("stream-copy.existing-m4b");
       if (reference is not null && !ReferenceEquals(stream, reference)) AddMismatches(reference, stream, reasons);
