@@ -23,4 +23,24 @@ public sealed class ConversionProgressParserTests
 
   [Fact]
   public void ParseIgnoresNonProgressOutput() => Assert.Null(ConversionProgressParser.Parse("ffmpeg version", 0));
+
+  [Theory]
+  [InlineData("out_time_us=not-a-number")]
+  [InlineData("out_time_us=")]
+  [InlineData("speed=still-bad")]
+  public void ParseIgnoresMalformedTimeButRetainsFieldIdentity(string line)
+  {
+    var progress = ConversionProgressParser.Parse(line, 4, 2);
+    if (line.StartsWith("speed", StringComparison.Ordinal)) Assert.NotNull(progress);
+    else Assert.Null(progress);
+  }
+
+  [Fact]
+  public void ParseRetainsStageAndSourceForProgressState()
+  {
+    var progress = ConversionProgressParser.Parse("progress=continue", 9, 5);
+    Assert.Equal("continue", progress!.State);
+    Assert.Equal(9, progress.StageIndex);
+    Assert.Equal(5, progress.SourceIndex);
+  }
 }

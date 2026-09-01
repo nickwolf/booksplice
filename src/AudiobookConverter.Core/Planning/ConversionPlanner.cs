@@ -39,7 +39,8 @@ public sealed class ConversionPlanner : IConversionPlanner
     var jobs = options.Settings.ConversionJobs ?? 6;
     var metadataProfileId = options.Settings.MetadataProfileId;
     if (metadataProfileId is not ("GenericMp4" or "NickMp3tag")) return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.metadata-profile-unknown", AnalysisDiagnosticSeverity.Error, "The selected metadata profile is unavailable.")]));
-    var plan = new ConversionPlan(analysis.OrderedFiles.Select(file => file.FullPath).ToArray(), metadata, cover, analysis.Chapters.Entries, options.QualityProfile, options.Settings.ValidationLevel, options.CollisionPolicy, output, strategy, reasons, space, jobs, options.Settings.ConversionJobs is null ? "benchmark-host-automatic-6" : "explicit-setting", metadataProfileId);
+    var format = SelectAudioFormat(analysis);
+    var plan = new ConversionPlan(analysis.OrderedFiles.Select(file => file.FullPath).ToArray(), metadata, cover, analysis.Chapters.Entries, options.QualityProfile, options.Settings.ValidationLevel, options.CollisionPolicy, output, strategy, reasons, space, jobs, options.Settings.ConversionJobs is null ? "benchmark-host-automatic-6" : "explicit-setting", metadataProfileId, format.SampleRate, format.Channels);
     return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Ready, plan, diagnostics));
   }
 
@@ -48,6 +49,15 @@ public sealed class ConversionPlanner : IConversionPlanner
     var fields = source.Fields.ToDictionary(pair => pair.Key, pair => pair.Value);
     foreach (var (field, edit) in edits.Where(pair => pair.Value.IsSet)) fields[field] = edit.Value is null ? AggregatedValue.Missing(field) : new AggregatedValue(field, AggregationState.Consistent, edit.Value, []);
     return new BookMetadata(fields, new Dictionary<string, string>(source.PreservedTags, StringComparer.OrdinalIgnoreCase), source.InputKeys.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<string>)pair.Value.ToArray()));
+  }
+  private static (int SampleRate, int Channels) SelectAudioFormat(BookAnalysis analysis)
+  {
+    var tracks = analysis.OrderedFiles.Select(file => file.ProbeResult.AudioStreams.Count > 0 ? file.ProbeResult.AudioStreams[0] : null).ToArray();
+    var rates = tracks.Select(track => track?.SampleRate).ToArray();
+    var sampleRate = rates.Length > 0 && rates.All(rate => rate is 32_000 or 44_100 or 48_000) && rates.Distinct().Count() == 1 ? rates[0]!.Value : 44_100;
+    var channels = tracks.Select(track => track?.Channels).ToArray();
+    var channelCount = channels.Length > 0 && channels.All(channel => channel is 1 or 2) && channels.Distinct().Count() == 1 ? channels[0]!.Value : 2;
+    return (sampleRate, channelCount);
   }
   private static SpaceEstimate Estimate(BookAnalysis analysis, QualityProfile profile, AudioStrategy strategy, long? available)
   {

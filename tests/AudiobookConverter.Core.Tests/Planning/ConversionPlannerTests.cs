@@ -54,6 +54,20 @@ public sealed class ConversionPlannerTests
   }
 
   [Fact]
+  public async Task CreateAsync_freezes_common_audio_format_and_uses_stereo_fallback_for_mixed_sources()
+  {
+    var common = await Planner().CreateAsync(AnalysisWithFormats((48_000, 1), (48_000, 1)), Options(), CancellationToken.None);
+    Assert.Equal(48_000, common.Plan!.SampleRate);
+    Assert.Equal(1, common.Plan.Channels);
+    Assert.Equal("mono", common.Plan.ChannelLayout);
+
+    var mixed = await Planner().CreateAsync(AnalysisWithFormats((48_000, 1), (44_100, 2)), Options(), CancellationToken.None);
+    Assert.Equal(44_100, mixed.Plan!.SampleRate);
+    Assert.Equal(2, mixed.Plan.Channels);
+    Assert.Equal("stereo", mixed.Plan.ChannelLayout);
+  }
+
+  [Fact]
   public async Task CreateAsync_preserves_cancellation_and_is_deterministic()
   {
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Planner().CreateAsync(Analysis(BookAnalysisStatus.Ready), Options(), new CancellationToken(true)));
@@ -78,5 +92,12 @@ public sealed class ConversionPlannerTests
     return new BookAnalysis(status, "book", files, null, new BookMetadata(fields, new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>()), new CoverDiscoveryResult(cover is null ? [] : [cover], [], cover), ChapterPlan.Valid([new ChapterEntry(0, 1_000_000, "One", "One", files[0].RelativePath)], 1_000_000), []);
   }
   private static SourceFile File(string path, bool copy) => new(path, path, new MediaProbeResult([new AudioTrack(0, copy ? "aac" : "mp3", "audio", 1, 44100, 1m, new Rational(1, 44100), new Dictionary<string, string>(), copy ? "LC" : null, "mono", 0m, "mp4a", copy ? "hash" : null, 64000)], [], [], new TagCollection([]), new Dictionary<string, string>(), [], 1m, copy ? "mov,mp4,m4a,3gp,3g2,mj2" : "mp3", 100));
+  private static SourceFile File(string path, bool copy, int sampleRate, int channels) => new(path, path, new MediaProbeResult([new AudioTrack(0, copy ? "aac" : "mp3", "audio", channels, sampleRate, 1m, new Rational(1, sampleRate), new Dictionary<string, string>(), copy ? "LC" : null, channels == 1 ? "mono" : "stereo", 0m, "mp4a", copy ? "hash" : null, 64000)], [], [], new TagCollection([]), new Dictionary<string, string>(), [], 1m, copy ? "mov,mp4,m4a,3gp,3g2,mj2" : "mp3", 100));
+  private static BookAnalysis AnalysisWithFormats(params (int SampleRate, int Channels)[] formats)
+  {
+    var files = formats.Select((format, index) => File($"{index:D2}.mp3", false, format.SampleRate, format.Channels)).ToArray();
+    var fields = new Dictionary<SemanticField, AggregatedValue> { [SemanticField.BookTitle] = new(SemanticField.BookTitle, AggregationState.Consistent, "Title", []) };
+    return new BookAnalysis(BookAnalysisStatus.Ready, "book", files, null, new BookMetadata(fields, new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>()), new CoverDiscoveryResult([], [], null), ChapterPlan.Valid([new ChapterEntry(0, formats.Length * 1_000_000L, "One", "One", files[0].RelativePath)], formats.Length * 1_000_000L), []);
+  }
   private sealed class Storage(long? available) : IStorageSpaceProvider { public long? GetAvailableBytes(string directory) => available; }
 }
