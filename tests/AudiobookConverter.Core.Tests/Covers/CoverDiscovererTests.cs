@@ -244,6 +244,19 @@ public sealed class CoverDiscovererTests : IDisposable
   }
 
   [Fact]
+  public async Task DiscoverAsync_skips_an_out_of_root_directory_before_recursing()
+  {
+    using var outside = new TemporaryDirectory();
+    outside.CreateFile("cover.png", TinyPng(10, 10));
+    var enumerator = new OutOfRootDirectoryEnumerator(_fixture.Root, outside.Root);
+
+    var result = await new CoverDiscoverer(directoryEnumerator: enumerator).DiscoverAsync(_fixture.Root, [], CancellationToken.None);
+
+    Assert.Empty(result.Candidates);
+    Assert.Equal("cover.path-outside-root", Assert.Single(result.Rejections).Code);
+  }
+
+  [Fact]
   public async Task DiscoverAsync_propagates_cancellation_from_an_in_progress_read()
   {
     using var cancellation = new CancellationTokenSource();
@@ -367,6 +380,13 @@ public sealed class CoverDiscovererTests : IDisposable
       cancellation.Cancel();
       yield return Path.Combine(directory, "cover.png");
     }
+  }
+  private sealed class OutOfRootDirectoryEnumerator(string sourceRoot, string outsideRoot) : ICoverDirectoryEnumerator
+  {
+    public IEnumerable<string> EnumerateFileSystemEntries(string directory)
+      => string.Equals(directory, sourceRoot, StringComparison.OrdinalIgnoreCase)
+        ? [outsideRoot]
+        : [Path.Combine(outsideRoot, "cover.png")];
   }
   private sealed class CancellingStream(CancellationTokenSource cancellation) : MemoryStream(TinyPng(10, 10))
   {

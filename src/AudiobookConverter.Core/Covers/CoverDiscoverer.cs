@@ -105,6 +105,7 @@ public sealed class CoverDiscoverer : ICoverDiscoverer
       if ((attributes & FileAttributes.ReparsePoint) != 0) { rejections.Add(new("cover.reparse-point-skipped", "A reparse point was skipped during cover discovery.", entry)); continue; }
       if ((attributes & FileAttributes.Directory) != 0)
       {
+        if (!IsUnderRoot(root, entry)) { rejections.Add(new("cover.path-outside-root", "A cover path outside the source root was skipped.", entry)); continue; }
         foreach (var path in Enumerate(root, entry, rejections, directoryEnumerator, cancellationToken)) yield return path;
       }
       else if (IsUnderRoot(root, entry)) yield return Path.GetFullPath(entry);
