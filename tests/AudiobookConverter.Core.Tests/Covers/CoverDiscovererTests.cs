@@ -131,6 +131,30 @@ public sealed class CoverDiscovererTests : IDisposable
   }
 
   [Fact]
+  public async Task DiscoverAsync_accepts_a_png_with_a_large_late_chunk()
+  {
+    var png = LargePngChunk(123, 456, 128 * 1024);
+    _fixture.CreateFile("large.png", png);
+
+    var candidate = Assert.Single((await Discover().DiscoverAsync(_fixture.Root, [], CancellationToken.None)).Candidates);
+
+    Assert.Equal("image/png", candidate.ContentType);
+    Assert.Equal(123, candidate.Width);
+    Assert.Equal(456, candidate.Height);
+  }
+
+  [Fact]
+  public async Task DiscoverAsync_rejects_a_truncated_large_png_chunk()
+  {
+    var png = LargePngChunk(123, 456, 128 * 1024);
+    _fixture.CreateFile("truncated-large.png", png[..^1]);
+
+    var result = await Discover().DiscoverAsync(_fixture.Root, [], CancellationToken.None);
+
+    Assert.Equal("cover.invalid-header", Assert.Single(result.Rejections).Code);
+  }
+
+  [Fact]
   public async Task DiscoverAsync_rejects_a_jpeg_without_eoi()
   {
     _fixture.CreateFile("truncated.jpg", TinyJpeg(10, 10)[..^2]);
@@ -211,6 +235,15 @@ public sealed class CoverDiscovererTests : IDisposable
   }
 
   [Fact]
+  public async Task DiscoverAsync_observes_cancellation_while_enumerating_directory_entries()
+  {
+    using var cancellation = new CancellationTokenSource();
+    var enumerator = new CancellingDirectoryEnumerator(cancellation);
+
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new CoverDiscoverer(directoryEnumerator: enumerator).DiscoverAsync(_fixture.Root, [], cancellation.Token));
+  }
+
+  [Fact]
   public async Task DiscoverAsync_propagates_cancellation_from_an_in_progress_read()
   {
     using var cancellation = new CancellationTokenSource();
@@ -285,6 +318,15 @@ public sealed class CoverDiscovererTests : IDisposable
     value.AddRange(PngChunk("IDAT", [])); value.AddRange(PngChunk("IEND", []));
     return value.ToArray();
   }
+  private static byte[] LargePngChunk(int width, int height, int dataLength)
+  {
+    var value = new List<byte>(TinyPng(width, height).Length + dataLength + 12);
+    value.AddRange([137, 80, 78, 71, 13, 10, 26, 10]);
+    value.AddRange(PngChunk("IHDR", [(byte)(width >> 24), (byte)(width >> 16), (byte)(width >> 8), (byte)width, (byte)(height >> 24), (byte)(height >> 16), (byte)(height >> 8), (byte)height, 8, 6, 0, 0, 0]));
+    value.AddRange(PngChunk("IDAT", new byte[dataLength]));
+    value.AddRange(PngChunk("IEND", []));
+    return value.ToArray();
+  }
   private static byte[] TinyJpeg(int width, int height) => [255, 216, 255, 192, 0, 17, 8, (byte)(height >> 8), (byte)height, (byte)(width >> 8), (byte)width, 3, 1, 17, 0, 2, 17, 0, 3, 17, 0, 255, 217];
 
   private static byte[] PngChunk(string type, byte[] data)
@@ -317,6 +359,14 @@ public sealed class CoverDiscovererTests : IDisposable
   private sealed class CancellingPayloadOpener(CancellationTokenSource cancellation) : ICoverPayloadOpener
   {
     public ValueTask<Stream> OpenReadAsync(CoverPayloadReference payload, CancellationToken cancellationToken) => ValueTask.FromResult<Stream>(new CancellingStream(cancellation));
+  }
+  private sealed class CancellingDirectoryEnumerator(CancellationTokenSource cancellation) : ICoverDirectoryEnumerator
+  {
+    public IEnumerable<string> EnumerateFileSystemEntries(string directory)
+    {
+      cancellation.Cancel();
+      yield return Path.Combine(directory, "cover.png");
+    }
   }
   private sealed class CancellingStream(CancellationTokenSource cancellation) : MemoryStream(TinyPng(10, 10))
   {

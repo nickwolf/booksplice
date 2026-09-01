@@ -13,16 +13,20 @@ public sealed class CoverDiscoverer : ICoverDiscoverer
   public const long MaximumEncodedPayloadBytes = 64L * 1024 * 1024;
   /// <summary>Maximum JPEG prefix examined while locating a supported SOF marker.</summary>
   public const int MaximumJpegHeaderBytes = 64 * 1024;
+  /// <summary>Maximum entries retained while sorting one directory.</summary>
+  public const int MaximumDirectoryEntries = 100_000;
 
   private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png" };
   private static readonly HashSet<string> CanonicalNames = new(StringComparer.OrdinalIgnoreCase) { "cover.jpg", "cover.jpeg", "cover.png", "folder.jpg", "folder.png", "front.jpg", "front.png" };
   private readonly ICoverPayloadOpener _payloadOpener;
+  private readonly ICoverDirectoryEnumerator _directoryEnumerator;
   private readonly CoverRanker _ranker;
 
-  public CoverDiscoverer(ICoverPayloadOpener? payloadOpener = null, CoverRanker? ranker = null)
+  public CoverDiscoverer(ICoverPayloadOpener? payloadOpener = null, CoverRanker? ranker = null, ICoverDirectoryEnumerator? directoryEnumerator = null)
   {
     _payloadOpener = payloadOpener ?? new FileSystemCoverPayloadOpener();
     _ranker = ranker ?? new CoverRanker();
+    _directoryEnumerator = directoryEnumerator ?? new FileSystemCoverDirectoryEnumerator();
   }
 
   public Task<CoverDiscoveryResult> DiscoverAsync(string sourceRoot, IReadOnlyList<SourceFile> files, CancellationToken cancellationToken)
@@ -67,19 +71,28 @@ public sealed class CoverDiscoverer : ICoverDiscoverer
     return File.Exists(full) ? Path.GetDirectoryName(full)! : full;
   }
 
-  private static IEnumerable<CoverPayloadReference> ExternalPayloads(string root, List<CoverRejection> rejections, CancellationToken cancellationToken)
+  private IEnumerable<CoverPayloadReference> ExternalPayloads(string root, List<CoverRejection> rejections, CancellationToken cancellationToken)
   {
     if (!Directory.Exists(root)) yield break;
-    foreach (var path in Enumerate(root, root, rejections, cancellationToken))
+    foreach (var path in Enumerate(root, root, rejections, _directoryEnumerator, cancellationToken))
     {
       if (ImageExtensions.Contains(Path.GetExtension(path))) yield return new(CoverOrigin.ExternalFile, path, null, path, SourceRoot: root);
     }
   }
 
-  private static IEnumerable<string> Enumerate(string root, string directory, List<CoverRejection> rejections, CancellationToken cancellationToken)
+  private static IEnumerable<string> Enumerate(string root, string directory, List<CoverRejection> rejections, ICoverDirectoryEnumerator directoryEnumerator, CancellationToken cancellationToken)
   {
-    IEnumerable<string> entries;
-    try { entries = Directory.EnumerateFileSystemEntries(directory).OrderBy(path => path, StringComparer.Ordinal).ToArray(); }
+    List<string> entries = [];
+    try
+    {
+      foreach (var entry in directoryEnumerator.EnumerateFileSystemEntries(directory))
+      {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (entries.Count == MaximumDirectoryEntries) { rejections.Add(new("cover.directory-too-large", "A directory exceeded the safe cover path limit.", directory)); yield break; }
+        entries.Add(entry);
+      }
+      entries.Sort(StringComparer.Ordinal);
+    }
     catch (IOException) { rejections.Add(new("cover.path-unreadable", "A cover path could not be read.", directory)); yield break; }
     catch (UnauthorizedAccessException) { rejections.Add(new("cover.path-unreadable", "A cover path could not be read.", directory)); yield break; }
     foreach (var entry in entries)
@@ -92,7 +105,7 @@ public sealed class CoverDiscoverer : ICoverDiscoverer
       if ((attributes & FileAttributes.ReparsePoint) != 0) { rejections.Add(new("cover.reparse-point-skipped", "A reparse point was skipped during cover discovery.", entry)); continue; }
       if ((attributes & FileAttributes.Directory) != 0)
       {
-        foreach (var path in Enumerate(root, entry, rejections, cancellationToken)) yield return path;
+        foreach (var path in Enumerate(root, entry, rejections, directoryEnumerator, cancellationToken)) yield return path;
       }
       else if (IsUnderRoot(root, entry)) yield return Path.GetFullPath(entry);
     }
@@ -122,41 +135,67 @@ public sealed class CoverDiscoverer : ICoverDiscoverer
       await using var stream = await _payloadOpener.OpenReadAsync(payload, cancellationToken).ConfigureAwait(false);
       using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
       var buffer = new byte[64 * 1024];
-      using var header = new MemoryStream(MaximumJpegHeaderBytes);
       long length = 0;
-      var previous = -1;
-      var sawJpegEoi = false;
-      int read;
-      while ((read = await stream.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false)) > 0)
+      async ValueTask<bool> ReadExactAsync(Memory<byte> destination)
       {
+        var offset = 0;
+        while (offset < destination.Length)
+        {
+          var read = await stream.ReadAsync(destination[offset..], cancellationToken).ConfigureAwait(false);
+          if (read == 0) return false;
+          checked { length += read; }
+          if (length > MaximumEncodedPayloadBytes) throw new PayloadTooLargeException();
+          hash.AppendData(destination.Span.Slice(offset, read));
+          offset += read;
+        }
+        return true;
+      }
+
+      var prefix = new byte[8];
+      if (!await ReadExactAsync(prefix).ConfigureAwait(false)) return Inspection.Reject("cover.invalid-header", payload.StableIdentity);
+      if (prefix.AsSpan().SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }))
+      {
+        var png = await TryReadPngAsync(ReadExactAsync, buffer).ConfigureAwait(false);
+        if (!png.Valid) return Inspection.Reject("cover.invalid-header", payload.StableIdentity);
+        return ValidateDimensions(hash, png.ContentType, png.Width, png.Height, payload.StableIdentity);
+      }
+
+      using var header = new MemoryStream(MaximumJpegHeaderBytes);
+      header.Write(prefix);
+      var previous = prefix[^1];
+      var sawJpegEoi = false;
+      while (true)
+      {
+        var read = await stream.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+        if (read == 0) break;
         checked { length += read; }
         if (length > MaximumEncodedPayloadBytes) return Inspection.Reject("cover.payload-too-large", payload.StableIdentity);
         hash.AppendData(buffer, 0, read);
-        for (var index = 0; index < read; index++)
-        {
-          if (previous == 255 && buffer[index] == 217) sawJpegEoi = true;
-          previous = buffer[index];
-        }
+        for (var index = 0; index < read; index++) { if (previous == 255 && buffer[index] == 217) sawJpegEoi = true; previous = buffer[index]; }
         var remaining = MaximumJpegHeaderBytes - (int)header.Length;
         if (remaining > 0) header.Write(buffer, 0, Math.Min(remaining, read));
       }
-      var bytes = header.ToArray();
-      if (!TryReadDimensions(bytes, sawJpegEoi, out var contentType, out var width, out var height)) return Inspection.Reject("cover.invalid-header", payload.StableIdentity);
-      if (width > MaximumPixelsPerAxis || height > MaximumPixelsPerAxis) return Inspection.Reject("cover.dimension-too-large", payload.StableIdentity);
-      long decodedBytes;
-      try { decodedBytes = checked((long)width * height * 4); }
-      catch (OverflowException) { return Inspection.Reject("cover.decoded-memory-too-large", payload.StableIdentity); }
-      if (decodedBytes > MaximumDecodedMemoryBytes) return Inspection.Reject("cover.decoded-memory-too-large", payload.StableIdentity);
-      return new(Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant(), contentType, width, height, null);
+      if (!TryReadDimensions(header.ToArray(), sawJpegEoi, out var contentType, out var width, out var height)) return Inspection.Reject("cover.invalid-header", payload.StableIdentity);
+      return ValidateDimensions(hash, contentType, width, height, payload.StableIdentity);
     }
+    catch (PayloadTooLargeException) { return Inspection.Reject("cover.payload-too-large", payload.StableIdentity); }
     catch (OperationCanceledException) { throw; }
     catch (Exception) { return Inspection.Reject("cover.payload-unreadable", payload.StableIdentity); }
+  }
+
+  private static Inspection ValidateDimensions(IncrementalHash hash, string? contentType, int width, int height, string identity)
+  {
+    if (width > MaximumPixelsPerAxis || height > MaximumPixelsPerAxis) return Inspection.Reject("cover.dimension-too-large", identity);
+    long decodedBytes;
+    try { decodedBytes = checked((long)width * height * 4); }
+    catch (OverflowException) { return Inspection.Reject("cover.decoded-memory-too-large", identity); }
+    if (decodedBytes > MaximumDecodedMemoryBytes) return Inspection.Reject("cover.decoded-memory-too-large", identity);
+    return new(Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant(), contentType, width, height, null);
   }
 
   private static bool TryReadDimensions(byte[] bytes, bool sawJpegEoi, out string? contentType, out int width, out int height)
   {
     contentType = null; width = height = 0;
-    if (TryReadPng(bytes, out width, out height)) { contentType = "image/png"; return true; }
     if (bytes.Length < 4 || bytes[0] != 255 || bytes[1] != 216) return false;
     var offset = 2;
     while (offset + 4 <= bytes.Length)
@@ -180,29 +219,53 @@ public sealed class CoverDiscoverer : ICoverDiscoverer
   }
 
   private static int ReadInt32BigEndian(ReadOnlySpan<byte> value) => (value[0] << 24) | (value[1] << 16) | (value[2] << 8) | value[3];
-  private static bool TryReadPng(ReadOnlySpan<byte> bytes, out int width, out int height)
+  private static async ValueTask<PngInspection> TryReadPngAsync(Func<Memory<byte>, ValueTask<bool>> readExactAsync, byte[] buffer)
   {
-    width = height = 0;
-    if (bytes.Length < 8 || !bytes[..8].SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 })) return false;
-    var offset = 8; var seenIhdr = false; var seenIdat = false;
-    while (offset + 12 <= bytes.Length)
+    var seenIhdr = false;
+    var seenIdat = false;
+    var width = 0;
+    var height = 0;
+    while (true)
     {
-      var length = ReadInt32BigEndian(bytes.Slice(offset, 4));
-      if (length < 0 || offset + 12L + length > bytes.Length) return false;
-      var type = bytes.Slice(offset + 4, 4); var data = bytes.Slice(offset + 8, length);
-      var expected = (uint)ReadInt32BigEndian(bytes.Slice(offset + 8 + length, 4));
-      if (Crc32(type, data) != expected) return false;
+      var chunkHeader = new byte[8];
+      if (!await readExactAsync(chunkHeader).ConfigureAwait(false)) return new(false, null, 0, 0);
+      var length = ReadUInt32BigEndian(chunkHeader);
+      if (length > MaximumEncodedPayloadBytes || length > int.MaxValue) return new(false, null, 0, 0);
+      var type = chunkHeader[4..8];
+      var crc = UpdateCrc(0xffffffffU, type);
+      var ihdr = length == 13 && type.AsSpan().SequenceEqual("IHDR"u8) ? new byte[13] : null;
+      var copied = 0;
+      var remaining = (int)length;
+      while (remaining > 0)
+      {
+        var count = Math.Min(remaining, buffer.Length);
+        if (!await readExactAsync(buffer.AsMemory(0, count)).ConfigureAwait(false)) return new(false, null, 0, 0);
+        crc = UpdateCrc(crc, buffer.AsSpan(0, count));
+        if (ihdr is not null) { buffer.AsSpan(0, count).CopyTo(ihdr.AsSpan(copied)); copied += count; }
+        remaining -= count;
+      }
+      var crcBytes = new byte[4];
+      if (!await readExactAsync(crcBytes).ConfigureAwait(false)) return new(false, null, 0, 0);
+      if (~crc != ReadUInt32BigEndian(crcBytes)) return new(false, null, 0, 0);
       if (!seenIhdr)
       {
-        if (!type.SequenceEqual("IHDR"u8) || length != 13) return false;
-        width = ReadInt32BigEndian(data[..4]); height = ReadInt32BigEndian(data.Slice(4, 4)); seenIhdr = width > 0 && height > 0;
+        if (ihdr is null) return new(false, null, 0, 0);
+        width = ReadInt32BigEndian(ihdr.AsSpan(0, 4));
+        height = ReadInt32BigEndian(ihdr.AsSpan(4, 4));
+        if (width <= 0 || height <= 0) return new(false, null, 0, 0);
+        seenIhdr = true;
       }
-      else if (type.SequenceEqual("IDAT"u8)) seenIdat = true;
-      else if (type.SequenceEqual("IEND"u8)) return seenIdat && length == 0 && offset + 12L + length == bytes.Length;
-      offset += 12 + length;
+      if (type.AsSpan().SequenceEqual("IDAT"u8)) seenIdat = true;
+      if (type.AsSpan().SequenceEqual("IEND"u8))
+      {
+        if (!seenIdat || length != 0) return new(false, null, 0, 0);
+        var trailing = new byte[1];
+        return await readExactAsync(trailing).ConfigureAwait(false) ? new(false, null, 0, 0) : new(true, "image/png", width, height);
+      }
     }
-    return false;
   }
+
+  private static uint ReadUInt32BigEndian(ReadOnlySpan<byte> value) => ((uint)value[0] << 24) | ((uint)value[1] << 16) | ((uint)value[2] << 8) | value[3];
   private static uint Crc32(ReadOnlySpan<byte> type, ReadOnlySpan<byte> data)
   {
     var crc = 0xffffffffU;
@@ -215,6 +278,8 @@ public sealed class CoverDiscoverer : ICoverDiscoverer
     foreach (var value in bytes) { crc ^= value; for (var bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ ((crc & 1) == 0 ? 0U : 0xedb88320U); }
     return crc;
   }
+  private sealed record PngInspection(bool Valid, string? ContentType, int Width, int Height);
+  private sealed class PayloadTooLargeException : Exception;
   private sealed record Inspection(string? Hash, string? ContentType, int Width, int Height, CoverRejection? Rejection)
   {
     public static Inspection Reject(string code, string identity) => new(null, null, 0, 0, new CoverRejection(code, "The cover image was rejected during inspection.", identity));

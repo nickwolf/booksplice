@@ -33,6 +33,16 @@ public interface ICoverPayloadOpener
   ValueTask<Stream> OpenReadAsync(CoverPayloadReference payload, CancellationToken cancellationToken);
 }
 
+public interface ICoverDirectoryEnumerator
+{
+  IEnumerable<string> EnumerateFileSystemEntries(string directory);
+}
+
+public sealed class FileSystemCoverDirectoryEnumerator : ICoverDirectoryEnumerator
+{
+  public IEnumerable<string> EnumerateFileSystemEntries(string directory) => Directory.EnumerateFileSystemEntries(directory);
+}
+
 public sealed class FileSystemCoverPayloadOpener : ICoverPayloadOpener
 {
   public ValueTask<Stream> OpenReadAsync(CoverPayloadReference payload, CancellationToken cancellationToken)
