@@ -13,11 +13,17 @@ internal sealed class FFprobeStream
 {
   public int Index { get; set; }
   [JsonPropertyName("codec_name")] public string? CodecName { get; set; }
+  public string? Profile { get; set; }
   [JsonPropertyName("codec_type")] public string? CodecType { get; set; }
   public int? Channels { get; set; }
+  [JsonPropertyName("channel_layout")] public string? ChannelLayout { get; set; }
   [JsonPropertyName("sample_rate")] public string? SampleRate { get; set; }
   public string? Duration { get; set; }
+  [JsonPropertyName("start_time")] public string? StartTime { get; set; }
   [JsonPropertyName("time_base")] public string? TimeBase { get; set; }
+  [JsonPropertyName("codec_tag_string")] public string? CodecTag { get; set; }
+  [JsonPropertyName("extradata_hash")] public string? ExtradataHash { get; set; }
+  [JsonPropertyName("bit_rate")] public string? BitRate { get; set; }
   public int? Width { get; set; }
   public int? Height { get; set; }
   [JsonPropertyName("disposition")] public FFprobeDisposition? Disposition { get; set; }
@@ -27,6 +33,8 @@ internal sealed class FFprobeDisposition { [JsonPropertyName("attached_pic")] pu
 internal sealed class FFprobeFormat
 {
   public string? Duration { get; set; }
+  [JsonPropertyName("format_name")] public string? FormatName { get; set; }
+  public string? Size { get; set; }
   public Dictionary<string, JsonElement>? Tags { get; set; }
 }
 internal sealed class FFprobeChapter

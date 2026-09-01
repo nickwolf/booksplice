@@ -13,7 +13,13 @@ public sealed record AudioTrack(
   int? SampleRate,
   decimal? Duration,
   Rational? TimeBase,
-  IReadOnlyDictionary<string, string> RawTags);
+  IReadOnlyDictionary<string, string> RawTags,
+  string? CodecProfile = null,
+  string? ChannelLayout = null,
+  decimal? StartTime = null,
+  string? CodecTag = null,
+  string? ExtradataSha256 = null,
+  long? BitRate = null);
 
 public sealed record MediaAttachedPicture(
   int Index,
@@ -52,7 +58,9 @@ public sealed record MediaProbeResult(
   TagCollection FormatTags,
   IReadOnlyDictionary<string, string> RawTags,
   IReadOnlyList<string> Warnings,
-  decimal? Duration = null);
+  decimal? Duration = null,
+  string? FormatNames = null,
+  long? SourceByteSize = null);
 
 public interface IMediaProbe
 {
