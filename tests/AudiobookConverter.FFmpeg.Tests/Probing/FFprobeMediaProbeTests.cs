@@ -14,7 +14,7 @@ public sealed class FFprobeMediaProbeTests
 
     var result = await probe.ProbeAsync(FixturePath, CancellationToken.None);
 
-    Assert.Equal(["-v", "warning", "-print_format", "json", "-show_format", "-show_streams", "-show_chapters", "-show_error", FixturePath], runner.LastSpec!.Arguments);
+    Assert.Equal(["-v", "warning", "-print_format", "json", "-show_format", "-show_streams", "-show_chapters", "-show_data_hash", "sha256", "-show_error", FixturePath], runner.LastSpec!.Arguments);
 
     Assert.Single(result.AudioStreams);
     Assert.Equal("aac", result.AudioStreams[0]!.CodecName);
@@ -25,6 +25,13 @@ public sealed class FFprobeMediaProbeTests
     Assert.Equal("A\nB", result.RawTags["Artist"]);
     Assert.Equal(1, result.AudioStreams[0]!.TimeBase!.Numerator);
     Assert.Equal(44100, result.AudioStreams[0]!.TimeBase!.Denominator);
+    Assert.Equal("LC", result.AudioStreams[0]!.CodecProfile);
+    Assert.Equal("stereo", result.AudioStreams[0]!.ChannelLayout);
+    Assert.Equal("mp4a", result.AudioStreams[0]!.CodecTag);
+    Assert.Equal("SHA256:abc", result.AudioStreams[0]!.ExtradataSha256);
+    Assert.Equal(64000, result.AudioStreams[0]!.BitRate);
+    Assert.Equal("mov,mp4,m4a,3gp,3g2,mj2", result.FormatNames);
+    Assert.Equal(1000, result.SourceByteSize);
   }
 
   [Fact]

@@ -1,0 +1,59 @@
+using AudiobookConverter.Core.Analysis;
+using AudiobookConverter.Core.Metadata;
+using AudiobookConverter.Core.Naming;
+
+namespace AudiobookConverter.Core.Planning;
+
+public interface IStorageSpaceProvider { long? GetAvailableBytes(string destinationDirectory); }
+public interface IConversionPlanner { Task<ConversionPlanningResult> CreateAsync(BookAnalysis analysis, ConversionOptions options, CancellationToken cancellationToken); }
+
+public sealed class ConversionPlanner : IConversionPlanner
+{
+  public const int FilterConcatMaximumFiles = 32;
+  public const decimal ContainerAndMetadataOverhead = 1.03m;
+  public const decimal SafetyMargin = 1.10m;
+  private readonly OutputNamePlanner _outputNames;
+  private readonly IStorageSpaceProvider _storage;
+  public ConversionPlanner(OutputNamePlanner outputNames, IStorageSpaceProvider storage) => (_outputNames, _storage) = (outputNames, storage);
+
+  public Task<ConversionPlanningResult> CreateAsync(BookAnalysis analysis, ConversionOptions options, CancellationToken cancellationToken)
+  {
+    ArgumentNullException.ThrowIfNull(analysis); ArgumentNullException.ThrowIfNull(options); cancellationToken.ThrowIfCancellationRequested();
+    if (analysis.Status != BookAnalysisStatus.Ready) return Task.FromResult(new ConversionPlanningResult(analysis.Status, null, analysis.Diagnostics));
+    var diagnostics = new List<AnalysisDiagnostic>();
+    var metadata = ApplyEdits(analysis.BookMetadata, options.MetadataEdits);
+    var title = metadata.Get(SemanticField.BookTitle).Value;
+    if (string.IsNullOrWhiteSpace(title)) return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.title-required", AnalysisDiagnosticSeverity.Error, "A usable book title is required.")]));
+    if (string.IsNullOrWhiteSpace(options.DestinationDirectory) || !Directory.Exists(options.DestinationDirectory)) return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.destination-unavailable", AnalysisDiagnosticSeverity.Error, "The destination directory is unavailable.")]));
+    var output = _outputNames.CreateRequestedPath(options.DestinationDirectory, title, analysis.SourceRoot, options.CollisionPolicy);
+    var eligibility = StreamCopyEligibility.Evaluate(analysis.OrderedFiles);
+    var strategy = eligibility.IsEligible ? AudioStrategy.AacStreamCopy : analysis.OrderedFiles.Count == 1 ? AudioStrategy.DirectTranscode : analysis.OrderedFiles.Count <= FilterConcatMaximumFiles ? AudioStrategy.FilterConcatTranscode : AudioStrategy.SegmentedTranscode;
+    var reasons = eligibility.IsEligible ? Array.Empty<string>() : eligibility.ReasonCodes.Concat(strategy == AudioStrategy.SegmentedTranscode ? ["strategy.filter-concat-file-limit"] : []).ToArray();
+    SpaceEstimate space;
+    try { space = Estimate(analysis, options.QualityProfile, strategy, _storage.GetAvailableBytes(options.DestinationDirectory)); }
+    catch (OverflowException) { return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.space-overflow", AnalysisDiagnosticSeverity.Error, "Space requirements exceed the supported range.")])); }
+    if (space.AvailableBytes is null) return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.destination-space-unavailable", AnalysisDiagnosticSeverity.Error, "Destination free space could not be read.")]));
+    if (space.AvailableBytes < space.TotalRequiredBytes) return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.insufficient-space", AnalysisDiagnosticSeverity.Error, "The destination does not have enough available space.")]));
+    var cover = string.IsNullOrWhiteSpace(options.SelectedCoverHash) ? analysis.Cover.Selected : analysis.Cover.Candidates.SingleOrDefault(c => string.Equals(c.ContentHash, options.SelectedCoverHash, StringComparison.OrdinalIgnoreCase));
+    var jobs = options.Settings.ConversionJobs ?? 6;
+    var plan = new ConversionPlan(analysis.OrderedFiles.Select(file => file.FullPath).ToArray(), metadata, cover, analysis.Chapters.Entries, options.QualityProfile, options.Settings.ValidationLevel, options.CollisionPolicy, output, strategy, reasons, space, jobs, options.Settings.ConversionJobs is null ? "benchmark-host-automatic-6" : "explicit-setting");
+    return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Ready, plan, diagnostics));
+  }
+
+  private static BookMetadata ApplyEdits(BookMetadata source, IReadOnlyDictionary<SemanticField, MetadataEdit> edits)
+  {
+    var fields = source.Fields.ToDictionary(pair => pair.Key, pair => pair.Value);
+    foreach (var (field, edit) in edits.Where(pair => pair.Value.IsSet)) fields[field] = edit.Value is null ? AggregatedValue.Missing(field) : new AggregatedValue(field, AggregationState.Consistent, edit.Value, []);
+    return new BookMetadata(fields, new Dictionary<string, string>(source.PreservedTags, StringComparer.OrdinalIgnoreCase), source.InputKeys.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<string>)pair.Value.ToArray()));
+  }
+  private static SpaceEstimate Estimate(BookAnalysis analysis, QualityProfile profile, AudioStrategy strategy, long? available)
+  {
+    decimal final = strategy == AudioStrategy.AacStreamCopy
+      ? analysis.OrderedFiles.Sum(file => (decimal)(file.ProbeResult.SourceByteSize ?? throw new OverflowException()))
+      : checked((decimal)analysis.Chapters.TotalDurationMicroseconds / 1_000_000m * profile.AudioBitrateKbps * 125m);
+    var finalBytes = checked((long)decimal.Ceiling(final * ContainerAndMetadataOverhead));
+    var temporary = strategy == AudioStrategy.SegmentedTranscode ? checked(finalBytes * 2) : finalBytes;
+    var total = checked((long)decimal.Ceiling(checked((decimal)(finalBytes + temporary)) * SafetyMargin));
+    return new SpaceEstimate(finalBytes, temporary, total, available, available is null ? null : available - total);
+  }
+}

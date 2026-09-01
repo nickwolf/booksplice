@@ -15,7 +15,7 @@ public sealed class FFprobeMediaProbe : IMediaProbe
 
   public async Task<MediaProbeResult> ProbeAsync(string inputPath, CancellationToken cancellationToken = default)
   {
-    var spec = new ProcessSpec(_tools.FFprobePath, ["-v", "warning", "-print_format", "json", "-show_format", "-show_streams", "-show_chapters", "-show_error", inputPath]);
+    var spec = new ProcessSpec(_tools.FFprobePath, ["-v", "warning", "-print_format", "json", "-show_format", "-show_streams", "-show_chapters", "-show_data_hash", "sha256", "-show_error", inputPath]);
     var result = await _runner.RunAsync(spec, null, cancellationToken).ConfigureAwait(false);
     var warnings = result.StandardError.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).ToArray();
     if (result.ExitCode != 0) throw new MediaProbeException($"ffprobe failed with exit code {result.ExitCode}.", warnings);
@@ -26,12 +26,13 @@ public sealed class FFprobeMediaProbe : IMediaProbe
     var audio = (document.Streams ?? []).Where(s => string.Equals(s.CodecType, "audio", StringComparison.OrdinalIgnoreCase)).Select(ToAudio).ToArray();
     var covers = (document.Streams ?? []).Where(s => s.Disposition?.AttachedPic == 1).Select(s => new MediaAttachedPicture(s.Index, s.CodecName, s.Width, s.Height, ToRawTags(s.Tags))).ToArray();
     var chapters = (document.Chapters ?? []).Select(c => new MediaChapter(c.Id, RequiredTimestamp(c.StartTime, "start_time"), RequiredTimestamp(c.EndTime, "end_time"), RequiredRational(c.TimeBase), ToRawTags(c.Tags))).ToArray();
-    return new MediaProbeResult(audio, covers, chapters, formatTags, ToRawTags(document.Format?.Tags), warnings, Decimal(document.Format?.Duration));
+    return new MediaProbeResult(audio, covers, chapters, formatTags, ToRawTags(document.Format?.Tags), warnings, Decimal(document.Format?.Duration), document.Format?.FormatName, Long(document.Format?.Size));
   }
-  private static AudioTrack ToAudio(FFprobeStream s) => new(s.Index, s.CodecName, s.CodecType, s.Channels, Int(s.SampleRate), Decimal(s.Duration), Rational(s.TimeBase), ToRawTags(s.Tags));
+  private static AudioTrack ToAudio(FFprobeStream s) => new(s.Index, s.CodecName, s.CodecType, s.Channels, Int(s.SampleRate), Decimal(s.Duration), Rational(s.TimeBase), ToRawTags(s.Tags), s.Profile, s.ChannelLayout, Decimal(s.StartTime), s.CodecTag, s.ExtradataHash, Long(s.BitRate));
   private static TagCollection ToTags(Dictionary<string, JsonElement>? tags) => new(ToRawTags(tags));
   private static Dictionary<string, string> ToRawTags(Dictionary<string, JsonElement>? tags) => (tags ?? []).ToDictionary(p => p.Key, p => p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() ?? "" : p.Value.ToString(), StringComparer.Ordinal);
   private static int? Int(string? value) => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : null;
+  private static long? Long(string? value) => long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : null;
   private static decimal? Decimal(string? value) => decimal.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var n) ? n : null;
   private static decimal RequiredTimestamp(string? value, string field)
   {
