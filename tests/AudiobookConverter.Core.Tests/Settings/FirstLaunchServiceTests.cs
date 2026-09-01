@@ -18,13 +18,38 @@ public sealed class FirstLaunchServiceTests
     Assert.Equal(0, store.Saves);
   }
 
+  [Fact]
+  public async Task Successful_probe_persists_settings()
+  {
+    var probe = new RecordingProbe(); var store = new RecordingStore(); var settings = AppSettings.Defaults with { OutputDirectory = Path.GetFullPath(Path.GetTempPath()) };
+    var result = await new FirstLaunchService(store, probe).CompleteAsync(settings);
+    Assert.True(result.Completed); Assert.Equal(1, probe.Calls); Assert.Equal(1, store.Saves);
+  }
+
+  [Fact]
+  public async Task Probe_failure_does_not_persist()
+  {
+    var probe = new RecordingProbe { Result = new(false, "cleanup-failed") }; var store = new RecordingStore(); var settings = AppSettings.Defaults with { OutputDirectory = Path.GetFullPath(Path.GetTempPath()) };
+    var result = await new FirstLaunchService(store, probe).CompleteAsync(settings);
+    Assert.False(result.Completed); Assert.Equal("cleanup-failed", result.Code); Assert.Equal(0, store.Saves);
+  }
+
+  [Fact]
+  public async Task Missing_destination_does_not_persist()
+  {
+    var root = Path.Combine(Path.GetTempPath(), "abc-missing-" + Guid.NewGuid()); var store = new RecordingStore(); var settings = AppSettings.Defaults with { OutputDirectory = root };
+    var result = await new FirstLaunchService(store).CompleteAsync(settings);
+    Assert.False(result.Completed); Assert.Equal(0, store.Saves); Assert.False(Directory.Exists(root));
+  }
+
   private sealed class RecordingProbe : IOutputDirectoryProbe
   {
+    public OutputProbeResult Result { get; set; } = OutputProbeResult.Success();
     public int Calls { get; private set; }
     public Task<OutputProbeResult> ProbeAsync(string directory, CancellationToken cancellationToken = default)
     {
       Calls++;
-      return Task.FromResult(OutputProbeResult.Success());
+      return Task.FromResult(Result);
     }
   }
 

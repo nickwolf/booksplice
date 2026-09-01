@@ -58,6 +58,40 @@ public sealed class JsonSettingsStoreTests
     Assert.NotEqual(new byte[] { 0xEF, 0xBB, 0xBF }, await ReadPreambleAsync(store.SettingsPath));
   }
 
+  [Fact]
+  public async Task Invalid_json_never_exposes_output_path()
+  {
+    var root = Path.Combine(Path.GetTempPath(), "abc-settings-" + Guid.NewGuid()); var store = new JsonSettingsStore(root); Directory.CreateDirectory(Path.GetDirectoryName(store.SettingsPath)!);
+    await File.WriteAllTextAsync(store.SettingsPath, "{\"schemaVersion\":1,\"outputDirectory\":\"C:\\\\secret"); var result = await store.LoadAsync();
+    Assert.Null(result.Settings); Assert.False(result.IsUsable);
+  }
+
+  [Fact]
+  public async Task Unknown_nested_property_is_preserved_on_save()
+  {
+    var root = Path.Combine(Path.GetTempPath(), "abc-settings-" + Guid.NewGuid()); var store = new JsonSettingsStore(root); Directory.CreateDirectory(Path.GetDirectoryName(store.SettingsPath)!);
+    var json = "{\"schemaVersion\":1,\"outputDirectory\":\"" + root.Replace("\\", "\\\\") + "\",\"qualityProfileId\":\"high-quality\",\"channelPolicy\":\"PreserveSourceChannels\",\"createChapters\":true,\"conversionJobs\":null,\"collisionPolicy\":\"AvoidCollision\",\"metadataProfileId\":\"GenericMp4\",\"validationLevel\":\"Lightweight\",\"logLevel\":\"Information\",\"future\":{\"nested\":[1,true]}}";
+    await File.WriteAllTextAsync(store.SettingsPath, json); var result = await store.LoadAsync(); await store.SaveAsync(result.Settings!); var saved = await File.ReadAllTextAsync(store.SettingsPath);
+    Assert.Contains("\"future\"", saved); Assert.Contains("\"nested\"", saved); Assert.Contains("\"qualityProfileId\": \"high-quality\"", saved);
+  }
+
+  [Fact]
+  public async Task Schema_zero_outputPath_is_migrated()
+  {
+    var root = Path.Combine(Path.GetTempPath(), "abc-settings-" + Guid.NewGuid()); var store = new JsonSettingsStore(root); Directory.CreateDirectory(Path.GetDirectoryName(store.SettingsPath)!);
+    var json = "{\"schemaVersion\":0,\"outputPath\":\"" + root.Replace("\\", "\\\\") + "\",\"qualityProfileId\":\"high-quality\",\"channelPolicy\":\"PreserveSourceChannels\",\"createChapters\":true,\"conversionJobs\":null,\"collisionPolicy\":\"AvoidCollision\",\"metadataProfileId\":\"GenericMp4\",\"validationLevel\":\"Lightweight\",\"logLevel\":\"Information\"}";
+    await File.WriteAllTextAsync(store.SettingsPath, json); var result = await store.LoadAsync(); Assert.Equal(SettingsLoadCode.Migrated, result.Code); Assert.Equal(1, result.Settings?.SchemaVersion); Assert.Equal(root, result.Settings?.OutputDirectory);
+  }
+
+  [Theory]
+  [InlineData(0)] [InlineData(33)]
+  public async Task Out_of_range_conversion_jobs_are_rejected(int jobs)
+  {
+    var root = Path.Combine(Path.GetTempPath(), "abc-settings-" + Guid.NewGuid()); var store = new JsonSettingsStore(root); Directory.CreateDirectory(Path.GetDirectoryName(store.SettingsPath)!);
+    var json = "{\"schemaVersion\":1,\"outputDirectory\":\"" + root.Replace("\\", "\\\\") + "\",\"qualityProfileId\":\"high-quality\",\"channelPolicy\":\"PreserveSourceChannels\",\"createChapters\":true,\"conversionJobs\":" + jobs + ",\"collisionPolicy\":\"AvoidCollision\",\"metadataProfileId\":\"GenericMp4\",\"validationLevel\":\"Lightweight\",\"logLevel\":\"Information\"}";
+    await File.WriteAllTextAsync(store.SettingsPath, json); var result = await store.LoadAsync(); Assert.Equal(SettingsLoadCode.ValidationFailed, result.Code); Assert.Null(result.Settings);
+  }
+
   private static async Task<byte[]> ReadPreambleAsync(string path)
   {
     await using var stream = File.OpenRead(path);
