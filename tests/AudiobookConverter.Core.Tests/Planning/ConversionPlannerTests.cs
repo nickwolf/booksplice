@@ -39,7 +39,7 @@ public sealed class ConversionPlannerTests
     var edits = new Dictionary<SemanticField, MetadataEdit> { [SemanticField.BookTitle] = MetadataEdit.Set("Edited"), [SemanticField.Author] = MetadataEdit.Clear() };
     var options = Options(edits, jobs: 3, cover: "hash");
     var result = await Planner().CreateAsync(analysis, options, CancellationToken.None);
-    Assert.Equal("Edited", result.Plan!.Metadata.Get(SemanticField.BookTitle).Value); Assert.Equal(AggregationState.Missing, result.Plan.Metadata.Get(SemanticField.Author).State); Assert.Equal("Title", analysis.BookMetadata.Get(SemanticField.BookTitle).Value); Assert.Equal(3, result.Plan.ConversionJobs); Assert.Equal("explicit-setting", result.Plan.JobsReason); Assert.Equal("hash", result.Plan.Cover!.ContentHash); Assert.NotSame(analysis.Chapters.Entries, result.Plan.Chapters);
+    Assert.Equal("Edited", result.Plan!.Metadata.Get(SemanticField.BookTitle).Value); Assert.Equal(AggregationState.Missing, result.Plan.Metadata.Get(SemanticField.Author).State); Assert.Equal("Title", analysis.BookMetadata.Get(SemanticField.BookTitle).Value); Assert.Equal(3, result.Plan.ConversionJobs); Assert.Equal("explicit-setting", result.Plan.JobsReason); Assert.Equal("hash", result.Plan.Cover!.ContentHash); Assert.Equal("GenericMp4", result.Plan.MetadataProfileId); Assert.NotSame(analysis.Chapters.Entries, result.Plan.Chapters);
   }
 
   [Fact]
