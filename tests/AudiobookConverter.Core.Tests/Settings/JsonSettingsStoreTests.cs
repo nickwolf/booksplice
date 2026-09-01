@@ -84,7 +84,8 @@ public sealed class JsonSettingsStoreTests
   }
 
   [Theory]
-  [InlineData(0)] [InlineData(33)]
+  [InlineData(0)]
+  [InlineData(33)]
   public async Task Out_of_range_conversion_jobs_are_rejected(int jobs)
   {
     var root = Path.Combine(Path.GetTempPath(), "abc-settings-" + Guid.NewGuid()); var store = new JsonSettingsStore(root); Directory.CreateDirectory(Path.GetDirectoryName(store.SettingsPath)!);
