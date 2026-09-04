@@ -5,6 +5,7 @@ namespace AudiobookConverter.Core.Tests.Naming;
 
 public sealed class AtomicPublisherTests
 {
+  private static readonly Guid TestPlanId = Guid.NewGuid();
   [Fact]
   public async Task PublishAsync_rejects_a_failed_report_without_creating_a_destination()
   {
@@ -24,7 +25,7 @@ public sealed class AtomicPublisherTests
   {
     using var root = new TemporaryDirectory();
     var temporary = root.CreateFile("job.m4b", "validated media");
-    var result = await new AtomicPublisher().PublishAsync(Plan(root.GetPath("staging", "Book.m4b")), ValidationReport.Passed(root.GetPath("other.m4b"), []), CancellationToken.None);
+    var result = await new AtomicPublisher().PublishAsync(Plan(root.GetPath("staging", "Book.m4b")), ValidationReport.Passed(root.GetPath("other.m4b"), [], TestPlanId), CancellationToken.None);
 
     Assert.Equal(PublicationStatus.Rejected, result.Status);
     Assert.True(File.Exists(temporary));
@@ -38,7 +39,7 @@ public sealed class AtomicPublisherTests
     var temporary = root.CreateFile("job.m4b", "validated media");
     var final = root.GetPath("staging", "Book.m4b");
 
-    var result = await new AtomicPublisher().PublishAsync(Plan(final), ValidationReport.Passed(temporary, []), CancellationToken.None);
+    var result = await new AtomicPublisher().PublishAsync(Plan(final), ValidationReport.Passed(temporary, [], TestPlanId), CancellationToken.None);
 
     Assert.Equal(PublicationStatus.Published, result.Status);
     Assert.Equal(Path.GetFullPath(final), result.FinalPath);
@@ -56,7 +57,7 @@ public sealed class AtomicPublisherTests
     await File.WriteAllTextAsync(Path.Combine(staging, "Book.m4b"), "first");
     await File.WriteAllTextAsync(Path.Combine(staging, "Book (2).m4b"), "second");
 
-    var result = await new AtomicPublisher().PublishAsync(Plan(Path.Combine(staging, "Book.m4b")), ValidationReport.Passed(temporary, []), CancellationToken.None);
+    var result = await new AtomicPublisher().PublishAsync(Plan(Path.Combine(staging, "Book.m4b")), ValidationReport.Passed(temporary, [], TestPlanId), CancellationToken.None);
 
     Assert.Equal(Path.Combine(staging, "Book (3).m4b"), result.FinalPath);
     Assert.Equal("first", await File.ReadAllTextAsync(Path.Combine(staging, "Book.m4b")));
@@ -72,7 +73,7 @@ public sealed class AtomicPublisherTests
     Directory.CreateDirectory(Path.GetDirectoryName(final)!);
     await File.WriteAllTextAsync(final, "old media");
 
-    var result = await new AtomicPublisher().PublishAsync(Plan(final, CollisionPolicy.Overwrite), ValidationReport.Passed(temporary, []), CancellationToken.None);
+    var result = await new AtomicPublisher().PublishAsync(Plan(final, CollisionPolicy.Overwrite), ValidationReport.Passed(temporary, [], TestPlanId), CancellationToken.None);
 
     Assert.Equal(PublicationStatus.Published, result.Status);
     Assert.Equal("new media", await File.ReadAllTextAsync(final));
@@ -85,14 +86,14 @@ public sealed class AtomicPublisherTests
     var temporary = root.CreateFile("job.m4b", "validated media");
     var final = root.GetPath("staging", "Book.m4b");
 
-    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new AtomicPublisher().PublishAsync(Plan(final), ValidationReport.Passed(temporary, []), new CancellationToken(true)));
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new AtomicPublisher().PublishAsync(Plan(final), ValidationReport.Passed(temporary, [], TestPlanId), new CancellationToken(true)));
 
     Assert.True(File.Exists(temporary));
     Assert.False(File.Exists(final));
   }
 
   private static AudiobookConverter.Core.Planning.ConversionPlan Plan(string outputPath, CollisionPolicy policy = CollisionPolicy.AvoidCollision)
-    => new([], new AudiobookConverter.Core.Metadata.BookMetadata(new Dictionary<AudiobookConverter.Core.Metadata.SemanticField, AudiobookConverter.Core.Metadata.AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<AudiobookConverter.Core.Metadata.SemanticField, IReadOnlyList<string>>()), null, [], AudiobookConverter.Core.Planning.QualityProfileCatalog.Version1[0], AudiobookConverter.Core.Settings.ValidationLevel.Lightweight, policy, outputPath, AudiobookConverter.Core.Planning.AudioStrategy.DirectTranscode, [], new AudiobookConverter.Core.Planning.SpaceEstimate(1, 1, 1, 1, 0), 1, "test", "GenericMp4");
+    => new([], new AudiobookConverter.Core.Metadata.BookMetadata(new Dictionary<AudiobookConverter.Core.Metadata.SemanticField, AudiobookConverter.Core.Metadata.AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<AudiobookConverter.Core.Metadata.SemanticField, IReadOnlyList<string>>()), null, [], AudiobookConverter.Core.Planning.QualityProfileCatalog.Version1[0], AudiobookConverter.Core.Settings.ValidationLevel.Lightweight, policy, outputPath, AudiobookConverter.Core.Planning.AudioStrategy.DirectTranscode, [], new AudiobookConverter.Core.Planning.SpaceEstimate(1, 1, 1, 1, 0), 1, "test", "GenericMp4", planId: TestPlanId);
 
   private sealed class TemporaryDirectory : IDisposable
   {

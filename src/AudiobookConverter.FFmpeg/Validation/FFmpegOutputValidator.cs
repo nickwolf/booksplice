@@ -30,13 +30,13 @@ public sealed class FFmpegOutputValidator : IOutputValidator
     var checks = new List<ValidationCheck>();
     var warnings = new List<string>();
     var errors = new List<string>();
-    if (!File.Exists(outputPath)) return Failed(outputPath, checks, errors, ValidationCodes.FileExists, "The temporary output does not exist.");
+    if (!File.Exists(outputPath)) return Failed(outputPath, checks, errors, ValidationCodes.FileExists, "The temporary output does not exist.", plan.PlanId);
     checks.Add(Pass(ValidationCodes.FileExists));
 
     MediaProbeResult facts;
     try { facts = await _probe.ProbeAsync(outputPath, cancellationToken).ConfigureAwait(false); }
     catch (OperationCanceledException) { throw; }
-    catch (Exception exception) { return Failed(outputPath, checks, errors, ValidationCodes.ContainerParse, "The temporary output could not be parsed.", exception); }
+    catch (Exception exception) { return Failed(outputPath, checks, errors, ValidationCodes.ContainerParse, "The temporary output could not be parsed.", plan.PlanId, exception); }
     checks.Add(Pass(ValidationCodes.ContainerParse));
     warnings.AddRange(facts.Warnings.Select(Sanitize));
 
@@ -49,7 +49,7 @@ public sealed class FFmpegOutputValidator : IOutputValidator
     if (plan.ValidationLevel == Core.Settings.ValidationLevel.Full) await ValidateFullDecodeAsync(outputPath, checks, warnings, cancellationToken).ConfigureAwait(false);
     var failed = checks.Where(check => check.Required && !check.Passed).ToArray();
     errors.AddRange(failed.Select(check => check.Message));
-    return new ValidationReport(outputPath, failed.Length == 0, checks, facts, warnings, errors);
+    return new ValidationReport(outputPath, failed.Length == 0, checks, facts, warnings, errors, plan.PlanId);
   }
 
   private static void ValidateAudio(ConversionPlan plan, MediaProbeResult facts, List<ValidationCheck> checks)
@@ -78,8 +78,16 @@ public sealed class FFmpegOutputValidator : IOutputValidator
 
   private async Task ValidatePacketEndAsync(string outputPath, List<ValidationCheck> checks, CancellationToken cancellationToken)
   {
-    var result = await _runner.RunAsync(new ProcessSpec(_tools.FFprobePath, ["-v", "error", "-select_streams", "a:0", "-read_intervals", "-2%+2", "-show_packets", "-of", "csv=p=0", outputPath]), null, cancellationToken).ConfigureAwait(false);
-    checks.Add(Check(ValidationCodes.PacketsEndRegion, result.ExitCode == 0 && !string.IsNullOrWhiteSpace(result.StandardOutput), "The output audio packet end region could not be read."));
+    try
+    {
+      var result = await _runner.RunAsync(new ProcessSpec(_tools.FFprobePath, ["-v", "error", "-select_streams", "a:0", "-read_intervals", "-2%+2", "-show_packets", "-of", "csv=p=0", outputPath]), null, cancellationToken).ConfigureAwait(false);
+      checks.Add(Check(ValidationCodes.PacketsEndRegion, result.ExitCode == 0 && !string.IsNullOrWhiteSpace(result.StandardOutput), "The output audio packet end region could not be read."));
+    }
+    catch (OperationCanceledException) { throw; }
+    catch (Exception)
+    {
+      checks.Add(Check(ValidationCodes.PacketsEndRegion, false, "The output audio packet end region could not be read."));
+    }
   }
 
   private static void ValidateChapters(ConversionPlan plan, MediaProbeResult facts, List<ValidationCheck> checks)
@@ -95,7 +103,7 @@ public sealed class FFmpegOutputValidator : IOutputValidator
 
   private void ValidateCover(ConversionPlan plan, string outputPath, MediaProbeResult facts, List<ValidationCheck> checks)
   {
-    if (plan.Cover is null) { checks.Add(new ValidationCheck(ValidationCodes.CoverPresence, true, "No cover was planned.", false)); return; }
+    if (plan.Cover is null) { checks.Add(Check(ValidationCodes.CoverPresence, facts.AttachedPictures.Count == 0, "The output has an attached cover that was not planned.")); return; }
     var pictures = facts.AttachedPictures;
     var expectedCodec = plan.Cover.ContentType.Equals("image/png", StringComparison.OrdinalIgnoreCase) ? "png" : "mjpeg";
     var valid = pictures.Count == 1 && string.Equals(pictures[0].CodecName, expectedCodec, StringComparison.OrdinalIgnoreCase) && pictures[0].Width == plan.Cover.Width && pictures[0].Height == plan.Cover.Height;
@@ -116,10 +124,18 @@ public sealed class FFmpegOutputValidator : IOutputValidator
 
   private async Task ValidateFullDecodeAsync(string outputPath, List<ValidationCheck> checks, List<string> warnings, CancellationToken cancellationToken)
   {
-    var result = await _runner.RunAsync(new ProcessSpec(_tools.FFmpegPath, ["-hide_banner", "-v", "warning", "-i", outputPath, "-map", "0:a:0", "-f", "null", "-"]), null, cancellationToken).ConfigureAwait(false);
-    warnings.AddRange(result.StandardError.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Select(Sanitize));
-    var decodeError = result.ExitCode != 0 || Regex.IsMatch(result.StandardError, "\\b(error|invalid data)\\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-    checks.Add(Check(ValidationCodes.FullDecode, !decodeError, "A full FFmpeg decode reported an error."));
+    try
+    {
+      var result = await _runner.RunAsync(new ProcessSpec(_tools.FFmpegPath, ["-hide_banner", "-v", "warning", "-i", outputPath, "-map", "0:a:0", "-f", "null", "-"]), null, cancellationToken).ConfigureAwait(false);
+      warnings.AddRange(result.StandardError.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Select(Sanitize));
+      var decodeError = result.ExitCode != 0 || Regex.IsMatch(result.StandardError, "\\b(error|invalid data)\\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+      checks.Add(Check(ValidationCodes.FullDecode, !decodeError, "A full FFmpeg decode reported an error."));
+    }
+    catch (OperationCanceledException) { throw; }
+    catch (Exception)
+    {
+      checks.Add(Check(ValidationCodes.FullDecode, false, "A full FFmpeg decode could not be started."));
+    }
   }
 
   private static bool WithinChapterTolerance(decimal seconds, long expectedMicroseconds)
@@ -129,12 +145,12 @@ public sealed class FFmpegOutputValidator : IOutputValidator
   }
   private static ValidationCheck Pass(string code) => new(code, true, "Passed.");
   private static ValidationCheck Check(string code, bool passed, string failure) => new(code, passed, passed ? "Passed." : failure);
-  private static ValidationReport Failed(string path, List<ValidationCheck> checks, List<string> errors, string code, string message, Exception? exception = null)
+  private static ValidationReport Failed(string path, List<ValidationCheck> checks, List<string> errors, string code, string message, Guid planId, Exception? exception = null)
   {
     checks.Add(Check(code, false, message));
     errors.Add(message);
     if (exception is MediaProbeException probe) errors.AddRange(probe.Warnings.Select(Sanitize));
-    return new ValidationReport(path, false, checks, warnings: [], errors: errors);
+    return new ValidationReport(path, false, checks, warnings: [], errors: errors, planId: planId);
   }
   private static string Sanitize(string value) => Regex.Replace(value, @"[A-Za-z]:\\[^\s\r\n]*", "[path]");
 }

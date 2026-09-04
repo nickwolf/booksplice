@@ -3,8 +3,40 @@ using AudiobookConverter.Core.Validation;
 
 namespace AudiobookConverter.Core.Naming;
 
+public interface IAtomicPublisherFileOperations
+{
+  Task CopyDurablyAsync(string source, string partialPath, CancellationToken cancellationToken);
+  void CreateDirectory(string path);
+  void Delete(string path);
+  bool Exists(string path);
+  void Move(string source, string destination, bool overwrite);
+}
+
+public sealed class FileSystemAtomicPublisherFileOperations : IAtomicPublisherFileOperations
+{
+  public async Task CopyDurablyAsync(string source, string partialPath, CancellationToken cancellationToken)
+  {
+    await using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan);
+    await using var output = new FileStream(partialPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 65536, FileOptions.Asynchronous | FileOptions.WriteThrough);
+    await input.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
+    await output.FlushAsync(cancellationToken).ConfigureAwait(false);
+    output.Flush(flushToDisk: true);
+  }
+
+  public void CreateDirectory(string path) => Directory.CreateDirectory(path);
+  public void Delete(string path) => File.Delete(path);
+  public bool Exists(string path) => File.Exists(path);
+  public void Move(string source, string destination, bool overwrite) => File.Move(source, destination, overwrite);
+}
+
+
 public sealed class AtomicPublisher : IAtomicPublisher
 {
+  private readonly IAtomicPublisherFileOperations _operations;
+
+  public AtomicPublisher(IAtomicPublisherFileOperations? operations = null)
+    => _operations = operations ?? new FileSystemAtomicPublisherFileOperations();
+
   public async Task<PublicationResult> PublishAsync(ConversionPlan plan, ValidationReport report, CancellationToken cancellationToken)
   {
     ArgumentNullException.ThrowIfNull(plan);
@@ -12,21 +44,22 @@ public sealed class AtomicPublisher : IAtomicPublisher
     cancellationToken.ThrowIfCancellationRequested();
     var temporaryPath = Path.GetFullPath(report.TemporaryOutputPath);
     if (!report.IsValid) return Rejected("Publication requires a successful validation report.");
-    if (!File.Exists(temporaryPath)) return Rejected("The validated temporary output is unavailable.");
+    if (report.PlanId != plan.PlanId) return Rejected("Publication requires validation for this exact conversion plan.");
+    if (!_operations.Exists(temporaryPath)) return Rejected("The validated temporary output is unavailable.");
 
     var finalPath = Path.GetFullPath(plan.OutputPath);
     var destination = Path.GetDirectoryName(finalPath);
     if (string.IsNullOrWhiteSpace(destination)) return Rejected("The output destination is invalid.");
-    Directory.CreateDirectory(destination);
+    _operations.CreateDirectory(destination);
     var partialPath = Path.Combine(destination, $".{Path.GetFileName(finalPath)}.{Guid.NewGuid():N}.partial");
     try
     {
-      await CopyDurablyAsync(temporaryPath, partialPath, cancellationToken).ConfigureAwait(false);
+      await _operations.CopyDurablyAsync(temporaryPath, partialPath, cancellationToken).ConfigureAwait(false);
       cancellationToken.ThrowIfCancellationRequested();
       var published = plan.CollisionPolicy == CollisionPolicy.Overwrite
         ? PublishOverwrite(partialPath, finalPath)
         : PublishAvoidingCollisions(partialPath, finalPath, cancellationToken);
-      File.Delete(temporaryPath);
+      _operations.Delete(temporaryPath);
       return new PublicationResult(PublicationStatus.Published, published);
     }
     catch (OperationCanceledException)
@@ -41,22 +74,14 @@ public sealed class AtomicPublisher : IAtomicPublisher
     }
   }
 
-  private static async Task CopyDurablyAsync(string source, string partial, CancellationToken cancellationToken)
-  {
-    await using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan);
-    await using var output = new FileStream(partial, FileMode.CreateNew, FileAccess.Write, FileShare.None, 65536, FileOptions.Asynchronous | FileOptions.WriteThrough);
-    await input.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
-    await output.FlushAsync(cancellationToken).ConfigureAwait(false);
-    output.Flush(flushToDisk: true);
-  }
 
-  private static string PublishOverwrite(string partialPath, string finalPath)
+  private string PublishOverwrite(string partialPath, string finalPath)
   {
-    File.Move(partialPath, finalPath, overwrite: true);
+    _operations.Move(partialPath, finalPath, overwrite: true);
     return finalPath;
   }
 
-  private static string PublishAvoidingCollisions(string partialPath, string requestedPath, CancellationToken cancellationToken)
+  private string PublishAvoidingCollisions(string partialPath, string requestedPath, CancellationToken cancellationToken)
   {
     var candidate = requestedPath;
     for (var ordinal = 2; ; ordinal++)
@@ -64,10 +89,10 @@ public sealed class AtomicPublisher : IAtomicPublisher
       cancellationToken.ThrowIfCancellationRequested();
       try
       {
-        File.Move(partialPath, candidate, overwrite: false);
+        _operations.Move(partialPath, candidate, overwrite: false);
         return candidate;
       }
-      catch (IOException) when (File.Exists(candidate))
+      catch (IOException) when (_operations.Exists(candidate))
       {
         candidate = WithCollisionSuffix(requestedPath, ordinal);
       }
@@ -78,5 +103,5 @@ public sealed class AtomicPublisher : IAtomicPublisher
     => Path.Combine(Path.GetDirectoryName(path)!, $"{Path.GetFileNameWithoutExtension(path)} ({ordinal}){Path.GetExtension(path)}");
 
   private static PublicationResult Rejected(string diagnostic) => new(PublicationStatus.Rejected, null, [diagnostic]);
-  private static void DeleteOwnedPartial(string path) { try { File.Delete(path); } catch { } }
+  private void DeleteOwnedPartial(string path) { try { _operations.Delete(path); } catch { } }
 }
