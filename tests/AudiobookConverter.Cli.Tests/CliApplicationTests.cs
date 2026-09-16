@@ -60,7 +60,7 @@ public sealed class CliApplicationTests
     var result = Result(ConversionTerminalStatus.DryRun) with
     {
       Planning = new ConversionPlanningResult(BookAnalysisStatus.Ready, plan, []),
-      Diagnostics = [new("test", ServiceDiagnosticSeverity.Error, $"Unable to read {source}.")],
+      Diagnostics = [new("test", ServiceDiagnosticSeverity.Warning, $"Unable to read {source}.")],
     };
     var output = new StringWriter();
     var error = new StringWriter();

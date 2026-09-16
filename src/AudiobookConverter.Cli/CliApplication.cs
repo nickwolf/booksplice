@@ -126,7 +126,7 @@ public sealed class CliApplication
         Sources = plan.SourcePaths.Select((_, index) => $"source-{index + 1}"),
         Strategy = plan.Strategy.ToString(),
         plan.OutputPath,
-        Warnings = result.Diagnostics.Where(value => value.Severity == ServiceDiagnosticSeverity.Warning).Select(value => value.Message),
+        Warnings = result.Diagnostics.Where(value => value.Severity == ServiceDiagnosticSeverity.Warning).Select(value => PublicTextRedactor.Sanitize(value.Message, plan.SourcePaths)),
         Predicates = plan.StrategyReasonCodes,
       };
       WriteJson(standardOutput, new { SchemaVersion = 1, Event = "final", Status = result.Status.ToString(), ExitCode = (int)exitCode, result.JobId, result.PublishedPath, Plan = dryRunPlan }, sync);

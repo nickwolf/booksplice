@@ -132,6 +132,7 @@ public sealed class CliEndToEndTests
     {
       using var auditJson = JsonDocument.Parse(File.ReadAllBytes(audit));
       Assert.Equal("AacStreamCopy", auditJson.RootElement.GetProperty("plan").GetProperty("strategy").GetString());
+      Assert.Contains("-c:a copy", auditJson.RootElement.GetProperty("commandEvidence")[0].GetString(), StringComparison.Ordinal);
     }
     foreach (var output in Directory.GetFiles(outputDirectory, "*.m4b"))
     {
@@ -201,7 +202,6 @@ public sealed class CliEndToEndTests
   [PinnedCliMediaFact]
   public async Task CancellingAfterFfmpegStartsTerminatesConversionAndAuditsWithoutPublishing()
   {
-    await WaitForNoFfmpegProcessesAsync();
     var tools = ResolveTools();
     using var root = new TemporaryDirectory();
     var source = Directory.CreateDirectory(Path.Combine(root.Path, "Long running book")).FullName;
@@ -212,18 +212,27 @@ public sealed class CliEndToEndTests
     using var cancellation = new CancellationTokenSource();
     var conversion = CliComposition.Create(localData, ToolDirectory()).RunAsync(
       [source, "--output", outputDirectory], TextWriter.Null, TextWriter.Null, cancellation.Token);
+    Process? child = null;
+    try
+    {
+      await WaitForOutputAsync(Path.Combine(localData, "AudiobookConverter", "temp"));
+      child = Assert.Single(Process.GetProcessesByName("ffmpeg"));
+      cancellation.Cancel();
+      var exitCode = await conversion;
 
-    await WaitForOutputAsync(Path.Combine(localData, "AudiobookConverter", "temp"));
-    cancellation.Cancel();
-    var exitCode = await conversion;
-
-    Assert.Equal(CliExitCode.Cancelled, exitCode);
-    Assert.Empty(Directory.GetFiles(outputDirectory, "*.m4b"));
-    Assert.Equal(before, Hashes(input));
-    var audit = Assert.Single(Directory.GetFiles(Path.Combine(localData, "AudiobookConverter", "logs"), "*.json"));
-    using var auditJson = JsonDocument.Parse(File.ReadAllBytes(audit));
-    Assert.Equal("Cancelled", auditJson.RootElement.GetProperty("terminalStatus").GetString());
-    await WaitForNoFfmpegProcessesAsync();
+      Assert.Equal(CliExitCode.Cancelled, exitCode);
+      Assert.Empty(Directory.GetFiles(outputDirectory, "*.m4b"));
+      Assert.Equal(before, Hashes(input));
+      var audit = Assert.Single(Directory.GetFiles(Path.Combine(localData, "AudiobookConverter", "logs"), "*.json"));
+      using var auditJson = JsonDocument.Parse(File.ReadAllBytes(audit));
+      Assert.Equal("Cancelled", auditJson.RootElement.GetProperty("terminalStatus").GetString());
+      await WaitForExitAsync(child);
+    }
+    finally
+    {
+      cancellation.Cancel();
+      try { await conversion; } catch (OperationCanceledException) { }
+    }
   }
 
   private static async Task<string> GenerateAudioAsync(MediaToolSet tools, string path, string codec, string frequency, string track, string duration = "1")
@@ -264,15 +273,15 @@ public sealed class CliEndToEndTests
     }
     throw new TimeoutException("FFmpeg did not begin writing the temporary output.");
   }
-  private static async Task WaitForNoFfmpegProcessesAsync()
+  private static async Task WaitForExitAsync(Process process)
   {
     var deadline = DateTime.UtcNow.AddSeconds(5);
     while (DateTime.UtcNow < deadline)
     {
-      if (Process.GetProcessesByName("ffmpeg").Length == 0) return;
+      if (process.HasExited) return;
       await Task.Delay(25);
     }
-    Assert.Empty(Process.GetProcessesByName("ffmpeg"));
+    Assert.True(process.HasExited);
   }
   private static string ToolDirectory() => Environment.GetEnvironmentVariable("AUDIOBOOKCONVERTER_FFMPEG_DIR")!;
   private static MediaToolSet ResolveTools() => new MediaToolLocator(ToolDirectory()).Resolve();

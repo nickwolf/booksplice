@@ -82,6 +82,14 @@ public sealed class JsonJobLogWriterTests
     Assert.DoesNotContain(source, evidence, StringComparison.OrdinalIgnoreCase);
   }
 
+  [Fact]
+  public void SanitizeRemovesExtensionlessPathWithoutRemovingTrailingProse()
+  {
+    var value = PublicTextRedactor.Sanitize("Cannot read C:\\Private Books because access is denied");
+
+    Assert.Equal("Cannot read [path] because access is denied", value);
+  }
+
   private static ConversionAuditRecord Audit(Guid jobId, ConversionTerminalStatus status, string message) => new(
     ConversionAuditRecord.CurrentSchemaVersion,
     jobId,
