@@ -33,7 +33,7 @@ public static class CliConfiguration
       QualityProfileId = profile.Id,
       ConversionJobs = options.Jobs ?? loaded.Settings.ConversionJobs,
       CreateChapters = options.CreateChapters ?? loaded.Settings.CreateChapters,
-      CollisionPolicy = options.Overwrite ? CollisionPolicy.Overwrite : loaded.Settings.CollisionPolicy,
+      CollisionPolicy = options.Overwrite ? CollisionPolicy.Overwrite : CollisionPolicy.AvoidCollision,
     };
     return new(settings, profile, []);
   }

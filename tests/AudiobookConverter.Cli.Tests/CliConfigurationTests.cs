@@ -44,6 +44,18 @@ public sealed class CliConfigurationTests
   }
 
   [Fact]
+  public void ResolveForcesCollisionSafePolicyUnlessOverwriteWasRequested()
+  {
+    var loaded = Settings("C:\\Saved", "balanced", 3, createChapters: true) with { CollisionPolicy = CollisionPolicy.Overwrite };
+    var options = new CliOptions("book", "C:\\Output", null, null, null, null, false, false, false);
+
+    var result = CliConfiguration.Resolve(options, new(SettingsLoadCode.Valid, loaded, []));
+
+    Assert.True(result.IsSuccess);
+    Assert.Equal(CollisionPolicy.AvoidCollision, result.Settings!.CollisionPolicy);
+  }
+
+  [Fact]
   public void ResolveRejectsMissingEffectiveOutput()
   {
     var options = new CliOptions("book", null, null, null, null, null, false, false, false);

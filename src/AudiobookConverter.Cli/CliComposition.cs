@@ -23,6 +23,7 @@ public static class CliComposition
     var localDirectory = Path.Combine(Path.GetFullPath(localAppDataRoot), "AudiobookConverter");
     var temporaryRoot = Path.Combine(localDirectory, "temp");
     var logDirectory = Path.Combine(localDirectory, "logs");
+    var logs = new JsonJobLogWriter(logDirectory);
     MediaToolSet tools;
     try
     {
@@ -32,7 +33,8 @@ public static class CliComposition
     {
       return new CliApplication(
         new JsonSettingsStore(localAppDataRoot),
-        new UnavailableToolConversionService(new JsonJobLogWriter(logDirectory)));
+        new UnavailableToolConversionService(logs),
+        logs);
     }
     var runner = new ProcessRunner();
     var probe = new FFprobeMediaProbe(runner, tools);
@@ -52,8 +54,8 @@ public static class CliComposition
       validator,
       new AtomicPublisher(),
       new TemporaryArtifactCleaner(temporaryRoot),
-      new JsonJobLogWriter(logDirectory));
-    return new CliApplication(new JsonSettingsStore(localAppDataRoot), service);
+      logs);
+    return new CliApplication(new JsonSettingsStore(localAppDataRoot), service, logs);
   }
 
   private sealed class UnavailableToolConversionService(IJobLogWriter logs) : IConversionService

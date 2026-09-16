@@ -32,7 +32,7 @@ public sealed class JsonJobLogWriterTests
     using var directory = new TemporaryDirectory();
     var jobId = Guid.NewGuid();
     var source = "C:\\Private Books\\Book One\\01.mp3";
-    var diagnostic = "bad\u0001 C:\\Private\\one.mp3 \\\\server\\share\\two.mp3 /tmp/three.mp3";
+    var diagnostic = "bad\u0001 C:\\Private Books\\Secret Title\\one.mp3 \\\\server\\share\\Private Books\\Secret Title\\two.mp3 /private books/secret title/three.mp3 /secret";
     var record = Audit(jobId, ConversionTerminalStatus.Cancelled, diagnostic) with { OrderedSources = [source] };
 
     await new JsonJobLogWriter(directory.Path).WriteAsync(record, CancellationToken.None);
@@ -42,7 +42,10 @@ public sealed class JsonJobLogWriterTests
     var message = json.RootElement.GetProperty("diagnostics")[0].GetProperty("message").GetString()!;
     Assert.DoesNotContain("C:\\", message, StringComparison.OrdinalIgnoreCase);
     Assert.DoesNotContain("\\\\server", message, StringComparison.OrdinalIgnoreCase);
-    Assert.DoesNotContain("/tmp", message, StringComparison.Ordinal);
+    Assert.DoesNotContain("Private Books", message, StringComparison.OrdinalIgnoreCase);
+    Assert.DoesNotContain("Secret Title", message, StringComparison.OrdinalIgnoreCase);
+    Assert.DoesNotContain("/private", message, StringComparison.Ordinal);
+    Assert.DoesNotContain("/secret", message, StringComparison.Ordinal);
     Assert.DoesNotContain('\u0001', message);
     Assert.Equal("Cancelled", json.RootElement.GetProperty("terminalStatus").GetString());
   }

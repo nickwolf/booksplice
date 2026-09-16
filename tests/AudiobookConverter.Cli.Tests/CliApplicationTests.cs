@@ -46,10 +46,55 @@ public sealed class CliApplicationTests
     Assert.Equal(CliExitCode.Success, exitCode);
     var finalLine = output.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)[^1];
     using var final = JsonDocument.Parse(finalLine);
-    Assert.Equal(plan.SourcePaths, final.RootElement.GetProperty("plan").GetProperty("orderedSources").EnumerateArray().Select(value => value.GetString()));
+    Assert.Equal(["source-1", "source-2"], final.RootElement.GetProperty("plan").GetProperty("sources").EnumerateArray().Select(value => value.GetString()));
     Assert.Equal("DirectTranscode", final.RootElement.GetProperty("plan").GetProperty("strategy").GetString());
     Assert.Equal(plan.OutputPath, final.RootElement.GetProperty("plan").GetProperty("outputPath").GetString());
     Assert.Equal("strategy.test", final.RootElement.GetProperty("plan").GetProperty("predicates")[0].GetString());
+  }
+
+  [Fact]
+  public async Task JsonModeRedactsSourcePathsFromEventsPlansAndDiagnostics()
+  {
+    var source = "C:\\Private Books\\Secret Title\\01.mp3";
+    var plan = Plan([source]);
+    var result = Result(ConversionTerminalStatus.DryRun) with
+    {
+      Planning = new ConversionPlanningResult(BookAnalysisStatus.Ready, plan, []),
+      Diagnostics = [new("test", ServiceDiagnosticSeverity.Error, $"Unable to read {source}.")],
+    };
+    var output = new StringWriter();
+    var error = new StringWriter();
+    var application = new CliApplication(new SettingsStore(Settings()), new FakeService(result));
+
+    await application.RunAsync([source, "--dry-run", "--json"], output, error, CancellationToken.None);
+
+    var publicText = output + error.ToString();
+    Assert.DoesNotContain(source, publicText, StringComparison.OrdinalIgnoreCase);
+    Assert.DoesNotContain("Private Books", publicText, StringComparison.OrdinalIgnoreCase);
+    Assert.DoesNotContain("Secret Title", publicText, StringComparison.OrdinalIgnoreCase);
+  }
+
+  [Fact]
+  public async Task HumanDryRunUsesSourceLabelsAndRedactsDiagnostics()
+  {
+    var source = "C:\\Private Books\\Secret Title\\01.mp3";
+    var plan = Plan([source]);
+    var result = Result(ConversionTerminalStatus.DryRun) with
+    {
+      Planning = new ConversionPlanningResult(BookAnalysisStatus.Ready, plan, []),
+      Diagnostics = [new("test", ServiceDiagnosticSeverity.Error, $"Unable to read {source}.")],
+    };
+    var output = new StringWriter();
+    var error = new StringWriter();
+    var application = new CliApplication(new SettingsStore(Settings()), new FakeService(result));
+
+    await application.RunAsync([source, "--dry-run"], output, error, CancellationToken.None);
+
+    var publicText = output + error.ToString();
+    Assert.Contains("Source 1", output.ToString(), StringComparison.Ordinal);
+    Assert.DoesNotContain(source, publicText, StringComparison.OrdinalIgnoreCase);
+    Assert.DoesNotContain("Private Books", publicText, StringComparison.OrdinalIgnoreCase);
+    Assert.DoesNotContain("Secret Title", publicText, StringComparison.OrdinalIgnoreCase);
   }
 
   [Fact]
@@ -64,6 +109,40 @@ public sealed class CliApplicationTests
     Assert.Equal(CliExitCode.UsageError, exitCode);
     Assert.False(service.WasCalled);
     Assert.Contains("Unknown option", error.ToString(), StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task SettingsLoadFailureWritesFinalJsonAndOneUnexpectedAudit()
+  {
+    var logs = new RecordingLogs();
+    var output = new StringWriter();
+    var application = new CliApplication(new ThrowingSettingsStore(), new FakeService(Result(ConversionTerminalStatus.Succeeded)), logs);
+
+    var exitCode = await application.RunAsync(["book", "--json"], output, TextWriter.Null, CancellationToken.None);
+
+    Assert.Equal(CliExitCode.UnexpectedFailure, exitCode);
+    using var final = JsonDocument.Parse(output.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)[^1]);
+    Assert.Equal("UnexpectedFailure", final.RootElement.GetProperty("status").GetString());
+    Assert.Equal(1, final.RootElement.GetProperty("exitCode").GetInt32());
+    Assert.Equal(ConversionTerminalStatus.UnexpectedFailure, Assert.Single(logs.Records).TerminalStatus);
+  }
+
+  [Fact]
+  public async Task SettingsLoadCancellationWritesFinalJsonAndOneCancellationAudit()
+  {
+    var logs = new RecordingLogs();
+    var output = new StringWriter();
+    var application = new CliApplication(new CancelledSettingsStore(), new FakeService(Result(ConversionTerminalStatus.Succeeded)), logs);
+    using var cancellation = new CancellationTokenSource();
+    cancellation.Cancel();
+
+    var exitCode = await application.RunAsync(["book", "--json"], output, TextWriter.Null, cancellation.Token);
+
+    Assert.Equal(CliExitCode.Cancelled, exitCode);
+    using var final = JsonDocument.Parse(output.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)[^1]);
+    Assert.Equal("Cancelled", final.RootElement.GetProperty("status").GetString());
+    Assert.Equal(8, final.RootElement.GetProperty("exitCode").GetInt32());
+    Assert.Equal(ConversionTerminalStatus.Cancelled, Assert.Single(logs.Records).TerminalStatus);
   }
 
   [Fact]
@@ -89,8 +168,8 @@ public sealed class CliApplicationTests
     Guid.NewGuid(), status, ConversionStage.Completed, null, null, null, null, null,
     [new("test", ServiceDiagnosticSeverity.Error, "diagnostic")], [], null);
 
-  private static ConversionPlan Plan() => new(
-    ["C:\\Book\\01.mp3", "C:\\Book\\02.mp3"],
+  private static ConversionPlan Plan(IReadOnlyList<string>? sources = null) => new(
+    sources ?? ["C:\\Book\\01.mp3", "C:\\Book\\02.mp3"],
     new(new Dictionary<Core.Metadata.SemanticField, Core.Metadata.AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<Core.Metadata.SemanticField, IReadOnlyList<string>>()),
     null, [], QualityProfileCatalog.Version1[0], ValidationLevel.Lightweight, Core.Naming.CollisionPolicy.AvoidCollision,
     "C:\\Output\\Book.m4b", AudioStrategy.DirectTranscode, ["strategy.test"], new(1, 1, 2, 3, 1), 1, "test", "GenericMp4");
@@ -116,5 +195,29 @@ public sealed class CliApplicationTests
     public string SettingsPath => "settings.json";
     public Task<SettingsLoadResult> LoadAsync(CancellationToken cancellationToken = default) => Task.FromResult(new SettingsLoadResult(SettingsLoadCode.Valid, settings, []));
     public Task SaveAsync(AppSettings value, CancellationToken cancellationToken = default) { SaveCount++; return Task.CompletedTask; }
+  }
+
+  private sealed class ThrowingSettingsStore : ISettingsStore
+  {
+    public string SettingsPath => "settings.json";
+    public Task<SettingsLoadResult> LoadAsync(CancellationToken cancellationToken = default) => Task.FromException<SettingsLoadResult>(new IOException("injected"));
+    public Task SaveAsync(AppSettings settings, CancellationToken cancellationToken = default) => Task.CompletedTask;
+  }
+
+  private sealed class CancelledSettingsStore : ISettingsStore
+  {
+    public string SettingsPath => "settings.json";
+    public Task<SettingsLoadResult> LoadAsync(CancellationToken cancellationToken = default) => Task.FromCanceled<SettingsLoadResult>(cancellationToken);
+    public Task SaveAsync(AppSettings settings, CancellationToken cancellationToken = default) => Task.CompletedTask;
+  }
+
+  private sealed class RecordingLogs : IJobLogWriter
+  {
+    public List<ConversionAuditRecord> Records { get; } = [];
+    public Task WriteAsync(ConversionAuditRecord record, CancellationToken cancellationToken)
+    {
+      Records.Add(record);
+      return Task.CompletedTask;
+    }
   }
 }

@@ -12,33 +12,64 @@ public sealed class CliApplication
   private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
   private readonly ISettingsStore _settings;
   private readonly IConversionService _service;
+  private readonly IJobLogWriter? _logs;
 
-  public CliApplication(ISettingsStore settings, IConversionService service)
-    => (_settings, _service) = (settings, service);
+  public CliApplication(ISettingsStore settings, IConversionService service, IJobLogWriter? logs = null)
+    => (_settings, _service, _logs) = (settings, service, logs);
 
   public async Task<CliExitCode> RunAsync(IReadOnlyList<string> arguments, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken)
   {
     var parsed = CliParser.Parse(arguments);
+    var requestedJson = arguments.Contains("--json", StringComparer.Ordinal);
+    var requestedDryRun = arguments.Contains("--dry-run", StringComparer.Ordinal);
     if (!parsed.IsSuccess)
     {
-      WriteDiagnostics(standardError, parsed.Diagnostics.Select(value => value.Message));
-      return CliExitCode.UsageError;
+      return await CompletePreServiceAsync(
+        ConversionTerminalStatus.InvalidInput,
+        CliExitCode.UsageError,
+        requestedJson,
+        requestedDryRun,
+        parsed.Diagnostics.Select(value => new ServiceDiagnostic(value.Code, ServiceDiagnosticSeverity.Error, value.Message)),
+        standardOutput,
+        standardError).ConfigureAwait(false);
     }
 
     SettingsLoadResult loaded;
     try { loaded = await _settings.LoadAsync(cancellationToken).ConfigureAwait(false); }
-    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return CliExitCode.Cancelled; }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+      return await CompletePreServiceAsync(
+        ConversionTerminalStatus.Cancelled,
+        CliExitCode.Cancelled,
+        requestedJson,
+        requestedDryRun,
+        [new("conversion.cancelled", ServiceDiagnosticSeverity.Information, "The conversion was cancelled.")],
+        standardOutput,
+        standardError).ConfigureAwait(false);
+    }
     catch (Exception)
     {
-      standardError.WriteLine("The saved settings could not be loaded.");
-      return CliExitCode.UnexpectedFailure;
+      return await CompletePreServiceAsync(
+        ConversionTerminalStatus.UnexpectedFailure,
+        CliExitCode.UnexpectedFailure,
+        requestedJson,
+        requestedDryRun,
+        [new("settings.load-failed", ServiceDiagnosticSeverity.Error, "The saved settings could not be loaded.")],
+        standardOutput,
+        standardError).ConfigureAwait(false);
     }
 
     var configured = CliConfiguration.Resolve(parsed.Options!, loaded);
     if (!configured.IsSuccess)
     {
-      WriteDiagnostics(standardError, configured.Diagnostics.Select(value => value.Message));
-      return CliExitCode.InvalidInput;
+      return await CompletePreServiceAsync(
+        ConversionTerminalStatus.InvalidInput,
+        CliExitCode.InvalidInput,
+        requestedJson,
+        requestedDryRun,
+        configured.Diagnostics.Select(value => new ServiceDiagnostic(value.Code, ServiceDiagnosticSeverity.Error, value.Message)),
+        standardOutput,
+        standardError).ConfigureAwait(false);
     }
 
     var options = parsed.Options!;
@@ -49,8 +80,8 @@ public sealed class CliApplication
       new ConversionOptions(settings, configured.QualityProfile!, destinationDirectory: settings.OutputDirectory, collisionPolicy: options.Overwrite ? CollisionPolicy.Overwrite : settings.CollisionPolicy),
       options.DryRun);
     var sync = new object();
-    if (options.Json) WriteJson(standardOutput, new { SchemaVersion = 1, Event = "started", Source = options.Source }, sync);
-    else standardOutput.WriteLine($"Analyzing {options.Source}");
+    if (options.Json) WriteJson(standardOutput, new { SchemaVersion = 1, Event = "started" }, sync);
+    else standardOutput.WriteLine("Analyzing audiobook");
 
     var progress = new InlineProgress<ConversionProgress>(value =>
     {
@@ -64,22 +95,35 @@ public sealed class CliApplication
     try { result = await _service.ConvertAsync(request, cancellationToken, progress).ConfigureAwait(false); }
     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
     {
-      result = new(Guid.NewGuid(), ConversionTerminalStatus.Cancelled, ConversionStage.Completed, null, null, null, null, null, [], [], null);
+      return await CompletePreServiceAsync(
+        ConversionTerminalStatus.Cancelled,
+        CliExitCode.Cancelled,
+        options.Json,
+        options.DryRun,
+        [new("conversion.cancelled", ServiceDiagnosticSeverity.Information, "The conversion was cancelled.")],
+        standardOutput,
+        standardError).ConfigureAwait(false);
     }
     catch (Exception)
     {
-      standardError.WriteLine("The conversion failed unexpectedly.");
-      return CliExitCode.UnexpectedFailure;
+      return await CompletePreServiceAsync(
+        ConversionTerminalStatus.UnexpectedFailure,
+        CliExitCode.UnexpectedFailure,
+        options.Json,
+        options.DryRun,
+        [new("conversion.unexpected", ServiceDiagnosticSeverity.Error, "The conversion failed unexpectedly.")],
+        standardOutput,
+        standardError).ConfigureAwait(false);
     }
 
     var exitCode = CliExitCodes.FromStatus(result.Status);
-    WriteDiagnostics(standardError, result.Diagnostics.Select(value => value.Message));
+    WriteDiagnostics(standardError, result.Diagnostics.Select(value => value.Message), [options.Source]);
     if (options.Json)
     {
       var plan = result.Planning?.Plan;
       var dryRunPlan = plan is null ? null : new
       {
-        OrderedSources = plan.SourcePaths,
+        Sources = plan.SourcePaths.Select((_, index) => $"source-{index + 1}"),
         Strategy = plan.Strategy.ToString(),
         plan.OutputPath,
         Warnings = result.Diagnostics.Where(value => value.Severity == ServiceDiagnosticSeverity.Warning).Select(value => value.Message),
@@ -93,16 +137,60 @@ public sealed class CliApplication
       {
         standardOutput.WriteLine($"Strategy: {plan.Strategy}");
         standardOutput.WriteLine($"Output: {plan.OutputPath}");
-        foreach (var source in plan.SourcePaths) standardOutput.WriteLine(source);
+        for (var index = 0; index < plan.SourcePaths.Count; index++) standardOutput.WriteLine($"Source {index + 1}");
       }
       else if (result.Status == ConversionTerminalStatus.Succeeded) standardOutput.WriteLine($"Published {result.PublishedPath}");
     }
     return exitCode;
   }
 
-  private static void WriteDiagnostics(TextWriter writer, IEnumerable<string> diagnostics)
+  private async Task<CliExitCode> CompletePreServiceAsync(
+    ConversionTerminalStatus status,
+    CliExitCode exitCode,
+    bool json,
+    bool dryRun,
+    IEnumerable<ServiceDiagnostic> sourceDiagnostics,
+    TextWriter standardOutput,
+    TextWriter standardError)
   {
-    foreach (var diagnostic in diagnostics) writer.WriteLine(diagnostic);
+    var diagnostics = sourceDiagnostics.ToList();
+    if (!dryRun && _logs is not null)
+    {
+      var jobId = Guid.NewGuid();
+      var timestamp = DateTimeOffset.UtcNow;
+      var record = new ConversionAuditRecord(
+        ConversionAuditRecord.CurrentSchemaVersion,
+        jobId,
+        timestamp,
+        timestamp,
+        status,
+        null,
+        null,
+        null,
+        null,
+        null,
+        [],
+        null,
+        null,
+        null,
+        null,
+        [],
+        diagnostics,
+        null);
+      try { await _logs.WriteAsync(record, CancellationToken.None).ConfigureAwait(false); }
+      catch (Exception)
+      {
+        diagnostics.Add(new("audit.write-failed", ServiceDiagnosticSeverity.Warning, "The job audit record could not be written."));
+      }
+    }
+    WriteDiagnostics(standardError, diagnostics.Select(value => value.Message));
+    if (json) WriteJson(standardOutput, new { SchemaVersion = 1, Event = "final", Status = status.ToString(), ExitCode = (int)exitCode }, new object());
+    return exitCode;
+  }
+
+  private static void WriteDiagnostics(TextWriter writer, IEnumerable<string> diagnostics, IReadOnlyList<string>? exactPaths = null)
+  {
+    foreach (var diagnostic in diagnostics) writer.WriteLine(PublicTextRedactor.Sanitize(diagnostic, exactPaths));
   }
 
   private static void WriteJson(TextWriter writer, object value, object sync)

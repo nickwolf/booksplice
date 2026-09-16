@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using AudiobookConverter.Core.Analysis;
 
 namespace AudiobookConverter.FFmpeg.Execution;
@@ -79,7 +78,7 @@ public sealed partial class JsonJobLogWriter : IJobLogWriter
       {
         Status = record.Analysis.Status.ToString(),
         record.Analysis.SourceRootName,
-        Diagnostics = record.Analysis.Diagnostics.Select(value => new { value.Code, Severity = value.Severity.ToString(), Message = Sanitize(value.Message) }),
+        Diagnostics = record.Analysis.Diagnostics.Select(value => new { value.Code, Severity = value.Severity.ToString(), Message = Sanitize(value.Message, record.OrderedSources) }),
       },
       Plan = plan is null ? null : new
       {
@@ -101,39 +100,34 @@ public sealed partial class JsonJobLogWriter : IJobLogWriter
       {
         Status = record.Execution.Status.ToString(),
         record.Execution.TemporaryOutputPath,
-        Processes = record.Execution.Processes.Select(value => new { value.ExitCode, StandardOutput = Sanitize(value.StandardOutput), StandardError = Sanitize(value.StandardError), value.ChildCpuTime }),
-        Diagnostics = record.Execution.Diagnostics.Select(value => new { value.Code, Message = Sanitize(value.Message) }),
+        Processes = record.Execution.Processes.Select(value => new { value.ExitCode, StandardOutput = Sanitize(value.StandardOutput, record.OrderedSources), StandardError = Sanitize(value.StandardError, record.OrderedSources), value.ChildCpuTime }),
+        Diagnostics = record.Execution.Diagnostics.Select(value => new { value.Code, Message = Sanitize(value.Message, record.OrderedSources) }),
       },
       Validation = record.Validation is null ? null : new
       {
         record.Validation.IsValid,
         record.Validation.Checks,
         record.Validation.OutputFacts,
-        Warnings = record.Validation.Warnings.Select(Sanitize),
-        Errors = record.Validation.Errors.Select(Sanitize),
+        Warnings = record.Validation.Warnings.Select(value => Sanitize(value, record.OrderedSources)),
+        Errors = record.Validation.Errors.Select(value => Sanitize(value, record.OrderedSources)),
       },
       Publication = record.Publication is null ? null : new
       {
         Status = record.Publication.Status.ToString(),
         record.Publication.FinalPath,
-        Diagnostics = record.Publication.Diagnostics.Select(Sanitize),
+        Diagnostics = record.Publication.Diagnostics.Select(value => Sanitize(value, record.OrderedSources)),
       },
       CommandEvidence = record.Execution?.Processes
         .Where(process => !string.IsNullOrWhiteSpace(process.Executable))
         .Select(process => FormatCommand(process, record.OrderedSources)) ?? [],
       record.Timings,
-      Diagnostics = record.Diagnostics.Select(value => new { value.Code, Severity = value.Severity.ToString(), Message = Sanitize(value.Message) }),
+      Diagnostics = record.Diagnostics.Select(value => new { value.Code, Severity = value.Severity.ToString(), Message = Sanitize(value.Message, record.OrderedSources) }),
       record.PublishedPath,
     };
   }
 
-  private static string Sanitize(string value)
-  {
-    var clean = new string(value.Select(character => char.IsControl(character) ? ' ' : character).ToArray());
-    clean = UncPath().Replace(clean, "[path]");
-    clean = WindowsPath().Replace(clean, "[path]");
-    return PosixPath().Replace(clean, "[path]");
-  }
+  private static string Sanitize(string value, IReadOnlyList<string> orderedSources)
+    => PublicTextRedactor.Sanitize(value, orderedSources);
 
   private static string FormatCommand(Core.Execution.ExecutionProcessResult process, IReadOnlyList<string> orderedSources)
   {
@@ -142,7 +136,7 @@ public sealed partial class JsonJobLogWriter : IJobLogWriter
       var sourceIndex = orderedSources.Select((path, index) => (path, index)).FirstOrDefault(item => string.Equals(item.path, argument, StringComparison.OrdinalIgnoreCase));
       return sourceIndex.path is null ? argument : $"[source-{sourceIndex.index + 1}]";
     });
-    return Sanitize(string.Join(' ', new[] { process.Executable! }.Concat(arguments).Select(Quote)));
+    return Sanitize(string.Join(' ', new[] { process.Executable! }.Concat(arguments).Select(Quote)), orderedSources);
   }
 
   private static string Quote(string value)
@@ -160,10 +154,4 @@ public sealed partial class JsonJobLogWriter : IJobLogWriter
     return builder.Append('\\', backslashes * 2).Append('"').ToString();
   }
 
-  [GeneratedRegex(@"\\\\[^\s\\]+\\[^\s]+", RegexOptions.CultureInvariant)]
-  private static partial Regex UncPath();
-  [GeneratedRegex(@"[A-Za-z]:[\\/][^\s]+", RegexOptions.CultureInvariant)]
-  private static partial Regex WindowsPath();
-  [GeneratedRegex(@"(?<![A-Za-z0-9])/(?:[^/\s]+/)+[^\s]+", RegexOptions.CultureInvariant)]
-  private static partial Regex PosixPath();
 }
