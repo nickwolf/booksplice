@@ -210,13 +210,15 @@ public sealed class CliEndToEndTests
     var outputDirectory = Directory.CreateDirectory(Path.Combine(root.Path, "output")).FullName;
     var localData = Path.Combine(root.Path, "local");
     using var cancellation = new CancellationTokenSource();
-    var conversion = CliComposition.Create(localData, ToolDirectory()).RunAsync(
-      [source, "--output", outputDirectory], TextWriter.Null, TextWriter.Null, cancellation.Token);
+    var childId = 0;
+    ProcessRunner.ProcessStarted.Value = id => childId = id;
+    var conversion = CliComposition.Create(localData, ToolDirectory()).RunAsync([source, "--output", outputDirectory], TextWriter.Null, TextWriter.Null, cancellation.Token);
     Process? child = null;
     try
     {
       await WaitForOutputAsync(Path.Combine(localData, "AudiobookConverter", "temp"));
-      child = Assert.Single(Process.GetProcessesByName("ffmpeg"));
+      Assert.True(childId > 0);
+      child = Process.GetProcessById(childId);
       cancellation.Cancel();
       var exitCode = await conversion;
 
@@ -232,6 +234,8 @@ public sealed class CliEndToEndTests
     {
       cancellation.Cancel();
       try { await conversion; } catch (OperationCanceledException) { }
+      ProcessRunner.ProcessStarted.Value = null;
+      child?.Dispose();
     }
   }
 

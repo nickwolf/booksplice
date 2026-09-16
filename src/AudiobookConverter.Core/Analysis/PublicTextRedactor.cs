@@ -16,6 +16,6 @@ public static partial class PublicTextRedactor
     return AbsolutePath().Replace(clean, "[path]");
   }
 
-  [GeneratedRegex(@"(?<![A-Za-z0-9])(?:(?:[A-Za-z]:[\\/]|\\\\|/)[^\r\n]*?\.[A-Za-z0-9]{1,8}(?=[\s,;:\)]|$)|(?:[A-Za-z]:[\\/]|\\\\|/)[^\r\n]*?(?=\s+(?:because|but|while|after|when|with)\b|$))", RegexOptions.CultureInvariant)]
+  [GeneratedRegex(@"(?<![A-Za-z0-9])(?:(?:[A-Za-z]:[\\/]|\\\\|/)[^\r\n]*?\.[A-Za-z0-9]{1,8}(?=[\s,;:\)]|$)|(?:[A-Za-z]:[\\/]|\\\\|/)[^\r\n]*)", RegexOptions.CultureInvariant)]
   private static partial Regex AbsolutePath();
 }

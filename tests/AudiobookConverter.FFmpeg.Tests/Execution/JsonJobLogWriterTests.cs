@@ -85,9 +85,17 @@ public sealed class JsonJobLogWriterTests
   [Fact]
   public void SanitizeRemovesExtensionlessPathWithoutRemovingTrailingProse()
   {
-    var value = PublicTextRedactor.Sanitize("Cannot read C:\\Private Books because access is denied");
+    var value = PublicTextRedactor.Sanitize("Cannot read C:\\Private Books due to access; retry later", ["C:\\Private Books"]);
 
-    Assert.Equal("Cannot read [path] because access is denied", value);
+    Assert.Equal("Cannot read [source] due to access; retry later", value);
+  }
+
+  [Fact]
+  public void SanitizeTreatsConnectorWordsInsideUnknownPathsAsPrivate()
+  {
+    var value = PublicTextRedactor.Sanitize("Cannot read C:\\Private because reasons");
+
+    Assert.Equal("Cannot read [path]", value);
   }
 
   private static ConversionAuditRecord Audit(Guid jobId, ConversionTerminalStatus status, string message) => new(
