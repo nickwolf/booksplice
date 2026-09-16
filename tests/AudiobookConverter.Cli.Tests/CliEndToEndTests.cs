@@ -9,6 +9,50 @@ namespace AudiobookConverter.Cli.Tests;
 
 public sealed class CliEndToEndTests
 {
+  [Fact]
+  public async Task MissingMediaToolsReturnExecutionFailureWithFinalJsonAndAudit()
+  {
+    using var root = new TemporaryDirectory();
+    var outputDirectory = Directory.CreateDirectory(Path.Combine(root.Path, "output")).FullName;
+    var localData = Path.Combine(root.Path, "local");
+    var missingTools = Directory.CreateDirectory(Path.Combine(root.Path, "missing-tools")).FullName;
+    var stdout = new StringWriter();
+
+    var exitCode = await CliComposition.Create(localData, missingTools).RunAsync(
+      ["book", "--output", outputDirectory, "--json"], stdout, TextWriter.Null, CancellationToken.None);
+
+    Assert.Equal(CliExitCode.ExecutionFailure, exitCode);
+    var finalLine = stdout.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)[^1];
+    using var final = JsonDocument.Parse(finalLine);
+    Assert.Equal("ExecutionFailed", final.RootElement.GetProperty("status").GetString());
+    var audit = Assert.Single(Directory.GetFiles(Path.Combine(localData, "AudiobookConverter", "logs"), "*.json"));
+    using var auditJson = JsonDocument.Parse(File.ReadAllBytes(audit));
+    Assert.Equal("ExecutionFailed", auditJson.RootElement.GetProperty("terminalStatus").GetString());
+  }
+
+  [Fact]
+  public async Task PreCancelledCommandWithMissingMediaToolsReturnsCancellationWithFinalJsonAndAudit()
+  {
+    using var root = new TemporaryDirectory();
+    var outputDirectory = Directory.CreateDirectory(Path.Combine(root.Path, "output")).FullName;
+    var localData = Path.Combine(root.Path, "local");
+    var missingTools = Directory.CreateDirectory(Path.Combine(root.Path, "missing-tools")).FullName;
+    var stdout = new StringWriter();
+    using var cancellation = new CancellationTokenSource();
+    cancellation.Cancel();
+
+    var exitCode = await CliComposition.Create(localData, missingTools).RunAsync(
+      ["book", "--output", outputDirectory, "--json"], stdout, TextWriter.Null, cancellation.Token);
+
+    Assert.Equal(CliExitCode.Cancelled, exitCode);
+    var finalLine = stdout.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)[^1];
+    using var final = JsonDocument.Parse(finalLine);
+    Assert.Equal("Cancelled", final.RootElement.GetProperty("status").GetString());
+    var audit = Assert.Single(Directory.GetFiles(Path.Combine(localData, "AudiobookConverter", "logs"), "*.json"));
+    using var auditJson = JsonDocument.Parse(File.ReadAllBytes(audit));
+    Assert.Equal("Cancelled", auditJson.RootElement.GetProperty("terminalStatus").GetString());
+  }
+
   [PinnedCliMediaFact]
   public async Task GeneratedMultiMp3WithExternalCoverUnicodeAndNoChaptersConvertsWithoutChangingSources()
   {
