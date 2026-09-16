@@ -1,8 +1,8 @@
 using System.Globalization;
+using AudiobookConverter.Core.Execution;
 
 namespace AudiobookConverter.FFmpeg.Execution;
 
-public sealed record ConversionProgress(long? OutTimeMicroseconds, double? Speed, string? State, int StageIndex, int? SourceIndex = null, double? DisplayPercent = null);
 public static class ConversionProgressParser
 {
   public static ConversionProgress? Parse(string line, int stageIndex, int? sourceIndex = null)

@@ -1,14 +1,10 @@
 using AudiobookConverter.Core.Chapters;
+using AudiobookConverter.Core.Execution;
 using AudiobookConverter.Core.Metadata;
 using AudiobookConverter.Core.Planning;
 using AudiobookConverter.FFmpeg.Commands;
 
 namespace AudiobookConverter.FFmpeg.Execution;
-
-public enum ExecutionStatus { Succeeded, Failed, Cancelled }
-public sealed record ExecutionDiagnostic(string Code, string Message);
-public sealed record ConversionExecutionResult(ExecutionStatus Status, string? TemporaryOutputPath, IReadOnlyList<ProcessResult> Processes, IReadOnlyList<ExecutionDiagnostic> Diagnostics);
-public interface IConversionExecutor { Task<ConversionExecutionResult> ExecuteAsync(ConversionPlan plan, CancellationToken cancellationToken, IProgress<ConversionProgress>? progress = null); }
 
 public interface IConversionWorkspaceFactory
 {
@@ -148,7 +144,7 @@ public sealed class FFmpegConversionExecutor : IConversionExecutor
       try { _metadataWriter.Write(output, tags); }
       catch (Exception exception) when (exception is not OperationCanceledException) { throw new MetadataWriteException(exception); }
       progress?.Report(ProgressNormalizer.Completed());
-      return new ConversionExecutionResult(ExecutionStatus.Succeeded, output, processes, []);
+      return new ConversionExecutionResult(ExecutionStatus.Succeeded, output, Copy(processes), []);
     }
     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { Cleanup(artifacts, job); return Cancelled(processes); }
     catch (FFmpegProcessFailedException exception) { Cleanup(artifacts, job); return Failed(processes, "execution.process-failed", $"FFmpeg exited with code {exception.ExitCode.ToString(System.Globalization.CultureInfo.InvariantCulture)}."); }
@@ -197,7 +193,7 @@ public sealed class FFmpegConversionExecutor : IConversionExecutor
     var outputProgress = new InlineProgress<string>(line => normalizer.Report(ConversionProgressParser.Parse(line, stageIndex, sourceIndex), sourceIndex, duration));
     var result = await _runner.RunAsync(spec, outputProgress, cancellationToken).ConfigureAwait(false);
     normalizer.ReportCompletion(stageIndex, sourceIndex, duration);
-    return result;
+    return result with { Executable = spec.FileName, Arguments = Array.AsReadOnly(spec.Arguments.ToArray()) };
   }
 
   private static string Register(List<string> artifacts, string job, string name)
@@ -260,8 +256,9 @@ public sealed class FFmpegConversionExecutor : IConversionExecutor
     catch { }
   }
 
-  private static ConversionExecutionResult Cancelled(IReadOnlyList<ProcessResult> processes) => new(ExecutionStatus.Cancelled, null, processes, [new("execution.cancelled", "The conversion was cancelled.")]);
-  private static ConversionExecutionResult Failed(IReadOnlyList<ProcessResult> processes, string code, string message) => new(ExecutionStatus.Failed, null, processes, [new(code, message)]);
+  private static ConversionExecutionResult Cancelled(IReadOnlyList<ProcessResult> processes) => new(ExecutionStatus.Cancelled, null, Copy(processes), [new("execution.cancelled", "The conversion was cancelled.")]);
+  private static ConversionExecutionResult Failed(IReadOnlyList<ProcessResult> processes, string code, string message) => new(ExecutionStatus.Failed, null, Copy(processes), [new(code, message)]);
+  private static System.Collections.ObjectModel.ReadOnlyCollection<ExecutionProcessResult> Copy(IEnumerable<ProcessResult> processes) => Array.AsReadOnly(processes.Select(process => new ExecutionProcessResult(process.ExitCode, process.StandardOutput, process.StandardError, process.ChildCpuTime, process.Executable, process.Arguments)).ToArray());
   private sealed class InlineProgress<T>(Action<T> action) : IProgress<T> { public void Report(T value) => action(value); }
   private sealed class FFmpegProcessFailedException(int exitCode) : Exception { public int ExitCode { get; } = exitCode; }
   private sealed class MetadataWriteException(Exception inner) : Exception("Metadata write failed.", inner);
