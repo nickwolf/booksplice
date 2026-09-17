@@ -52,8 +52,8 @@ public sealed class ProcessRunnerTests
       var deadline = DateTime.UtcNow.AddSeconds(5);
       while ((!File.Exists(parentPidFile) || !File.Exists(childPidFile)) && DateTime.UtcNow < deadline) await Task.Delay(25);
       Assert.True(File.Exists(parentPidFile) && File.Exists(childPidFile));
-      var parentPid = int.Parse(File.ReadAllText(parentPidFile), CultureInfo.InvariantCulture);
-      var childPid = int.Parse(File.ReadAllText(childPidFile), CultureInfo.InvariantCulture);
+      var parentPid = await ReadPidAsync(parentPidFile, deadline);
+      var childPid = await ReadPidAsync(childPidFile, deadline);
       cancellation.Cancel();
       await Assert.ThrowsAsync<OperationCanceledException>(() => running);
       deadline = DateTime.UtcNow.AddSeconds(5);
@@ -99,5 +99,20 @@ public sealed class ProcessRunnerTests
   }
 
   private static string NewScript(string body) { var path = Path.Combine(Path.GetTempPath(), $"probe-{Guid.NewGuid():N}.ps1"); File.WriteAllText(path, "$OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); " + body, new System.Text.UTF8Encoding(false)); return path; }
+  private static async Task<int> ReadPidAsync(string path, DateTime deadline)
+  {
+    while (DateTime.UtcNow < deadline)
+    {
+      try
+      {
+        var value = await File.ReadAllTextAsync(path);
+        if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var pid)) return pid;
+      }
+      catch (IOException) { }
+      await Task.Delay(25);
+    }
+
+    throw new TimeoutException($"PID file was not readable before the deadline: {Path.GetFileName(path)}");
+  }
   private static bool IsRunning(int pid) { try { return !Process.GetProcessById(pid).HasExited; } catch (ArgumentException) { return false; } }
 }
