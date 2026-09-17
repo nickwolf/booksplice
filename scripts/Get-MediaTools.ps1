@@ -322,7 +322,7 @@ if (Test-Path -LiteralPath $destinationPath) {
     return
 }
 
-$downloadDirectory = Join-Path ([IO.Path]::GetTempPath()) "audiobookconverter-ffmpeg-$([guid]::NewGuid().ToString('N'))"
+$downloadDirectory = Join-Path ([IO.Path]::GetTempPath()) "booksplice-ffmpeg-$([guid]::NewGuid().ToString('N'))"
 $workingArchivePath = Join-Path $downloadDirectory $asset
 $extractPath = Join-Path $downloadDirectory 'extracted'
 $stagingPath = Join-Path $resolvedDestinationRoot ".$release.$([guid]::NewGuid().ToString('N')).staging"

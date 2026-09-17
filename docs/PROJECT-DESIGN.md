@@ -1,6 +1,6 @@
 # Project design
 
-Audiobook Converter is a Windows application and command-line tool that converts supported local audiobook inputs into validated M4B files for a user-selected staging directory.
+BookSplice is a Windows application and command-line tool that converts supported local audiobook inputs into validated M4B files for a user-selected staging directory.
 
 ## Architecture
 
