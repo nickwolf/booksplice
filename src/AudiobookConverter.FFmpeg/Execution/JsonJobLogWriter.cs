@@ -1,5 +1,6 @@
 using System.Text.Json;
 using AudiobookConverter.Core.Analysis;
+using AudiobookConverter.Core.Ordering;
 
 namespace AudiobookConverter.FFmpeg.Execution;
 
@@ -78,6 +79,22 @@ public sealed partial class JsonJobLogWriter : IJobLogWriter
       {
         Status = record.Analysis.Status.ToString(),
         record.Analysis.SourceRootName,
+        OrderResolution = CreateOrderResolution(record.Analysis),
+        SourceSummaries = record.Analysis.OrderedFiles.Select((file, index) => new
+        {
+          Source = SourceLabel(index),
+          AudioStreams = file.ProbeResult.AudioStreams.Select(stream => new
+          {
+            stream.CodecName,
+            stream.CodecProfile,
+            stream.SampleRate,
+            stream.Channels,
+            stream.Duration,
+          }),
+          file.ProbeResult.Duration,
+          file.ProbeResult.FormatNames,
+          file.ProbeResult.SourceByteSize,
+        }),
         Diagnostics = record.Analysis.Diagnostics.Select(value => new { value.Code, Severity = value.Severity.ToString(), Message = Sanitize(value.Message, record.OrderedSources) }),
       },
       Plan = plan is null ? null : new
@@ -128,6 +145,40 @@ public sealed partial class JsonJobLogWriter : IJobLogWriter
 
   private static string Sanitize(string value, IReadOnlyList<string> orderedSources)
     => PublicTextRedactor.Sanitize(value, orderedSources);
+
+  private static object? CreateOrderResolution(BookAnalysis analysis)
+  {
+    var resolution = analysis.OrderResolution;
+    return resolution is null ? null : new
+    {
+      Status = resolution.Status.ToString(),
+      SelectedCandidate = resolution.SelectedCandidate is null ? null : CreateCandidate(resolution.SelectedCandidate, analysis),
+      Candidates = resolution.Candidates.Select(candidate => CreateCandidate(candidate, analysis)),
+      Evidence = resolution.Evidence.Select(evidence => CreateEvidence(evidence, analysis)),
+    };
+  }
+
+  private static object CreateCandidate(OrderCandidate candidate, BookAnalysis analysis)
+    => new
+    {
+      Id = candidate.Id.ToString(),
+      candidate.IsCredible,
+      Confidence = candidate.Confidence.ToString(),
+      OrderedSources = candidate.FileIds.Select(fileId => SourceLabel(analysis, fileId)),
+      Evidence = candidate.Evidence.Select(evidence => CreateEvidence(evidence, analysis)),
+    };
+
+  private static object CreateEvidence(OrderEvidence evidence, BookAnalysis analysis)
+    => new { evidence.Code, Sources = evidence.FileIds.Select(fileId => SourceLabel(analysis, fileId)) };
+
+  private static string SourceLabel(BookAnalysis analysis, string fileId)
+  {
+    for (var index = 0; index < analysis.OrderedFiles.Count; index++)
+      if (string.Equals(analysis.OrderedFiles[index].RelativePath, fileId, StringComparison.Ordinal)) return SourceLabel(index);
+    return "source-unknown";
+  }
+
+  private static string SourceLabel(int index) => $"source-{index + 1}";
 
   private static string FormatCommand(Core.Execution.ExecutionProcessResult process, IReadOnlyList<string> orderedSources)
   {

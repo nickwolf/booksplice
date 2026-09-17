@@ -1,6 +1,11 @@
 using System.Text;
 using System.Text.Json;
 using AudiobookConverter.Core.Analysis;
+using AudiobookConverter.Core.Chapters;
+using AudiobookConverter.Core.Covers;
+using AudiobookConverter.Core.Discovery;
+using AudiobookConverter.Core.Metadata;
+using AudiobookConverter.Core.Ordering;
 using AudiobookConverter.FFmpeg.Execution;
 
 namespace AudiobookConverter.FFmpeg.Tests.Execution;
@@ -83,6 +88,49 @@ public sealed class JsonJobLogWriterTests
   }
 
   [Fact]
+  public async Task WriteRecordsLabeledOrderEvidenceAndProbeSummariesWithoutSourcePaths()
+  {
+    using var directory = new TemporaryDirectory();
+    var jobId = Guid.NewGuid();
+    var firstPath = "C:\\Private Books\\Secret Title\\01 - Secret Chapter.m4a";
+    var secondPath = "C:\\Private Books\\Secret Title\\02 - Private Ending.m4a";
+    var first = Source(firstPath, "01 - Secret Chapter.m4a", "aac", "LC", 48000, 2, 4.5m, "mov,mp4,m4a", 1234);
+    var second = Source(secondPath, "02 - Private Ending.m4a", "aac", "LC", 48000, 2, 5.5m, "mov,mp4,m4a", 2345);
+    var selected = new OrderCandidate(OrderCandidateId.Metadata, [first.RelativePath, second.RelativePath], true, OrderConfidence.High, [new OrderEvidence("order.metadata.track", [first.RelativePath, second.RelativePath])]);
+    var resolution = new OrderResolution(OrderStatus.Resolved, selected, [selected], [new OrderEvidence("order.metadata.selected", [first.RelativePath, second.RelativePath])]);
+    var analysis = new BookAnalysis(BookAnalysisStatus.Ready, "C:\\Private Books", "Audiobook", [first, second], resolution, EmptyMetadata(), new CoverDiscoveryResult([], [], null), ChapterPlan.Valid([], 10_000_000), []);
+    var record = Audit(jobId, ConversionTerminalStatus.Succeeded, "done") with { Analysis = analysis, OrderedSources = [firstPath, secondPath] };
+
+    await new JsonJobLogWriter(directory.Path).WriteAsync(record, CancellationToken.None);
+
+    using var json = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(directory.Path, $"{jobId:D}.json")));
+    var analysisJson = json.RootElement.GetProperty("analysis");
+    var order = analysisJson.GetProperty("orderResolution");
+    Assert.Equal("Resolved", order.GetProperty("status").GetString());
+    Assert.Equal("Metadata", order.GetProperty("selectedCandidate").GetProperty("id").GetString());
+    Assert.Equal(["source-1", "source-2"], order.GetProperty("selectedCandidate").GetProperty("orderedSources").EnumerateArray().Select(value => value.GetString()));
+    Assert.Equal("order.metadata.selected", order.GetProperty("evidence")[0].GetProperty("code").GetString());
+    Assert.Equal(["source-1", "source-2"], order.GetProperty("evidence")[0].GetProperty("sources").EnumerateArray().Select(value => value.GetString()));
+
+    var summary = analysisJson.GetProperty("sourceSummaries")[0];
+    Assert.Equal("source-1", summary.GetProperty("source").GetString());
+    Assert.Equal("aac", summary.GetProperty("audioStreams")[0].GetProperty("codecName").GetString());
+    Assert.Equal("LC", summary.GetProperty("audioStreams")[0].GetProperty("codecProfile").GetString());
+    Assert.Equal(48000, summary.GetProperty("audioStreams")[0].GetProperty("sampleRate").GetInt32());
+    Assert.Equal(2, summary.GetProperty("audioStreams")[0].GetProperty("channels").GetInt32());
+    Assert.Equal(4.5m, summary.GetProperty("audioStreams")[0].GetProperty("duration").GetDecimal());
+    Assert.Equal("mov,mp4,m4a", summary.GetProperty("formatNames").GetString());
+    Assert.Equal(1234, summary.GetProperty("sourceByteSize").GetInt64());
+
+    var evidence = order.GetRawText() + analysisJson.GetProperty("sourceSummaries").GetRawText();
+    Assert.DoesNotContain("C:\\", evidence, StringComparison.OrdinalIgnoreCase);
+    Assert.DoesNotContain("Secret Chapter", evidence, StringComparison.OrdinalIgnoreCase);
+    Assert.DoesNotContain("Private Ending", evidence, StringComparison.OrdinalIgnoreCase);
+    Assert.Equal(firstPath, json.RootElement.GetProperty("orderedSources")[0].GetString());
+    Assert.Equal(secondPath, json.RootElement.GetProperty("orderedSources")[1].GetString());
+  }
+
+  [Fact]
   public void SanitizeRemovesExtensionlessPathWithoutRemovingTrailingProse()
   {
     var value = PublicTextRedactor.Sanitize("Cannot read C:\\Private Books due to access; retry later", ["C:\\Private Books"]);
@@ -117,6 +165,11 @@ public sealed class JsonJobLogWriterTests
     [],
     [new("test", ServiceDiagnosticSeverity.Error, message)],
     null);
+
+  private static SourceFile Source(string fullPath, string relativePath, string codecName, string codecProfile, int sampleRate, int channels, decimal duration, string formatNames, long sourceByteSize)
+    => new(fullPath, relativePath, new MediaProbeResult([new AudioTrack(0, codecName, "audio", channels, sampleRate, duration, new Rational(1, sampleRate), new Dictionary<string, string>(), codecProfile)], [], [], new TagCollection([]), new Dictionary<string, string>(), [], duration, formatNames, sourceByteSize));
+
+  private static BookMetadata EmptyMetadata() => new(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>());
 
   private sealed class FailingMoveOperations : IJobLogFileOperations
   {
