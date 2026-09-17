@@ -1,0 +1,26 @@
+<Window x:Class="BookSplice.Gui.Views.FirstLaunchWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Set up BookSplice" Width="600" Height="450" MinWidth="440" MinHeight="360"
+        WindowStartupLocation="CenterScreen">
+  <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <StackPanel Margin="24" IsEnabled="{Binding CanEdit}">
+      <TextBlock Text="Welcome to BookSplice" FontSize="24" Margin="0,0,0,12"/>
+      <TextBlock Text="Choose where finished audiobooks go. Source files stay unchanged." TextWrapping="Wrap" Margin="0,0,0,16"/>
+      <Label Content="_Where should completed M4B files be placed?" Target="{Binding ElementName=OutputFolder}"/>
+      <DockPanel Margin="0,0,0,16">
+        <Button DockPanel.Dock="Right" Content="_Browse..." Click="Browse_Click" Padding="12,5" Margin="8,0,0,0"/>
+        <TextBox x:Name="OutputFolder" Text="{Binding OutputDirectory, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Output folder" VerticalContentAlignment="Center"/>
+      </DockPanel>
+      <Label Content="_Audio quality" Target="{Binding ElementName=Quality}"/>
+      <ComboBox x:Name="Quality" ItemsSource="{Binding QualityProfiles}" DisplayMemberPath="DisplayName" SelectedValuePath="Id" SelectedValue="{Binding QualityProfileId}" AutomationProperties.Name="Audio quality" Margin="0,0,0,12"/>
+      <TextBlock Text="Source channels are preserved. You can change these choices later in Settings." TextWrapping="Wrap" Margin="0,0,0,12"/>
+      <CheckBox Content="_Create chapters from source file boundaries" IsChecked="{Binding CreateChapters}" Margin="0,0,0,16"/>
+      <TextBlock Text="{Binding ErrorMessage}" Foreground="Firebrick" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" Margin="0,0,0,12"/>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+        <Button Content="Cancel" IsCancel="True" Padding="16,6" Margin="0,0,8,0"/>
+        <Button Content="_Save and continue" IsDefault="True" Click="Save_Click" Padding="16,6"/>
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+</Window>
