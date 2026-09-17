@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("AudiobookConverter.FFmpeg.Tests")]
+[assembly: InternalsVisibleTo("AudiobookConverter.Cli.Tests")]
 
 namespace AudiobookConverter.FFmpeg.Tools;
 

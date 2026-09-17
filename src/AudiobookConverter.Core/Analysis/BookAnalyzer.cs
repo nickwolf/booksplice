@@ -6,7 +6,12 @@ using AudiobookConverter.Core.Ordering;
 
 namespace AudiobookConverter.Core.Analysis;
 
-public sealed class BookAnalyzer
+public interface IBookAnalyzer
+{
+  Task<BookAnalysis> AnalyzeAsync(string inputPath, bool chaptersEnabled, BookAnalysisOptions? options = null, CancellationToken cancellationToken = default);
+}
+
+public sealed class BookAnalyzer : IBookAnalyzer
 {
   private readonly ISourceDiscoverer _discoverer;
   private readonly IOrderResolver _orderResolver;

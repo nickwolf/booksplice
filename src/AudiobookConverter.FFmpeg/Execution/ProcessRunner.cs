@@ -5,6 +5,7 @@ namespace AudiobookConverter.FFmpeg.Execution;
 
 public sealed class ProcessRunner : IProcessRunner
 {
+  internal static AsyncLocal<Action<int>?> ProcessStarted { get; } = new();
   public async Task<ProcessResult> RunAsync(ProcessSpec spec, IProgress<string>? progress, CancellationToken cancellationToken)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(spec.FileName);
@@ -13,6 +14,7 @@ public sealed class ProcessRunner : IProcessRunner
     try
     {
       if (!process.Start()) throw new InvalidOperationException($"Unable to start process '{spec.FileName}'.");
+      ProcessStarted.Value?.Invoke(process.Id);
       cpuBefore = process.TotalProcessorTime;
       var stdout = new StringBuilder();
       var stderr = new StringBuilder();
