@@ -1,0 +1,19 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/BookSplice.Cli/BookSplice.Cli.csproj" />
+    <Project Path="src/BookSplice.Core/BookSplice.Core.csproj" />
+    <Project Path="src/BookSplice.FFmpeg/BookSplice.FFmpeg.csproj" />
+    <Project Path="src/BookSplice.Gui/BookSplice.Gui.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/BookSplice.Acceptance.Tests/BookSplice.Acceptance.Tests.csproj" />
+    <Project Path="tests/BookSplice.Cli.Tests/BookSplice.Cli.Tests.csproj" />
+    <Project Path="tests/BookSplice.Core.Tests/BookSplice.Core.Tests.csproj" />
+    <Project Path="tests/BookSplice.FFmpeg.Tests/BookSplice.FFmpeg.Tests.csproj" />
+    <Project Path="tests/BookSplice.Gui.Tests/BookSplice.Gui.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/BookSplice.Benchmarks/BookSplice.Benchmarks.csproj" />
+    <Project Path="tools/BookSplice.FixtureGenerator/BookSplice.FixtureGenerator.csproj" />
+  </Folder>
+</Solution>

@@ -8,7 +8,7 @@
 
 The managed dependency writes native iTunes MP4 atoms and iTunes freeform atoms for the local Mp3tag metadata profile.
 
-Audiobook Converter can acquire and use the following third-party components. The downloaded binaries are build artifacts and are not committed to this repository.
+BookSplice can acquire and use the following third-party components. The downloaded binaries are build artifacts and are not committed to this repository.
 
 ## FFmpeg
 
@@ -29,4 +29,4 @@ FFmpeg includes separately maintained libraries. The pinned build reports compon
 - Copyright: 2020-2021 BtbN
 - Build-script license: MIT License
 
-The acquisition script verifies the archive against its pinned SHA-256 digest before extraction. It also checks the executable versions and the capabilities required by Audiobook Converter.
+The acquisition script verifies the archive against its pinned SHA-256 digest before extraction. It also checks the executable versions and the capabilities required by BookSplice.
