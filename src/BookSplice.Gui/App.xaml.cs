@@ -32,7 +32,10 @@ public partial class App : Application
         if (new FirstLaunchWindow(model).ShowDialog() != true) { Shutdown(); return; }
         settings = model.SavedSettings!;
       }
-      MainWindow = new MainWindow(store, settings);
+      var mediaTools = Environment.GetEnvironmentVariable("BOOKSPLICE_FFMPEG_DIR");
+      if (string.IsNullOrWhiteSpace(mediaTools)) mediaTools = System.IO.Path.Combine(AppContext.BaseDirectory, "tools", "ffmpeg");
+      var services = await Task.Run(() => host.CreateServices(mediaTools));
+      MainWindow = new MainWindow(store, settings, services);
       ShutdownMode = ShutdownMode.OnMainWindowClose;
       MainWindow.Show();
     }

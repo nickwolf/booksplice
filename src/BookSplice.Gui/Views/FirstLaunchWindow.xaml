@@ -16,6 +16,18 @@
       <ComboBox x:Name="Quality" ItemsSource="{Binding QualityProfiles}" DisplayMemberPath="DisplayName" SelectedValuePath="Id" SelectedValue="{Binding QualityProfileId}" AutomationProperties.Name="Audio quality" Margin="0,0,0,12"/>
       <TextBlock Text="Source channels are preserved. You can change these choices later in Settings." TextWrapping="Wrap" Margin="0,0,0,12"/>
       <CheckBox Content="_Create chapters from source file boundaries" IsChecked="{Binding CreateChapters}" Margin="0,0,0,16"/>
+      <Expander Header="Advanced settings" Margin="0,0,0,12">
+        <StackPanel>
+          <TextBlock Text="Parallel encoding jobs (blank uses Automatic)" Margin="0,8,0,4"/>
+          <ComboBox ItemsSource="{Binding JobChoices}" SelectedItem="{Binding ConversionJobs}" AutomationProperties.Name="Parallel encoding jobs"/>
+          <TextBlock Text="Metadata profile" Margin="0,8,0,4"/>
+          <ComboBox ItemsSource="{Binding MetadataProfiles}" SelectedItem="{Binding MetadataProfileId}" AutomationProperties.Name="Metadata profile"/>
+          <TextBlock Text="Validation (Full decodes the entire output)" Margin="0,8,0,4"/>
+          <ComboBox ItemsSource="{Binding ValidationLevels}" SelectedItem="{Binding ValidationLevel}" AutomationProperties.Name="Validation level"/>
+          <TextBlock Text="Logging level" Margin="0,8,0,4"/>
+          <ComboBox ItemsSource="{Binding LogLevels}" SelectedItem="{Binding LogLevel}" AutomationProperties.Name="Logging level"/>
+        </StackPanel>
+      </Expander>
       <TextBlock Text="{Binding ErrorMessage}" Foreground="Firebrick" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" Margin="0,0,0,12"/>
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
         <Button Content="Cancel" IsCancel="True" Padding="16,6" Margin="0,0,8,0"/>

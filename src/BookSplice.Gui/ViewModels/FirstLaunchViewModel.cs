@@ -20,6 +20,14 @@ public sealed class FirstLaunchViewModel(FirstLaunchService service, AppSettings
   public bool IsBusy { get => _isBusy; private set { _isBusy = value; Changed(); Changed(nameof(CanEdit)); } }
   public bool CanEdit => !IsBusy;
   public string ErrorMessage { get => _errorMessage; private set { _errorMessage = value; Changed(); } }
+  public int? ConversionJobs { get; set; } = initial.ConversionJobs;
+  public string MetadataProfileId { get; set; } = initial.MetadataProfileId;
+  public ValidationLevel ValidationLevel { get; set; } = initial.ValidationLevel;
+  public LogLevel LogLevel { get; set; } = initial.LogLevel;
+  public IReadOnlyList<string> MetadataProfiles { get; } = ["GenericMp4", "NickMp3tag"];
+  public IReadOnlyList<ValidationLevel> ValidationLevels { get; } = Enum.GetValues<ValidationLevel>();
+  public IReadOnlyList<LogLevel> LogLevels { get; } = Enum.GetValues<LogLevel>();
+  public IReadOnlyList<int?> JobChoices { get; } = new int?[] { null }.Concat(Enumerable.Range(1, 32).Select(value => (int?)value)).ToArray();
   public bool Completed { get; private set; }
   public AppSettings? SavedSettings { get; private set; }
 
@@ -31,7 +39,7 @@ public sealed class FirstLaunchViewModel(FirstLaunchService service, AppSettings
     try
     {
       cancellationToken.ThrowIfCancellationRequested();
-      var settings = initial with { OutputDirectory = OutputDirectory.Trim(), QualityProfileId = QualityProfileId, CreateChapters = CreateChapters };
+      var settings = initial with { OutputDirectory = OutputDirectory.Trim(), QualityProfileId = QualityProfileId, CreateChapters = CreateChapters, ConversionJobs = ConversionJobs, MetadataProfileId = MetadataProfileId, ValidationLevel = ValidationLevel, LogLevel = LogLevel };
       var result = await service.CompleteAsync(settings, cancellationToken);
       if (!result.Completed)
       {
@@ -49,4 +57,3 @@ public sealed class FirstLaunchViewModel(FirstLaunchService service, AppSettings
 
   private void Changed([CallerMemberName] string? property = null) => PropertyChanged?.Invoke(this, new(property));
 }
-

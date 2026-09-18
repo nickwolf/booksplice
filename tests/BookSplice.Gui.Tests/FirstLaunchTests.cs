@@ -116,9 +116,29 @@ public sealed class FirstLaunchTests : IDisposable
     public Task SaveAsync(AppSettings settings, CancellationToken cancellationToken = default) => throw new IOException("disk full");
   }
 
+  [Fact]
+  public async Task AdvancedSettingsPersistThroughSetup()
+  {
+    Directory.CreateDirectory(_root);
+    var store = new JsonSettingsStore(_root);
+    var model = new FirstLaunchViewModel(new FirstLaunchService(store), AppSettings.Defaults)
+    {
+      OutputDirectory = _root,
+      ConversionJobs = 3,
+      MetadataProfileId = "NickMp3tag",
+      ValidationLevel = ValidationLevel.Full,
+      LogLevel = LogLevel.Debug
+    };
+    Assert.True(await model.SaveAsync());
+    var saved = (await store.LoadAsync()).Settings!;
+    Assert.Equal(3, saved.ConversionJobs);
+    Assert.Equal("NickMp3tag", saved.MetadataProfileId);
+    Assert.Equal(ValidationLevel.Full, saved.ValidationLevel);
+    Assert.Equal(LogLevel.Debug, saved.LogLevel);
+  }
+
   public void Dispose()
   {
     if (Directory.Exists(_root)) Directory.Delete(_root, true);
   }
 }
-
