@@ -183,6 +183,17 @@ public sealed class ConversionServiceTests
     Assert.Null(audit.Publication);
   }
 
+  [Fact]
+  public async Task ChangedSourceOrderStopsBeforePlanning()
+  {
+    var fixture = new Fixture();
+    var request = fixture.Request() with { ExpectedSourcePaths = ["previously-reviewed.mp3"] };
+    var result = await fixture.Service.ConvertAsync(request, CancellationToken.None);
+    Assert.Equal(ConversionTerminalStatus.DecisionRequired, result.Status);
+    Assert.Equal(["analyze", "audit"], fixture.Calls);
+    Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "analysis.sources-changed");
+  }
+
   private sealed class Fixture : IBookAnalyzer, IConversionPlanner, IConversionExecutor, IOutputValidator, IAtomicPublisher, ITemporaryArtifactCleaner, IJobLogWriter
   {
     public readonly List<string> Calls = [];

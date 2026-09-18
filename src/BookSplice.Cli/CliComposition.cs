@@ -42,7 +42,7 @@ public static class CliComposition
       new SourceDiscoverer(probe, Math.Clamp(Environment.ProcessorCount, 1, 8)),
       new OrderResolver(),
       new MetadataAggregator(),
-      new CoverDiscoverer(),
+      new CoverDiscoverer(new BookSplice.FFmpeg.Covers.MediaCoverPayloadOpener(tools)),
       new ChapterPlanner());
     var planner = new ConversionPlanner(new OutputNamePlanner(), new FileSystemStorageSpaceProvider());
     var executor = new FFmpegConversionExecutor(runner, new FFmpegCommandFactory(tools), new Mp4MetadataWriter(), temporaryRoot);

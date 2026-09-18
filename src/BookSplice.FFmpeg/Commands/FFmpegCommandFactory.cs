@@ -49,7 +49,7 @@ public sealed class FFmpegCommandFactory(MediaToolSet tools)
       var index = metadataIndex.ToString(System.Globalization.CultureInfo.InvariantCulture);
       args.AddRange(["-map_metadata", index, "-map_chapters", index]);
     }
-    args.AddRange(["-movflags", "+faststart", "-f", "ipod", "-y", temporaryOutput]);
+    args.AddRange(["-movflags", "+faststart+disable_chpl", "-f", "ipod", "-y", temporaryOutput]);
     return new ProcessSpec(tools.FFmpegPath, args);
   }
   public ProcessSpec CreateSegment(ConversionPlan plan, string source, string output)

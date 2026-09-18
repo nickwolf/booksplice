@@ -26,7 +26,7 @@ public sealed class AppHost(string localAppDataRoot)
     var runner = new ProcessRunner();
     var probe = new FFprobeMediaProbe(runner, tools);
     var analyzer = new BookAnalyzer(new SourceDiscoverer(probe, Math.Clamp(Environment.ProcessorCount, 1, 8)),
-      new OrderResolver(), new MetadataAggregator(), new CoverDiscoverer(), new ChapterPlanner());
+      new OrderResolver(), new MetadataAggregator(), new CoverDiscoverer(new BookSplice.FFmpeg.Covers.MediaCoverPayloadOpener(tools)), new ChapterPlanner());
     var planner = new ConversionPlanner(new OutputNamePlanner(), new StorageSpaceProvider());
     var localDirectory = Path.Combine(Path.GetFullPath(localAppDataRoot), "BookSplice");
     var temporaryRoot = Path.Combine(localDirectory, "temp");
@@ -35,7 +35,7 @@ public sealed class AppHost(string localAppDataRoot)
       new FFmpegOutputValidator(probe, runner, tools, new CoverPayloadValidator()),
       new AtomicPublisher(), new TemporaryArtifactCleaner(temporaryRoot),
       new JsonJobLogWriter(Path.Combine(localDirectory, "logs")));
-    return new(analyzer, planner, service);
+    return new(analyzer, planner, service, new BookSplice.FFmpeg.Covers.MediaCoverPayloadOpener(tools));
   }
 
   private sealed class StorageSpaceProvider : IStorageSpaceProvider
@@ -52,5 +52,4 @@ public sealed class AppHost(string localAppDataRoot)
   }
 }
 
-public sealed record GuiServices(IBookAnalyzer Analyzer, IConversionPlanner Planner, IConversionService Conversion);
-
+public sealed record GuiServices(IBookAnalyzer Analyzer, IConversionPlanner Planner, IConversionService Conversion, ICoverPayloadOpener CoverPayloads);
