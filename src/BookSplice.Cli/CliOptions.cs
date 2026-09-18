@@ -9,7 +9,10 @@ public sealed record CliOptions(
   bool? CreateChapters,
   bool Overwrite,
   bool DryRun,
-  bool Json);
+  bool Json,
+  Core.Ordering.OrderCandidateId? Order = null,
+  string? MetadataProfileId = null,
+  Core.Settings.ValidationLevel? Validation = null);
 
 public sealed record CliDiagnostic(string Code, string Message);
 

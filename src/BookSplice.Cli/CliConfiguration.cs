@@ -30,6 +30,8 @@ public static class CliConfiguration
     var settings = loaded.Settings with
     {
       OutputDirectory = Path.GetFullPath(output),
+      MetadataProfileId = options.MetadataProfileId ?? loaded.Settings.MetadataProfileId,
+      ValidationLevel = options.Validation ?? loaded.Settings.ValidationLevel,
       QualityProfileId = profile.Id,
       ConversionJobs = options.Jobs ?? loaded.Settings.ConversionJobs,
       CreateChapters = options.CreateChapters ?? loaded.Settings.CreateChapters,
