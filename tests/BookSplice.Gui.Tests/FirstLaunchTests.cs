@@ -1,3 +1,4 @@
+using BookSplice.Core.Planning;
 using BookSplice.Core.Settings;
 using BookSplice.Gui.Bootstrap;
 using BookSplice.Gui.ViewModels;
@@ -127,7 +128,8 @@ public sealed class FirstLaunchTests : IDisposable
       ConversionJobs = 3,
       MetadataProfileId = "NickMp3tag",
       ValidationLevel = ValidationLevel.Full,
-      LogLevel = LogLevel.Debug
+      LogLevel = LogLevel.Debug,
+      ChannelPolicy = ChannelPolicy.ForceStereo
     };
     Assert.True(await model.SaveAsync());
     var saved = (await store.LoadAsync()).Settings!;
@@ -135,6 +137,7 @@ public sealed class FirstLaunchTests : IDisposable
     Assert.Equal("NickMp3tag", saved.MetadataProfileId);
     Assert.Equal(ValidationLevel.Full, saved.ValidationLevel);
     Assert.Equal(LogLevel.Debug, saved.LogLevel);
+    Assert.Equal(ChannelPolicy.ForceStereo, saved.ChannelPolicy);
   }
 
   public void Dispose()

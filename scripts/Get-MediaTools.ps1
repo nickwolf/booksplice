@@ -211,6 +211,9 @@ function Test-MediaToolDirectory {
         [string]$ExpectedVersionPrefix,
 
         [Parameter(Mandatory = $true)]
+        [string]$ExpectedLicenseSha256,
+
+        [Parameter(Mandatory = $true)]
         [string[]]$ExpectedExecutables
     )
 
@@ -219,6 +222,15 @@ function Test-MediaToolDirectory {
         if (-not (Test-Path -LiteralPath $executablePath -PathType Leaf)) {
             throw "Validated media tool directory is missing '$executable'."
         }
+    }
+
+    $licensePath = Join-Path $DirectoryPath 'FFmpeg-LICENSE.txt'
+    if (-not (Test-Path -LiteralPath $licensePath -PathType Leaf)) {
+        throw "Validated media tool directory is missing 'FFmpeg-LICENSE.txt'."
+    }
+    $actualLicenseSha256 = (Get-FileHash -LiteralPath $licensePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if (-not [string]::Equals($actualLicenseSha256, $ExpectedLicenseSha256, [StringComparison]::Ordinal)) {
+        throw "Pinned media tool license drift detected. Expected '$ExpectedLicenseSha256', received '$actualLicenseSha256'."
     }
 
     $ffmpegPath = Join-Path $DirectoryPath 'ffmpeg.exe'
@@ -273,6 +285,7 @@ $asset = [string](Get-RequiredProperty -InputObject $manifest -Name 'asset')
 $variant = [string](Get-RequiredProperty -InputObject $manifest -Name 'variant')
 $expectedVersionPrefix = [string](Get-RequiredProperty -InputObject $manifest -Name 'expectedVersionPrefix')
 $expectedSha256 = [string](Get-RequiredProperty -InputObject $manifest -Name 'sha256')
+$expectedLicenseSha256 = [string](Get-RequiredProperty -InputObject $manifest -Name 'licenseSha256')
 $expectedExecutables = @($manifest.expectedExecutables | ForEach-Object { [string]$_ })
 
 if ([int]$schemaVersion -ne 1) {
@@ -299,6 +312,10 @@ if ($expectedSha256 -cnotmatch '^[0-9a-f]{64}$') {
     throw 'Media tool manifest SHA-256 must be a 64-character lowercase hexadecimal digest.'
 }
 
+if ($expectedLicenseSha256 -cnotmatch '^[0-9a-f]{64}$') {
+    throw 'Media tool manifest license SHA-256 must be a 64-character lowercase hexadecimal digest.'
+}
+
 if ($expectedExecutables.Count -ne 2 -or
     $expectedExecutables[0] -cne 'ffmpeg.exe' -or
     $expectedExecutables[1] -cne 'ffprobe.exe') {
@@ -316,6 +333,7 @@ if (Test-Path -LiteralPath $destinationPath) {
     $tools = Test-MediaToolDirectory `
         -DirectoryPath $destinationPath `
         -ExpectedVersionPrefix $expectedVersionPrefix `
+        -ExpectedLicenseSha256 $expectedLicenseSha256 `
         -ExpectedExecutables $expectedExecutables
     Write-Output "Pinned media tools are already present and valid at '$destinationPath'."
     Write-Output $tools
@@ -374,14 +392,35 @@ try {
         }
     }
 
+    $licenseCandidates = @(Get-ChildItem -LiteralPath $extractPath -Filter 'LICENSE.txt' -File -Recurse)
+    if ($licenseCandidates.Count -ne 1) {
+        throw "Expected exactly one LICENSE.txt in the verified archive, found $($licenseCandidates.Count)."
+    }
+    $actualLicenseSha256 = (Get-FileHash -LiteralPath $licenseCandidates[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    if (-not [string]::Equals($actualLicenseSha256, $expectedLicenseSha256, [StringComparison]::Ordinal)) {
+        throw "Verified archive license failed SHA-256 verification. Expected '$expectedLicenseSha256', received '$actualLicenseSha256'."
+    }
+
     New-Item -ItemType Directory -Path $resolvedDestinationRoot -Force | Out-Null
     Copy-Item -LiteralPath $sourceDirectory -Destination $stagingPath -Recurse
+    Copy-Item -LiteralPath $licenseCandidates[0].FullName -Destination (Join-Path $stagingPath 'FFmpeg-LICENSE.txt')
     $tools = Test-MediaToolDirectory `
         -DirectoryPath $stagingPath `
         -ExpectedVersionPrefix $expectedVersionPrefix `
+        -ExpectedLicenseSha256 $expectedLicenseSha256 `
         -ExpectedExecutables $expectedExecutables
 
-    [IO.Directory]::Move($stagingPath, $destinationPath)
+    $moveDeadline = [DateTime]::UtcNow.AddSeconds(10)
+    while ($true) {
+        try {
+            [IO.Directory]::Move($stagingPath, $destinationPath)
+            break
+        }
+        catch [System.UnauthorizedAccessException], [System.IO.IOException] {
+            if ([DateTime]::UtcNow -ge $moveDeadline) { throw }
+            Start-Sleep -Milliseconds 250
+        }
+    }
     $tools = [pscustomobject]@{
         FFmpegPath = Join-Path $destinationPath 'ffmpeg.exe'
         FFprobePath = Join-Path $destinationPath 'ffprobe.exe'

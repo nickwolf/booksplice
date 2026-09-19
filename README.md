@@ -3,128 +3,117 @@
 [![CI](https://github.com/nickwolf/booksplice/actions/workflows/ci.yml/badge.svg)](https://github.com/nickwolf/booksplice/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-BookSplice turns folders of audiobook tracks into validated, chaptered M4B files on Windows. It preserves useful metadata and cover art, orders tracks deterministically, and publishes the finished book only after validation succeeds.
-
-BookSplice is currently a source-built command-line application. The WPF GUI project is a scaffold, and packaged releases are not available yet.
+BookSplice turns folders of audiobook tracks into validated, chaptered M4B files on Windows. It preserves useful metadata and cover art, resolves playback order before conversion, and publishes the finished book only after validation succeeds.
 
 ## Highlights
 
-- Discovers MP3, AAC, M4A, M4B, FLAC, OGG, Opus, and WMA files recursively without changing the source files.
-- Uses track, disc, path, and filename evidence to choose a deterministic order. Ambiguous ordering stops the current CLI; resolve the conflicting evidence before rerunning.
-- Creates chapters, carries forward common audiobook and Mp3tag metadata, and selects embedded or external cover art.
-- Copies compatible AAC streams when possible and otherwise transcodes to AAC-LC with a pinned LGPL FFmpeg build.
-- Validates the output before an atomic publish. Existing files are preserved unless `--overwrite` is supplied.
-- Supports dry runs, machine-readable JSON events, cancellation, bounded parallel work, and local audit records.
+- Drag folders into the Windows application, review the detected order and metadata, then convert.
+- Resolve ambiguous natural-path and track-metadata ordering before conversion can begin.
+- Edit book metadata and chapter titles, choose or omit artwork, and preview the output path and audio strategy.
+- Copy compatible AAC streams when possible and otherwise transcode once to AAC-LC using one of four quality profiles.
+- Validate container structure, duration, chapters, artwork, and metadata before atomic publication. Full-decode validation is optional.
+- Queue multiple books with bounded concurrency, progress, cancellation, retry, and independent failure handling.
+- Use the same engine from the `booksplice` CLI with dry runs and newline-delimited JSON events.
 
-M4B files are accepted for inspection, but the current planner does not convert an existing M4B file.
+BookSplice does not modify source files. Existing M4B files can be inspected but are not conversion inputs in version 0.1.0.
 
-## Requirements
+## Install on Windows
 
-- Windows
-- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), matching [`global.json`](global.json)
-- PowerShell and Git
-
-The repository pins an FFmpeg build in [`tools/ffmpeg/manifest.json`](tools/ffmpeg/manifest.json). The acquisition script verifies its SHA-256 digest, version, and required capabilities before use.
-
-## Quick start
-
-Clone the repository and install the pinned media tools:
+1. Download `BookSplice-0.1.0-win-x64.zip` and `BookSplice-0.1.0-win-x64.zip.sha256` from the GitHub release.
+2. Verify the archive in PowerShell:
 
 ```powershell
-git clone https://github.com/nickwolf/booksplice.git
-cd booksplice
-
-$toolRoot = Join-Path $PWD "artifacts\tools\ffmpeg"
-.\scripts\Get-MediaTools.ps1 `
-    -ManifestPath .\tools\ffmpeg\manifest.json `
-    -DestinationRoot $toolRoot
-
-$release = (Get-Content .\tools\ffmpeg\manifest.json | ConvertFrom-Json).release
-$env:BOOKSPLICE_FFMPEG_DIR = Join-Path $toolRoot $release
+$expected = (Get-Content .\BookSplice-0.1.0-win-x64.zip.sha256 -Raw).Split()[0]
+$actual = (Get-FileHash .\BookSplice-0.1.0-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actual -ne $expected) { throw 'BookSplice checksum mismatch.' }
 ```
 
-Preview a conversion without writing output:
+3. Extract the ZIP to a folder you can keep, such as `%LOCALAPPDATA%\Programs\BookSplice`.
+4. Run `BookSplice.Gui.exe`.
 
-```powershell
-New-Item -ItemType Directory -Force "C:\Audiobooks\Staging" | Out-Null
+The package is self-contained and does not require the .NET SDK. It includes the pinned LGPL FFmpeg tools. Windows may show a SmartScreen warning because version 0.1.0 is not code signed.
 
-dotnet run --project .\src\BookSplice.Cli -- `
-    "C:\Audiobooks\My Book" `
-    --output "C:\Audiobooks\Staging" `
-    --dry-run
-```
+## First launch and settings
 
-Remove `--dry-run` to perform the conversion. BookSplice writes the resulting M4B to the staging directory and leaves the source tree unchanged.
+First launch asks where completed M4B files should go, which audio quality profile to use, and whether to create chapters from source-file boundaries. Advanced settings expose channel handling, parallel jobs, metadata profile, lightweight or full-decode validation, and logging level.
+
+Settings are stored in `%LOCALAPPDATA%\BookSplice\settings.json`. BookSplice does not silently replace a corrupt settings file or a file from a newer schema version.
+
+The quality profiles use native AAC-LC when transcoding:
+
+| Profile | Bitrate | Intended use |
+| --- | ---: | --- |
+| Efficient | 48 kbps | Smaller spoken-word files |
+| Balanced | 80 kbps | General audiobook listening |
+| High quality | 96 kbps | Higher-quality listening; default |
+| Preserve more | 128 kbps | More conservative compression |
+
+Compatible AAC input can use stream copy when channel handling preserves the source. Forcing mono or stereo uses AAC-LC transcoding.
+
+## GUI workflow
+
+1. Drop one or more audiobook folders onto the main window, or use **Add folder**.
+2. Select a queued book and review its file count, duration, codec summary, metadata, chapters, and cover.
+3. If BookSplice finds more than one credible order, inspect each complete track list and choose one. Conversion remains disabled until an order is selected.
+4. Edit metadata or chapter titles, select different artwork, or choose not to embed artwork.
+5. Use **Preview output** to check the destination and selected audio strategy.
+6. Convert the selected book or all ready books. A completed item exposes its published output folder. Use **Copy diagnostics** to copy a support summary with recognized local paths redacted.
+
+Changing source membership or playback order after review stops conversion and requires analysis again. Closing the application while work is active is blocked until cancellation and cleanup finish.
 
 ## Command line
 
 ```text
-booksplice <source> [--output <directory>] [--quality <profile>] [--bitrate <kbps>] [--jobs <count>] [--chapters | --no-chapters] [--overwrite] [--dry-run] [--json]
+booksplice <source> [options]
+  --output <folder>                 Existing output folder or saved setting
+  --quality <profile>               efficient, balanced, high-quality, preserve-more
+  --bitrate <32-320>                Custom AAC bitrate in kbps
+  --jobs <1-32>                     Parallel segment encoders
+  --order <natural|metadata>        Explicit source ordering candidate
+  --metadata-profile <name>         GenericMp4 or NickMp3tag
+  --validation <lightweight|full>   Output validation level
+  --channels <preserve|mono|stereo> Output channel handling
+  --chapters | --no-chapters        Chapter creation
+  --overwrite                       Replace an existing output after validation
+  --dry-run                         Plan without output, temporary files, or audit records
+  --json                            Newline-delimited JSON; never prompts
 ```
 
-| Option | Purpose |
-| --- | --- |
-| `<source>` | One audio file or a directory to scan recursively. |
-| `--output <directory>` | Fully qualified, existing output directory. Required by the current CLI. |
-| `--quality <profile>` | Select `efficient`, `balanced`, `high-quality`, or `preserve-more`. |
-| `--bitrate <kbps>` | Override the profile bitrate with a value from 32 through 320. |
-| `--jobs <count>` | Limit simultaneous segment transcodes to a value from 1 through 32. |
-| `--chapters`, `--no-chapters` | Override chapter creation for this run. |
-| `--overwrite` | Replace the requested output path after validation. The default chooses a collision-free name. |
-| `--dry-run` | Analyze and print the planned strategy without creating output, temporary files, or audit records. |
-| `--json` | Emit newline-delimited JSON events for automation. Diagnostics remain on standard error. |
+An interactive terminal prompts when ordering needs a decision. Redirected input and JSON mode never prompt. Command-line overrides apply to that run and are not saved.
 
-Quality profiles use native AAC-LC when transcoding:
+Exit codes are 0 for success, 1 for unexpected failure, 2 for usage error, 3 for invalid input or configuration, 4 for an unresolved ordering decision, 5 for conversion failure, 6 for validation failure, 7 for publication failure, and 8 for cancellation.
 
-| Profile | Bitrate |
-| --- | ---: |
-| `efficient` | 48 kbps |
-| `balanced` | 80 kbps |
-| `high-quality` | 96 kbps |
-| `preserve-more` | 128 kbps |
+## Local data and privacy
 
-`high-quality` is the default. Compatible AAC input may use stream copy instead of the selected transcode profile.
-
-Default validation checks the container, AAC stream, duration, final packet region, chapters, cover, and metadata. Full decode validation is available through application settings but is not yet exposed as a command-line option. The current CLI also does not expose metadata-profile selection.
-
-## Local data
-
-BookSplice stores its local files under `%LOCALAPPDATA%\BookSplice`:
+BookSplice stores local state under `%LOCALAPPDATA%\BookSplice`:
 
 | Path | Contents |
 | --- | --- |
-| `settings.json` | Application settings. The current CLI reads this file but does not provide a settings command. Command-line overrides are not persisted. |
-| `logs\` | Atomic JSON audit records for non-dry-run jobs. They retain local paths, imported and final metadata, selected-cover details, timings, and command evidence. Source paths in embedded diagnostics and command arguments are redacted. Treat these files as private. |
-| `temp\` | Per-job temporary files removed after success, failure, or cancellation. |
+| `settings.json` | Persistent GUI and CLI defaults |
+| `logs\` | Atomic JSON audit records for non-dry-run jobs |
+| `temp\` | Per-job temporary files removed after success, failure, or cancellation |
+
+Audit records contain local source paths, imported and final metadata, artwork selection, timings, and command evidence. Treat them as private. Public diagnostics redact recognized source paths and command arguments. Review the summary before sharing because arbitrary identifiers in tool or operating-system messages may remain.
 
 `BOOKSPLICE_FFMPEG_DIR` can point to a directory containing `ffmpeg.exe` and `ffprobe.exe`. `BOOKSPLICE_LOCAL_APP_DATA` overrides the Local AppData root for isolated runs and tests.
 
-## Exit codes
+## Build from source
 
-| Code | Meaning |
-| ---: | --- |
-| 0 | Success or a completed dry run |
-| 1 | Unexpected failure |
-| 2 | Command-line usage error |
-| 3 | Invalid input or configuration |
-| 4 | Source ordering needs a decision; the current CLI cannot select a candidate |
-| 5 | Media tool or conversion failure |
-| 6 | Output validation failure |
-| 7 | Atomic publication failure |
-| 8 | Cancellation |
-
-## Development
+The repository requires the .NET 10 SDK selected by [`global.json`](global.json), PowerShell, and Git.
 
 ```powershell
+$toolRoot = Join-Path $PWD 'artifacts\tools\ffmpeg'
+.\scripts\Get-MediaTools.ps1 -ManifestPath .\tools\ffmpeg\manifest.json -DestinationRoot $toolRoot
+$release = (Get-Content .\tools\ffmpeg\manifest.json | ConvertFrom-Json).release
+$env:BOOKSPLICE_FFMPEG_DIR = Join-Path $toolRoot $release
+
 dotnet restore
 dotnet build --configuration Release --no-restore
 dotnet test --configuration Release --no-build
 dotnet format --verify-no-changes --no-restore
 ```
 
-The test suite creates synthetic fixtures and does not require private audiobook media. Tests that exercise the pinned FFmpeg binaries run when `BOOKSPLICE_FFMPEG_DIR` is set.
-
-The implementation is split into a process-independent Core library, FFmpeg adapters, CLI and GUI adapters, and development tools. See [`docs/PROJECT-DESIGN.md`](docs/PROJECT-DESIGN.md), [`docs/METADATA.md`](docs/METADATA.md), and [`BENCHMARK.md`](BENCHMARK.md) for the design and validation contracts.
+The tests use generated fixtures and disposable directories. They do not require private audiobook media. See [`ARCHITECTURE.md`](ARCHITECTURE.md), [`docs/METADATA.md`](docs/METADATA.md), [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md), [`BENCHMARK.md`](BENCHMARK.md), and [`docs/RELEASE.md`](docs/RELEASE.md) for the implementation and release contracts.
 
 ## License
 

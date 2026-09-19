@@ -14,12 +14,14 @@
       </DockPanel>
       <Label Content="_Audio quality" Target="{Binding ElementName=Quality}"/>
       <ComboBox x:Name="Quality" ItemsSource="{Binding QualityProfiles}" DisplayMemberPath="DisplayName" SelectedValuePath="Id" SelectedValue="{Binding QualityProfileId}" AutomationProperties.Name="Audio quality" Margin="0,0,0,12"/>
-      <TextBlock Text="Source channels are preserved. You can change these choices later in Settings." TextWrapping="Wrap" Margin="0,0,0,12"/>
+      <TextBlock Text="Source channels are preserved by default. Advanced settings can force mono or stereo output." TextWrapping="Wrap" Margin="0,0,0,12"/>
       <CheckBox Content="_Create chapters from source file boundaries" IsChecked="{Binding CreateChapters}" Margin="0,0,0,16"/>
       <Expander Header="Advanced settings" Margin="0,0,0,12">
         <StackPanel>
           <TextBlock Text="Parallel encoding jobs (blank uses Automatic)" Margin="0,8,0,4"/>
           <ComboBox ItemsSource="{Binding JobChoices}" SelectedItem="{Binding ConversionJobs}" AutomationProperties.Name="Parallel encoding jobs"/>
+          <TextBlock Text="Channel handling" Margin="0,8,0,4"/>
+          <ComboBox ItemsSource="{Binding ChannelPolicies}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding ChannelPolicy}" AutomationProperties.Name="Channel handling"/>
           <TextBlock Text="Metadata profile" Margin="0,8,0,4"/>
           <ComboBox ItemsSource="{Binding MetadataProfiles}" SelectedItem="{Binding MetadataProfileId}" AutomationProperties.Name="Metadata profile"/>
           <TextBlock Text="Validation (Full decodes the entire output)" Margin="0,8,0,4"/>

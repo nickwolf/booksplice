@@ -5,6 +5,7 @@ using System.Windows;
 using BookSplice.Core.Ordering;
 using BookSplice.Core.Settings;
 using BookSplice.Gui.Bootstrap;
+using BookSplice.Gui.Diagnostics;
 using BookSplice.Gui.ViewModels;
 using BookSplice.Gui.Views;
 using Microsoft.Win32;
@@ -149,6 +150,19 @@ public partial class MainWindow : Window
     if (_model is not null && Queue.SelectedItem is BookQueueItemViewModel { IsBusy: false } item) _model.Items.Remove(item);
   }
 
+  private void CopyDiagnostics_Click(object sender, RoutedEventArgs e)
+  {
+    if (Queue.SelectedItem is not BookQueueItemViewModel item) return;
+    try
+    {
+      Clipboard.SetText(DiagnosticsTextBuilder.Build(item));
+      MessageBox.Show(this, "Diagnostics copied. Local paths were redacted.", "Copy diagnostics");
+    }
+    catch (Exception exception) when (exception is System.Runtime.InteropServices.ExternalException or InvalidOperationException)
+    {
+      MessageBox.Show(this, $"Could not copy diagnostics: {exception.Message}", "Copy diagnostics");
+    }
+  }
   private void OpenOutput_Click(object sender, RoutedEventArgs e)
   {
     if (Queue.SelectedItem is not BookQueueItemViewModel { PublishedPath: { } path } || !File.Exists(path)) return;

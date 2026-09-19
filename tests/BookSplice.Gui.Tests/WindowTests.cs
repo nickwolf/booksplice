@@ -5,6 +5,7 @@ using BookSplice.Gui.Views;
 
 namespace BookSplice.Gui.Tests;
 
+[Collection("WPF")]
 public sealed class WindowTests
 {
   [Fact]
