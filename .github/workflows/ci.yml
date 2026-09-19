@@ -21,6 +21,9 @@ jobs:
           .\scripts\Get-MediaTools.ps1 -ManifestPath .\tools\ffmpeg\manifest.json -DestinationRoot .\artifacts\tools\ffmpeg
           $release = (Get-Content .\tools\ffmpeg\manifest.json | ConvertFrom-Json).release
           "BOOKSPLICE_FFMPEG_DIR=$((Resolve-Path ".\artifacts\tools\ffmpeg\$release").Path)" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Verify pinned FFmpeg component inventory
+        shell: pwsh
+        run: .\scripts\Get-FFmpegLicenseInventory.ps1 -MediaToolDirectory $env:BOOKSPLICE_FFMPEG_DIR -Check
       - run: dotnet build --configuration Release --no-restore
       - run: dotnet test --configuration Release --no-build
       - run: dotnet format --verify-no-changes --no-restore

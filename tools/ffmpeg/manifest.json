@@ -6,6 +6,8 @@
   "variant": "win64-lgpl",
   "expectedVersionPrefix": "ffmpeg version n9.0.1-84-g946fcce07b",
   "sha256": "e17c2a1313bec165f12f5a73d07447b03292bbd7a9153af9de901e981e0109d6",
+  "ffmpegSha256": "82da625716222f7bcb3a5c6daf5405df3875eafd4d5814a2c1ad35431e17ea55",
+  "ffprobeSha256": "a6900db47b53d70059d2fc280f30df4d0da22155e3433943b2e8373745285248",
   "licenseSha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768",
   "expectedExecutables": [
     "ffmpeg.exe",

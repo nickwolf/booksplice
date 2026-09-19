@@ -39,7 +39,7 @@ try {
     Expand-Archive -LiteralPath $resolvedArchive -DestinationPath $testRoot
     $required = @(
         'BookSplice.Gui.exe', 'booksplice.exe', 'LICENSE', 'README.md', 'THIRD-PARTY-NOTICES.md', 'VERSION.txt',
-        'licenses\FFmpeg-LICENSE.txt', 'licenses\GPL-3.0.txt', 'licenses\LGPL-2.1.txt', 'licenses\LGPL-3.0.txt',
+        'licenses\FFmpeg-LICENSE.txt', 'licenses\FFmpeg-components.md', 'licenses\GPL-3.0.txt', 'licenses\LGPL-2.1.txt', 'licenses\LGPL-3.0.txt',
         'tools\ffmpeg\ffmpeg.exe', 'tools\ffmpeg\ffprobe.exe'
     )
     foreach ($relativePath in $required) {
