@@ -118,6 +118,7 @@ public sealed class FFmpegOutputValidator : IOutputValidator
     var profile = plan.MetadataProfileId == "NickMp3tag" ? MetadataProfiles.NickMp3tag : MetadataProfiles.GenericMp4;
     var expected = profile.Apply(plan.Metadata).Where(pair => !string.IsNullOrWhiteSpace(pair.Value));
     var actual = new Dictionary<string, string>(facts.FormatTags, StringComparer.OrdinalIgnoreCase);
+    if (profile.Name == MetadataProfiles.NickMp3tag.Name && actual.TryGetValue("album_artist", out var albumArtist)) actual["ALBUMARTIST"] = albumArtist;
     var valid = expected.All(pair => actual.TryGetValue(pair.Key, out var value) && string.Equals(value.TrimEnd('\0'), pair.Value.TrimEnd('\0'), StringComparison.Ordinal));
     checks.Add(Check(ValidationCodes.MetadataRequired, valid, "Required output metadata is missing or changed."));
   }

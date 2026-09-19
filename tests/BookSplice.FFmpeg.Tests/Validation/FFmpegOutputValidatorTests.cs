@@ -96,13 +96,45 @@ public sealed class FFmpegOutputValidatorTests
     Assert.Contains(runner.Specs, spec => spec.Arguments.Contains("-f") && spec.Arguments.Contains("null") && spec.Arguments.Contains(output.Path));
   }
 
+  [Fact]
+  public async Task ValidateAsyncAcceptsNickMp3tagAlbumArtistProbeAliasAndRequiresPreservedTags()
+  {
+    using var output = new TemporaryOutput();
+    var metadata = new BookMetadata(
+      new Dictionary<SemanticField, AggregatedValue>
+      {
+        [SemanticField.BookTitle] = new(SemanticField.BookTitle, AggregationState.Consistent, "Book", []),
+        [SemanticField.Author] = new(SemanticField.Author, AggregationState.Consistent, "Author", []),
+      },
+      new Dictionary<string, string> { ["CUSTOM"] = "Value" },
+      new Dictionary<SemanticField, IReadOnlyList<string>>());
+    var tags = new Dictionary<string, string>
+    {
+      ["TITLE"] = "Book",
+      ["ALBUM"] = "Book",
+      ["ARTIST"] = "Author",
+      ["album_artist"] = "Author",
+    };
+
+    var missingPreserved = await Validator(new Probe(Media(tags: tags))).ValidateAsync(
+      Plan(metadataProfileId: "NickMp3tag", metadata: metadata), output.Path, CancellationToken.None);
+
+    Assert.False(missingPreserved.IsValid);
+    tags["CUSTOM"] = "Value";
+
+    var report = await Validator(new Probe(Media(tags: tags))).ValidateAsync(
+      Plan(metadataProfileId: "NickMp3tag", metadata: metadata), output.Path, CancellationToken.None);
+
+    Assert.True(report.IsValid);
+    Assert.Contains(report.Checks, check => check.Code == "metadata.required" && check.Passed);
+  }
   private static FFmpegOutputValidator Validator(IMediaProbe probe, Runner? runner = null)
     => new(probe, runner ?? new Runner(), new MediaToolSet("ffmpeg.exe", "ffprobe.exe", "pinned", "pinned"), new CoverPayloadValidator());
 
-  private static ConversionPlan Plan(string? output = null, ValidationLevel level = ValidationLevel.Lightweight, int sampleRate = 44_100, int channels = 1)
+  private static ConversionPlan Plan(string? output = null, ValidationLevel level = ValidationLevel.Lightweight, int sampleRate = 44_100, int channels = 1, string metadataProfileId = "GenericMp4", BookMetadata? metadata = null)
   {
-    var metadata = new BookMetadata(new Dictionary<SemanticField, AggregatedValue> { [SemanticField.BookTitle] = new(SemanticField.BookTitle, AggregationState.Consistent, "Book", []) }, new Dictionary<string, string> { ["CUSTOM"] = "Value" }, new Dictionary<SemanticField, IReadOnlyList<string>>());
-    return new ConversionPlan(["source-01.mp3"], metadata, null, [new ChapterEntry(0, 4_000_000, "One", "", "source-01.mp3")], QualityProfileCatalog.Version1[0], level, CollisionPolicy.AvoidCollision, output ?? Path.Combine(Path.GetTempPath(), "Book.m4b"), AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "test", "GenericMp4", sampleRate, channels);
+    metadata ??= new BookMetadata(new Dictionary<SemanticField, AggregatedValue> { [SemanticField.BookTitle] = new(SemanticField.BookTitle, AggregationState.Consistent, "Book", []) }, new Dictionary<string, string> { ["CUSTOM"] = "Value" }, new Dictionary<SemanticField, IReadOnlyList<string>>());
+    return new ConversionPlan(["source-01.mp3"], metadata, null, [new ChapterEntry(0, 4_000_000, "One", "", "source-01.mp3")], QualityProfileCatalog.Version1[0], level, CollisionPolicy.AvoidCollision, output ?? Path.Combine(Path.GetTempPath(), "Book.m4b"), AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "test", metadataProfileId, sampleRate, channels);
   }
 
   private static MediaProbeResult Media(IReadOnlyList<AudioTrack>? audio = null, decimal duration = 4m, IReadOnlyList<MediaChapter>? chapters = null, IReadOnlyDictionary<string, string>? tags = null)

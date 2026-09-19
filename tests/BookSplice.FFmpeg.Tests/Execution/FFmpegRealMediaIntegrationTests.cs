@@ -8,6 +8,7 @@ using BookSplice.FFmpeg.Commands;
 using BookSplice.FFmpeg.Execution;
 using BookSplice.FFmpeg.Probing;
 using BookSplice.FFmpeg.Tools;
+using BookSplice.FFmpeg.Validation;
 
 namespace BookSplice.FFmpeg.Tests.Execution;
 
@@ -198,6 +199,33 @@ public sealed class FFmpegRealMediaIntegrationTests
     Assert.Equal("Nick Book", media.FormatTags["title"]);
     Assert.Equal("Nick Author", media.FormatTags["artist"]);
     Assert.Equal("Nick Narrator", media.FormatTags["composer"]);
+  }
+  [PinnedMediaFact]
+  public async Task NickMp3tagOutputPassesFullProfileAwareValidation()
+  {
+    var tools = ResolveTools();
+    using var root = new TemporaryDirectory();
+    var source = await GenerateAudioAsync(tools, Path.Combine(root.Path, "spoken.mp3"), "libmp3lame", "1", "44100", "440");
+    var fields = new Dictionary<SemanticField, AggregatedValue>
+    {
+      [SemanticField.BookTitle] = Value(SemanticField.BookTitle, "Nick Book"),
+      [SemanticField.Author] = Value(SemanticField.Author, "Nick Author"),
+      [SemanticField.Narrator] = Value(SemanticField.Narrator, "Nick Narrator"),
+    };
+    var metadata = new BookMetadata(fields, new Dictionary<string, string> { ["CUSTOM"] = "Preserved" }, new Dictionary<SemanticField, IReadOnlyList<string>>());
+    var destination = Path.Combine(root.Path, "planned-nick.m4b");
+    var plan = new ConversionPlan([source], metadata, null, [new ChapterEntry(0, 1_000_000, "Opening", "", "spoken.mp3")], QualityProfileCatalog.Version1[2], ValidationLevel.Full, CollisionPolicy.AvoidCollision, destination, AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "integration", "NickMp3tag", 44100, 1);
+    var runner = new ProcessRunner();
+    var result = await new FFmpegConversionExecutor(runner, new FFmpegCommandFactory(tools), new Mp4MetadataWriter(), Path.Combine(root.Path, "jobs-nick-validation"))
+      .ExecuteAsync(plan, CancellationToken.None);
+
+    Assert.Equal(ExecutionStatus.Succeeded, result.Status);
+    var probe = new FFprobeMediaProbe(runner, tools);
+    var facts = await probe.ProbeAsync(result.TemporaryOutputPath!);
+    var report = await new FFmpegOutputValidator(probe, runner, tools, new CoverPayloadValidator())
+      .ValidateAsync(plan, result.TemporaryOutputPath!, CancellationToken.None);
+
+    Assert.True(report.IsValid, string.Join(Environment.NewLine, report.Checks.Where(check => !check.Passed).Select(check => $"{check.Code}: {check.Message}")) + Environment.NewLine + string.Join(", ", facts.FormatTags.Select(tag => $"{tag.Key}={tag.Value}")));
   }
 
   private static ConversionPlan CreatePlan(AudioStrategy strategy, IReadOnlyList<string> sources, string destination, string sourceRoot)
