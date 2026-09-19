@@ -3,6 +3,7 @@ using System.IO;
 using BookSplice.Core.Analysis;
 using BookSplice.Core.Covers;
 using BookSplice.Core.Ordering;
+using BookSplice.Core.Planning;
 using BookSplice.Core.Settings;
 
 namespace BookSplice.Gui.ViewModels;
@@ -14,9 +15,24 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings) 
   private bool _busy;
   private double _percent;
   private string? _publishedPath;
+  private AppSettings _settings = settings;
   public string Source { get; } = source;
   public string Name => Path.GetFileName(Source.TrimEnd(Path.DirectorySeparatorChar));
-  public AppSettings Settings { get; set; } = settings;
+  public AppSettings Settings => _settings;
+  public IReadOnlyList<QualityProfile> QualityProfiles { get; } = QualityProfileCatalog.Version1;
+  public IReadOnlyList<ChannelPolicyOption> ChannelPolicies { get; } =
+  [
+    new(ChannelPolicy.PreserveSourceChannels, "Preserve source channels"),
+    new(ChannelPolicy.ForceMono, "Force mono"),
+    new(ChannelPolicy.ForceStereo, "Force stereo"),
+  ];
+  public IReadOnlyList<ValidationLevel> ValidationLevels { get; } = Enum.GetValues<ValidationLevel>();
+  public IReadOnlyList<string> MetadataProfiles { get; } = ["GenericMp4", "NickMp3tag"];
+  public string OutputDirectory { get => Settings.OutputDirectory; set => UpdateSettings(Settings with { OutputDirectory = value }); }
+  public string QualityProfileId { get => Settings.QualityProfileId; set { if (QualityProfileCatalog.FindById(value) is not null) UpdateSettings(Settings with { QualityProfileId = value }); } }
+  public ChannelPolicy ChannelPolicy { get => Settings.ChannelPolicy; set => UpdateSettings(Settings with { ChannelPolicy = value }); }
+  public ValidationLevel ValidationLevel { get => Settings.ValidationLevel; set => UpdateSettings(Settings with { ValidationLevel = value }); }
+  public string MetadataProfileId { get => Settings.MetadataProfileId; set { if (value is "GenericMp4" or "NickMp3tag") UpdateSettings(Settings with { MetadataProfileId = value }); } }
   public BookAnalysis? Analysis { get; private set; }
   public OrderCandidateId? SelectedOrder { get; set; }
   public CoverCandidate? SelectedCover { get; set; }
@@ -37,6 +53,24 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings) 
   public bool CanConvert => !IsBusy && Analysis?.Status == BookAnalysisStatus.Ready && Status != "Complete";
   internal CancellationTokenSource? Cancellation { get; set; }
   public void Cancel() => Cancellation?.Cancel();
+
+  public ConversionOptions CreateOptions(bool singleConversionJob = false)
+  {
+    var effectiveSettings = singleConversionJob ? Settings with { ConversionJobs = 1 } : Settings;
+    var edits = Metadata.Where(field => field.IsEdited).ToDictionary(field => field.Field,
+      field => string.IsNullOrWhiteSpace(field.Value) ? MetadataEdit.Clear() : MetadataEdit.Set(field.Value));
+    return new ConversionOptions(effectiveSettings, QualityProfileCatalog.FindById(effectiveSettings.QualityProfileId)
+      ?? throw new InvalidOperationException("The selected quality profile is unavailable."), edits,
+      selectedCoverHash: SelectedCover?.ContentHash,
+      chapterTitles: Chapters.ToDictionary(chapter => chapter.Source, chapter => chapter.Title), omitCover: OmitCover);
+  }
+
+  private void UpdateSettings(AppSettings value)
+  {
+    if (value == _settings) return;
+    _settings = value;
+    foreach (var property in new[] { nameof(Settings), nameof(OutputDirectory), nameof(QualityProfileId), nameof(ChannelPolicy), nameof(ValidationLevel), nameof(MetadataProfileId) }) Changed(property);
+  }
 
   internal void SetAnalysis(BookAnalysis analysis)
   {

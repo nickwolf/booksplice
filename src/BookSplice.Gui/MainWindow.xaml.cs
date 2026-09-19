@@ -26,7 +26,7 @@ public partial class MainWindow : Window
     _store = store;
     _services = services;
     _settings = settings;
-    if (services is not null) DataContext = _model = new MainWindowViewModel(services.Analyzer, services.Conversion, settings);
+    if (services is not null) DataContext = _model = new MainWindowViewModel(services.Analyzer, services.Conversion, settings, services.Planner);
     Destination.Text = $"Output folder: {settings.OutputDirectory}";
   }
 
@@ -84,21 +84,7 @@ public partial class MainWindow : Window
 
   private async void Preview_Click(object sender, RoutedEventArgs e)
   {
-    if (_services is null || Queue.SelectedItem is not BookQueueItemViewModel { CanConvert: true, Analysis: { } analysis } item) return;
-    item.IsBusy = true;
-    try
-    {
-      var edits = item.Metadata.Where(field => field.IsEdited).ToDictionary(field => field.Field,
-        field => string.IsNullOrWhiteSpace(field.Value) ? Core.Planning.MetadataEdit.Clear() : Core.Planning.MetadataEdit.Set(field.Value));
-      var options = new Core.Planning.ConversionOptions(item.Settings, Core.Planning.QualityProfileCatalog.FindById(item.Settings.QualityProfileId)!,
-        edits, selectedCoverHash: item.SelectedCover?.ContentHash,
-        chapterTitles: item.Chapters.ToDictionary(chapter => chapter.Source, chapter => chapter.Title), omitCover: item.OmitCover);
-      var result = await Task.Run(() => _services.Planner.CreateAsync(analysis, options, CancellationToken.None));
-      item.Details = result.Plan is { } plan ? $"Output: {plan.OutputPath}{Environment.NewLine}Audio: {plan.Strategy}{Environment.NewLine}Validation: {item.Settings.ValidationLevel}"
-        : string.Join(Environment.NewLine, result.Diagnostics.Select(diagnostic => diagnostic.Message));
-    }
-    catch (Exception exception) { item.Details = exception.Message; }
-    finally { item.IsBusy = false; }
+    if (_model is not null && Queue.SelectedItem is BookQueueItemViewModel item) await _model.PreviewAsync(item);
   }
 
   private async void Cover_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)

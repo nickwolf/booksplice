@@ -4,6 +4,7 @@ using BookSplice.Core.Covers;
 using BookSplice.Core.Execution;
 using BookSplice.Core.Metadata;
 using BookSplice.Core.Ordering;
+using BookSplice.Core.Planning;
 using BookSplice.Core.Settings;
 using BookSplice.Gui.ViewModels;
 
@@ -74,6 +75,61 @@ public sealed class QueueTests
   }
 
   [Fact]
+  public async Task PerBookOptionsAreSharedByPreviewAndConversion()
+  {
+    var output = Directory.CreateTempSubdirectory("booksplice-options-");
+    try
+    {
+      var converter = new Converter();
+      var planner = new RecordingPlanner();
+      using var model = new MainWindowViewModel(new Analyzer(), converter, AppSettings.Defaults, planner);
+      await model.AddAsync(Path.GetFullPath("book"));
+      var item = model.Items[0];
+      await model.ResolveOrderAsync(item, OrderCandidateId.NaturalPath);
+      item.OutputDirectory = output.FullName;
+      item.QualityProfileId = "efficient";
+      item.ChannelPolicy = ChannelPolicy.ForceMono;
+      item.ValidationLevel = ValidationLevel.Full;
+      item.MetadataProfileId = "NickMp3tag";
+
+      await model.PreviewAsync(item);
+
+      Assert.Equal(output.FullName, planner.Options!.DestinationDirectory);
+      Assert.Equal("efficient", planner.Options.QualityProfile.Id);
+      Assert.Equal(ChannelPolicy.ForceMono, planner.Options.Settings.ChannelPolicy);
+      Assert.Equal(ValidationLevel.Full, planner.Options.Settings.ValidationLevel);
+      Assert.Equal("NickMp3tag", planner.Options.Settings.MetadataProfileId);
+      Assert.Equal(1, planner.Options.Settings.ConversionJobs);
+      Assert.Contains(Path.Combine(output.FullName, "Preview.m4b"), item.Details);
+      Assert.Contains("Efficient 48 kbps | mono", item.Details);
+
+      await model.ConvertAsync(item);
+
+      Assert.Equal(output.FullName, converter.Request!.Options.DestinationDirectory);
+      Assert.Equal(planner.Options.QualityProfile, converter.Request.Options.QualityProfile);
+      Assert.Equal(planner.Options.Settings.ChannelPolicy, converter.Request.Options.Settings.ChannelPolicy);
+      Assert.Equal(planner.Options.Settings.ValidationLevel, converter.Request.Options.Settings.ValidationLevel);
+      Assert.Equal(planner.Options.Settings.MetadataProfileId, converter.Request.Options.Settings.MetadataProfileId);
+      Assert.Equal(planner.Options.Settings.ConversionJobs, converter.Request.Options.Settings.ConversionJobs);
+    }
+    finally { output.Delete(true); }
+  }
+  [Fact]
+  public async Task StreamCopyPreviewDoesNotReportUnusedTranscodeBitrate()
+  {
+    var planner = new RecordingPlanner(AudioStrategy.AacStreamCopy);
+    using var model = new MainWindowViewModel(new Analyzer(), new Converter(), AppSettings.Defaults, planner);
+    await model.AddAsync(Path.GetFullPath("book"));
+    var item = model.Items[0];
+    await model.ResolveOrderAsync(item, OrderCandidateId.NaturalPath);
+    item.QualityProfileId = "preserve-more";
+
+    await model.PreviewAsync(item);
+
+    Assert.Contains("AAC stream copy | stereo", item.Details);
+    Assert.DoesNotContain("128 kbps", item.Details);
+  }
+  [Fact]
   public async Task QueueLimitsConcurrentBooksAndContinuesAfterOneFailure()
   {
     var converter = new BoundedConverter();
@@ -90,6 +146,19 @@ public sealed class QueueTests
     Assert.Single(model.Items, item => item.Status == "ExecutionFailed");
   }
 
+  private sealed class RecordingPlanner(AudioStrategy strategy = AudioStrategy.DirectTranscode) : IConversionPlanner
+  {
+    public ConversionOptions? Options { get; private set; }
+    public Task<ConversionPlanningResult> CreateAsync(BookAnalysis analysis, ConversionOptions options, CancellationToken cancellationToken)
+    {
+      Options = options;
+      var channels = options.Settings.ChannelPolicy == ChannelPolicy.ForceMono ? 1 : 2;
+      var plan = new ConversionPlan([], analysis.BookMetadata, null, [], options.QualityProfile, options.Settings.ValidationLevel,
+        options.CollisionPolicy, Path.Combine(options.DestinationDirectory, "Preview.m4b"), strategy, [],
+        new SpaceEstimate(1, 1, 2, 3, 1), options.Settings.ConversionJobs ?? 6, "test", options.Settings.MetadataProfileId, 44_100, channels);
+      return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Ready, plan, []));
+    }
+  }
   private sealed class BoundedConverter : IConversionService
   {
     private int _active;

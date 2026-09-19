@@ -37,6 +37,8 @@ The package is self-contained and does not require the .NET SDK. It includes the
 
 First launch asks where completed M4B files should go, which audio quality profile to use, and whether to create chapters from source-file boundaries. Advanced settings expose channel handling, parallel jobs, metadata profile, lightweight or full-decode validation, and logging level.
 
+Each queued book starts with the saved settings. The **Output** tab can override the destination, audio quality, channel handling, metadata profile, and validation level for the selected book without changing the saved defaults.
+
 Settings are stored in `%LOCALAPPDATA%\BookSplice\settings.json`. BookSplice does not silently replace a corrupt settings file or a file from a newer schema version.
 
 The quality profiles use native AAC-LC when transcoding:
@@ -56,10 +58,12 @@ Compatible AAC input can use stream copy when channel handling preserves the sou
 2. Select a queued book and review its file count, duration, codec summary, metadata, chapters, and cover.
 3. If BookSplice finds more than one credible order, inspect each complete track list and choose one. Conversion remains disabled until an order is selected.
 4. Edit metadata or chapter titles, select different artwork, or choose not to embed artwork.
-5. Use **Preview output** to check the destination and selected audio strategy.
+5. Open **Output** to review or change that book's conversion settings, then use **Preview output** to check the planned output filename and selected audio strategy. Stream-copy previews do not present the unused transcode bitrate.
 6. Convert the selected book or all ready books. A completed item exposes its published output folder. Use **Copy diagnostics** to copy a support summary with recognized local paths redacted.
 
 Changing source membership or playback order after review stops conversion and requires analysis again. Closing the application while work is active is blocked until cancellation and cleanup finish.
+
+The Windows application declares per-monitor V2 DPI awareness and exposes keyboard access keys and UI Automation names for routine controls. Its 760 by 520 minimum window fits a 1920 by 1080 work area at 200% scaling.
 
 ## Command line
 

@@ -45,7 +45,7 @@
           <WrapPanel Margin="0,8">
             <Button Content="_Preview output" IsEnabled="{Binding CanConvert}" Click="Preview_Click" Padding="12,6" Margin="0,0,8,0"/>
             <Button Content="_Convert selected" IsEnabled="{Binding CanConvert}" Click="Convert_Click" Padding="12,6" Margin="0,0,8,0"/>
-            <Button Content="Cancel" IsEnabled="{Binding IsBusy}" Click="Cancel_Click" Padding="12,6" Margin="0,0,8,0"/>
+            <Button Content="_Cancel" IsEnabled="{Binding IsBusy}" Click="Cancel_Click" Padding="12,6" Margin="0,0,8,0"/>
             <Button Content="Copy _diagnostics" Click="CopyDiagnostics_Click" Padding="12,6" Margin="0,0,8,0"/>
             <Button Content="_Open output folder" Click="OpenOutput_Click" Padding="12,6" Margin="0,0,8,0"/>
             <Button Content="_Remove" IsEnabled="{Binding CanRemove}" Click="Remove_Click" Padding="12,6"/>
@@ -79,11 +79,28 @@
           <TabItem Header="_Cover">
             <StackPanel Margin="8" IsEnabled="{Binding CanEdit}">
               <TextBlock Text="Choose artwork to embed. No artwork is required." TextWrapping="Wrap"/>
-              <CheckBox Content="Do not embed artwork" IsChecked="{Binding OmitCover}" Margin="0,8"/>
+              <CheckBox Content="Do _not embed artwork" IsChecked="{Binding OmitCover}" Margin="0,8"/>
               <ComboBox ItemsSource="{Binding Covers}" SelectedItem="{Binding SelectedCover}" SelectionChanged="Cover_Changed" DisplayMemberPath="SourceIdentity"
                         AutomationProperties.Name="Cover artwork" Margin="0,8"/>
               <Image x:Name="CoverImage" Height="280" Stretch="Uniform" AutomationProperties.Name="Selected cover preview"/>
             </StackPanel>
+          </TabItem>
+          <TabItem Header="_Output">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <StackPanel Margin="8" IsEnabled="{Binding CanEdit}">
+                <TextBlock Text="These settings apply only to the selected book. Use Preview output to confirm the final filename and audio strategy." TextWrapping="Wrap" Margin="0,0,0,8"/>
+                <Label Content="_Destination folder" Target="{Binding ElementName=BookOutputDirectory}"/>
+                <TextBox x:Name="BookOutputDirectory" Text="{Binding OutputDirectory, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Selected book destination folder"/>
+                <Label Content="_Audio quality" Target="{Binding ElementName=BookQuality}" Margin="0,8,0,0"/>
+                <ComboBox x:Name="BookQuality" ItemsSource="{Binding QualityProfiles}" DisplayMemberPath="DisplayName" SelectedValuePath="Id" SelectedValue="{Binding QualityProfileId}" AutomationProperties.Name="Selected book audio quality"/>
+                <Label Content="C_hannel handling" Target="{Binding ElementName=BookChannels}" Margin="0,8,0,0"/>
+                <ComboBox x:Name="BookChannels" ItemsSource="{Binding ChannelPolicies}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding ChannelPolicy}" AutomationProperties.Name="Selected book channel handling"/>
+                <Label Content="_Metadata profile" Target="{Binding ElementName=BookMetadataProfile}" Margin="0,8,0,0"/>
+                <ComboBox x:Name="BookMetadataProfile" ItemsSource="{Binding MetadataProfiles}" SelectedItem="{Binding MetadataProfileId}" AutomationProperties.Name="Selected book metadata profile"/>
+                <Label Content="_Validation" Target="{Binding ElementName=BookValidation}" Margin="0,8,0,0"/>
+                <ComboBox x:Name="BookValidation" ItemsSource="{Binding ValidationLevels}" SelectedItem="{Binding ValidationLevel}" AutomationProperties.Name="Selected book validation level"/>
+              </StackPanel>
+            </ScrollViewer>
           </TabItem>
           <TabItem Header="_Chapters">
             <DataGrid ItemsSource="{Binding Chapters}" AutoGenerateColumns="False" IsEnabled="{Binding CanEdit}"

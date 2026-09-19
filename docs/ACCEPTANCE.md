@@ -2,7 +2,9 @@
 
 On 2026-09-18, the automated 0.1.0 release-candidate checks passed with the pinned `autobuild-2026-09-18-13-22` LGPL FFmpeg build. The automated suite uses generated media and disposable directories. It does not read or modify a private audiobook library.
 
-The Release build currently passes 366 tests with no skips when `BOOKSPLICE_FFMPEG_DIR` points to the pinned tools. The extracted ZIP smoke test starts the packaged GUI, runs the packaged CLI, converts a generated MP3 with full-decode validation, probes the M4B, checks its audio stream and chapter, confirms an audit record, and verifies the source SHA-256 is unchanged. Two local package builds using the same source and pinned tool directory produced the same ZIP digest.
+The Release build currently passes 371 tests with no skips when `BOOKSPLICE_FFMPEG_DIR` points to the pinned tools. The extracted ZIP smoke test starts the packaged GUI, runs the packaged CLI, converts a generated MP3 with full-decode validation, probes the M4B, checks its audio stream and chapter, confirms an audit record, and verifies the source SHA-256 is unchanged. Two local package builds using the same source and pinned tool directory produced the same ZIP digest.
+
+The GUI contract tests cover per-book option parity between preview and conversion, stream-copy preview wording, keyboard access keys, UI Automation names, minimum-window layout, a 1920 by 1080 work area at 200% scaling, and the per-monitor V2 manifest declaration. They do not emulate moving a running window between monitors with different DPI settings.
 
 ## Specification matrix
 
