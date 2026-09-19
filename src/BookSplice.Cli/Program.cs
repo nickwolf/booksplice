@@ -14,6 +14,7 @@ if (args is ["--help"] or ["-h"])
       --order <natural|metadata>        Explicit source ordering candidate
       --metadata-profile <name>          GenericMp4 or NickMp3tag
       --validation <lightweight|full>    Output validation level
+      --channels <preserve|mono|stereo>   Output channel handling
       --chapters | --no-chapters         Chapter creation
       --overwrite                       Replace an existing output after validation
       --dry-run                         Plan without writing output or audit files

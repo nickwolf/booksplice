@@ -1,11 +1,12 @@
 {
   "schemaVersion": 1,
   "provider": "BtbN/FFmpeg-Builds",
-  "release": "autobuild-2026-08-29-13-12",
-  "asset": "ffmpeg-n9.0.1-11-ge47273f4d9-win64-lgpl-9.0.zip",
+  "release": "autobuild-2026-09-18-13-22",
+  "asset": "ffmpeg-n9.0.1-84-g946fcce07b-win64-lgpl-9.0.zip",
   "variant": "win64-lgpl",
-  "expectedVersionPrefix": "ffmpeg version n9.0.1-11-ge47273f4d9",
-  "sha256": "f43aaeb86d05b453f3909d0d1eed39a51db71d387c21a3605676c1d1627084d9",
+  "expectedVersionPrefix": "ffmpeg version n9.0.1-84-g946fcce07b",
+  "sha256": "e17c2a1313bec165f12f5a73d07447b03292bbd7a9153af9de901e981e0109d6",
+  "licenseSha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768",
   "expectedExecutables": [
     "ffmpeg.exe",
     "ffprobe.exe"

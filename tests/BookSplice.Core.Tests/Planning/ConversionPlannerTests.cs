@@ -67,6 +67,20 @@ public sealed class ConversionPlannerTests
     Assert.Equal("stereo", mixed.Plan.ChannelLayout);
   }
 
+  [Theory]
+  [InlineData(ChannelPolicy.ForceMono, 1)]
+  [InlineData(ChannelPolicy.ForceStereo, 2)]
+  public async Task CreateAsync_forces_requested_channels_and_disables_stream_copy(ChannelPolicy policy, int expectedChannels)
+  {
+    var settings = AppSettings.Defaults with { OutputDirectory = Path.GetTempPath(), ChannelPolicy = policy };
+    var options = new ConversionOptions(settings, QualityProfileCatalog.Version1[0]);
+
+    var result = await Planner().CreateAsync(Analysis(BookAnalysisStatus.Ready, copy: true), options, CancellationToken.None);
+
+    Assert.Equal(AudioStrategy.DirectTranscode, result.Plan!.Strategy);
+    Assert.Contains("stream-copy.channel-policy", result.Plan.StrategyReasonCodes);
+    Assert.Equal(expectedChannels, result.Plan.Channels);
+  }
   [Fact]
   public async Task CreateAsync_preserves_cancellation_and_is_deterministic()
   {

@@ -7,7 +7,9 @@ public enum AacMode
 
 public enum ChannelPolicy
 {
-  PreserveSourceChannels
+  PreserveSourceChannels,
+  ForceMono,
+  ForceStereo
 }
 
 public enum SampleRatePolicy

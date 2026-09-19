@@ -5,6 +5,8 @@ using BookSplice.Core.Settings;
 
 namespace BookSplice.Gui.ViewModels;
 
+public sealed record ChannelPolicyOption(ChannelPolicy Value, string DisplayName);
+
 public sealed class FirstLaunchViewModel(FirstLaunchService service, AppSettings initial) : INotifyPropertyChanged
 {
   private string _outputDirectory = initial.OutputDirectory;
@@ -21,9 +23,16 @@ public sealed class FirstLaunchViewModel(FirstLaunchService service, AppSettings
   public bool CanEdit => !IsBusy;
   public string ErrorMessage { get => _errorMessage; private set { _errorMessage = value; Changed(); } }
   public int? ConversionJobs { get; set; } = initial.ConversionJobs;
+  public ChannelPolicy ChannelPolicy { get; set; } = initial.ChannelPolicy;
   public string MetadataProfileId { get; set; } = initial.MetadataProfileId;
   public ValidationLevel ValidationLevel { get; set; } = initial.ValidationLevel;
   public LogLevel LogLevel { get; set; } = initial.LogLevel;
+  public IReadOnlyList<ChannelPolicyOption> ChannelPolicies { get; } =
+  [
+    new(ChannelPolicy.PreserveSourceChannels, "Preserve source channels"),
+    new(ChannelPolicy.ForceMono, "Force mono"),
+    new(ChannelPolicy.ForceStereo, "Force stereo"),
+  ];
   public IReadOnlyList<string> MetadataProfiles { get; } = ["GenericMp4", "NickMp3tag"];
   public IReadOnlyList<ValidationLevel> ValidationLevels { get; } = Enum.GetValues<ValidationLevel>();
   public IReadOnlyList<LogLevel> LogLevels { get; } = Enum.GetValues<LogLevel>();
@@ -39,7 +48,7 @@ public sealed class FirstLaunchViewModel(FirstLaunchService service, AppSettings
     try
     {
       cancellationToken.ThrowIfCancellationRequested();
-      var settings = initial with { OutputDirectory = OutputDirectory.Trim(), QualityProfileId = QualityProfileId, CreateChapters = CreateChapters, ConversionJobs = ConversionJobs, MetadataProfileId = MetadataProfileId, ValidationLevel = ValidationLevel, LogLevel = LogLevel };
+      var settings = initial with { OutputDirectory = OutputDirectory.Trim(), QualityProfileId = QualityProfileId, CreateChapters = CreateChapters, ConversionJobs = ConversionJobs, ChannelPolicy = ChannelPolicy, MetadataProfileId = MetadataProfileId, ValidationLevel = ValidationLevel, LogLevel = LogLevel };
       var result = await service.CompleteAsync(settings, cancellationToken);
       if (!result.Completed)
       {
