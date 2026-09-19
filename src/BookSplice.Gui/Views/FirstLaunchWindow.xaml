@@ -16,23 +16,23 @@
       <ComboBox x:Name="Quality" ItemsSource="{Binding QualityProfiles}" DisplayMemberPath="DisplayName" SelectedValuePath="Id" SelectedValue="{Binding QualityProfileId}" AutomationProperties.Name="Audio quality" Margin="0,0,0,12"/>
       <TextBlock Text="Source channels are preserved by default. Advanced settings can force mono or stereo output." TextWrapping="Wrap" Margin="0,0,0,12"/>
       <CheckBox Content="_Create chapters from source file boundaries" IsChecked="{Binding CreateChapters}" Margin="0,0,0,16"/>
-      <Expander Header="Advanced settings" Margin="0,0,0,12">
+      <Expander Header="_Advanced settings" Margin="0,0,0,12">
         <StackPanel>
-          <TextBlock Text="Parallel encoding jobs (blank uses Automatic)" Margin="0,8,0,4"/>
-          <ComboBox ItemsSource="{Binding JobChoices}" SelectedItem="{Binding ConversionJobs}" AutomationProperties.Name="Parallel encoding jobs"/>
-          <TextBlock Text="Channel handling" Margin="0,8,0,4"/>
-          <ComboBox ItemsSource="{Binding ChannelPolicies}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding ChannelPolicy}" AutomationProperties.Name="Channel handling"/>
-          <TextBlock Text="Metadata profile" Margin="0,8,0,4"/>
-          <ComboBox ItemsSource="{Binding MetadataProfiles}" SelectedItem="{Binding MetadataProfileId}" AutomationProperties.Name="Metadata profile"/>
-          <TextBlock Text="Validation (Full decodes the entire output)" Margin="0,8,0,4"/>
-          <ComboBox ItemsSource="{Binding ValidationLevels}" SelectedItem="{Binding ValidationLevel}" AutomationProperties.Name="Validation level"/>
-          <TextBlock Text="Logging level" Margin="0,8,0,4"/>
-          <ComboBox ItemsSource="{Binding LogLevels}" SelectedItem="{Binding LogLevel}" AutomationProperties.Name="Logging level"/>
+          <Label Content="Parallel encoding _jobs (blank uses Automatic)" Target="{Binding ElementName=Jobs}" Margin="0,8,0,4"/>
+          <ComboBox x:Name="Jobs" ItemsSource="{Binding JobChoices}" SelectedItem="{Binding ConversionJobs}" AutomationProperties.Name="Parallel encoding jobs"/>
+          <Label Content="Channel _handling" Target="{Binding ElementName=Channels}" Margin="0,8,0,4"/>
+          <ComboBox x:Name="Channels" ItemsSource="{Binding ChannelPolicies}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding ChannelPolicy}" AutomationProperties.Name="Channel handling"/>
+          <Label Content="_Metadata profile" Target="{Binding ElementName=MetadataProfile}" Margin="0,8,0,4"/>
+          <ComboBox x:Name="MetadataProfile" ItemsSource="{Binding MetadataProfiles}" SelectedItem="{Binding MetadataProfileId}" AutomationProperties.Name="Metadata profile"/>
+          <Label Content="_Validation (Full decodes the entire output)" Target="{Binding ElementName=Validation}" Margin="0,8,0,4"/>
+          <ComboBox x:Name="Validation" ItemsSource="{Binding ValidationLevels}" SelectedItem="{Binding ValidationLevel}" AutomationProperties.Name="Validation level"/>
+          <Label Content="_Logging level" Target="{Binding ElementName=Logging}" Margin="0,8,0,4"/>
+          <ComboBox x:Name="Logging" ItemsSource="{Binding LogLevels}" SelectedItem="{Binding LogLevel}" AutomationProperties.Name="Logging level"/>
         </StackPanel>
       </Expander>
       <TextBlock Text="{Binding ErrorMessage}" Foreground="Firebrick" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" Margin="0,0,0,12"/>
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-        <Button Content="Cancel" IsCancel="True" Padding="16,6" Margin="0,0,8,0"/>
+        <Button Content="_Cancel" IsCancel="True" Padding="16,6" Margin="0,0,8,0"/>
         <Button Content="_Save and continue" IsDefault="True" Click="Save_Click" Padding="16,6"/>
       </StackPanel>
     </StackPanel>

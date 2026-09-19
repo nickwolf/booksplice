@@ -9,7 +9,7 @@ using BookSplice.Core.Settings;
 
 namespace BookSplice.Gui.ViewModels;
 
-public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionService conversion, AppSettings settings) : ObservableModel, IDisposable
+public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionService conversion, AppSettings settings, IConversionPlanner? planner = null) : ObservableModel, IDisposable
 {
   private SemaphoreSlim _slots = new(settings.ConversionJobs ?? Math.Clamp(Environment.ProcessorCount / 2, 1, 6));
   private string _message = "";
@@ -91,11 +91,7 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
       await _slots.WaitAsync(cancellation.Token);
       acquired = true;
       item.Status = "Converting";
-      var edits = item.Metadata.Where(field => field.IsEdited).ToDictionary(field => field.Field,
-        field => string.IsNullOrWhiteSpace(field.Value) ? MetadataEdit.Clear() : MetadataEdit.Set(field.Value));
-      var options = new ConversionOptions(item.Settings with { ConversionJobs = 1 }, QualityProfileCatalog.FindById(item.Settings.QualityProfileId)!,
-        edits, selectedCoverHash: item.SelectedCover?.ContentHash, chapterTitles: item.Chapters.ToDictionary(chapter => chapter.Source, chapter => chapter.Title), omitCover: item.OmitCover);
-      var result = await conversion.ConvertAsync(new ConversionRequest(item.Source, item.Settings.CreateChapters, options,
+      var result = await conversion.ConvertAsync(new ConversionRequest(item.Source, item.Settings.CreateChapters, item.CreateOptions(singleConversionJob: true),
         AnalysisOptions: new BookAnalysisOptions(item.SelectedOrder), ExpectedSourcePaths: item.Analysis!.OrderedFiles.Select(file => file.FullPath).ToArray()), cancellation.Token, progress);
       item.Status = result.Status == ConversionTerminalStatus.Succeeded ? "Complete" : result.Status.ToString();
       item.PublishedPath = result.Status == ConversionTerminalStatus.Succeeded ? result.PublishedPath : null;
@@ -106,6 +102,25 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     catch (Exception exception) { item.Status = "Conversion failed"; item.Details = exception.Message; }
     finally { if (acquired) _slots.Release(); item.Cancellation = null; item.IsBusy = false; }
   }
+
+  public async Task PreviewAsync(BookQueueItemViewModel item)
+  {
+    if (planner is null || !item.CanConvert || item.Analysis is null) return;
+    item.IsBusy = true;
+    try
+    {
+      var result = await Task.Run(() => planner.CreateAsync(item.Analysis, item.CreateOptions(singleConversionJob: true), CancellationToken.None));
+      item.Details = result.Plan is { } plan
+        ? $"Output: {plan.OutputPath}{Environment.NewLine}Audio: {DescribeAudio(plan)}{Environment.NewLine}Validation: {plan.ValidationLevel} | Metadata: {plan.MetadataProfileId}"
+        : string.Join(Environment.NewLine, result.Diagnostics.Select(diagnostic => diagnostic.Message));
+    }
+    catch (Exception exception) { item.Details = exception.Message; }
+    finally { item.IsBusy = false; }
+  }
+
+  private static string DescribeAudio(ConversionPlan plan) => plan.Strategy == AudioStrategy.AacStreamCopy
+    ? $"AAC stream copy | {plan.ChannelLayout}"
+    : $"{plan.Strategy} | {plan.QualityProfile.DisplayName} {plan.QualityProfile.AudioBitrateKbps} kbps | {plan.ChannelLayout}";
 
   public void Dispose() => _slots.Dispose();
 
