@@ -25,7 +25,7 @@ The pinned executable reports that it is an LGPL version 3 or later build. Its c
 
 The release includes the license file from the exact binary archive at `licenses/FFmpeg-LICENSE.txt`, plus the LGPL 3.0 and GPL 3.0 texts at `licenses/LGPL-3.0.txt` and `licenses/GPL-3.0.txt`. FFmpeg source is available at [commit `946fcce07b`](https://github.com/FFmpeg/FFmpeg/commit/946fcce07b). The [BtbN build tag](https://github.com/BtbN/FFmpeg-Builds/tree/autobuild-2026-09-18-13-22) records the build scripts, dependency revisions, and source repository URLs used for this artifact.
 
-FFmpeg includes separately maintained libraries. Those components remain subject to their respective license terms. The exact enabled-component list comes from `ffmpeg -buildconf`; dependency revisions and source locations come from the pinned BtbN build tag above.
+FFmpeg includes separately maintained libraries. Those components remain subject to their respective license terms. The exact enabled-component list comes from `ffmpeg -buildconf`; dependency revisions and source locations come from the pinned BtbN build tag above. The generated [pinned component inventory](licenses/FFmpeg-components.md) records the 61 enabled configure flags and links each reviewed mapping to an upstream source and license or terms page. Run `scripts/Get-FFmpegLicenseInventory.ps1 -Check` against the extracted pinned tools before release review. The inventory is evidence for review and does not claim legal completeness from build flags alone.
 
 ## BtbN FFmpeg-Builds
 

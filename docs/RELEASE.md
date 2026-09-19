@@ -9,6 +9,7 @@ $toolRoot = Join-Path $PWD 'artifacts\tools\ffmpeg'
 .\scripts\Get-MediaTools.ps1 -ManifestPath .\tools\ffmpeg\manifest.json -DestinationRoot $toolRoot
 $toolRelease = (Get-Content .\tools\ffmpeg\manifest.json | ConvertFrom-Json).release
 $toolDirectory = Join-Path $toolRoot $toolRelease
+.\scripts\Get-FFmpegLicenseInventory.ps1 -MediaToolDirectory $toolDirectory -Check
 
 dotnet restore
 $env:BOOKSPLICE_FFMPEG_DIR = $toolDirectory

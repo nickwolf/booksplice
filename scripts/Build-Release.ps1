@@ -24,8 +24,14 @@ $resolvedTools = [IO.Path]::GetFullPath($MediaToolDirectory)
 $expectedLicenseSha256 = [string]$mediaManifest.licenseSha256
 
 foreach ($tool in @('ffmpeg.exe', 'ffprobe.exe')) {
-    if (-not (Test-Path -LiteralPath (Join-Path $resolvedTools $tool) -PathType Leaf)) {
-        throw "Media tool directory is missing '$tool'."
+    $toolPath = Join-Path $resolvedTools $tool
+    if (-not (Test-Path -LiteralPath $toolPath -PathType Leaf)) { throw "Media tool directory is missing '$tool'." }
+    $hashProperty = if ($tool -eq 'ffmpeg.exe') { 'ffmpegSha256' } else { 'ffprobeSha256' }
+    if (-not ($mediaManifest.PSObject.Properties.Name -contains $hashProperty)) { throw "Media tool manifest is missing '$hashProperty'." }
+    $expectedToolHash = [string]$mediaManifest.$hashProperty
+    $actualToolHash = (Get-FileHash -LiteralPath $toolPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if (-not [string]::Equals($actualToolHash, $expectedToolHash, [StringComparison]::Ordinal)) {
+        throw "$tool checksum mismatch. Expected '$expectedToolHash', received '$actualToolHash'."
     }
 }
 $mediaLicensePath = Join-Path $resolvedTools 'FFmpeg-LICENSE.txt'
@@ -34,6 +40,9 @@ $actualLicenseSha256 = (Get-FileHash -LiteralPath $mediaLicensePath -Algorithm S
 if (-not [string]::Equals($actualLicenseSha256, $expectedLicenseSha256, [StringComparison]::Ordinal)) {
     throw "Media tool license checksum mismatch. Expected '$expectedLicenseSha256', received '$actualLicenseSha256'."
 }
+
+& (Join-Path $PSScriptRoot 'Get-FFmpegLicenseInventory.ps1') -MediaToolDirectory $resolvedTools -Check
+if ($LASTEXITCODE -ne 0) { throw "FFmpeg component inventory check failed with exit code $LASTEXITCODE." }
 
 New-Item -ItemType Directory -Path $releaseRoot -Force | Out-Null
 $releasePrefix = $releaseRoot.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
