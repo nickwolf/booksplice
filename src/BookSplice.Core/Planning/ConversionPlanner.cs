@@ -26,7 +26,7 @@ public sealed class ConversionPlanner : IConversionPlanner
     if (string.IsNullOrWhiteSpace(title)) title = analysis.SourceRootName;
     if (string.IsNullOrWhiteSpace(options.DestinationDirectory) || !Directory.Exists(options.DestinationDirectory)) return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.destination-unavailable", AnalysisDiagnosticSeverity.Error, "The destination directory is unavailable.")]));
     var output = _outputNames.CreateRequestedPath(options.DestinationDirectory, title, analysis.SourceRootName, options.CollisionPolicy);
-    var eligibility = StreamCopyEligibility.Evaluate(analysis.OrderedFiles);
+    var eligibility = StreamCopyEligibility.Evaluate(analysis.OrderedFiles, options.Settings.ChannelPolicy);
     var strategy = eligibility.IsEligible ? AudioStrategy.AacStreamCopy : analysis.OrderedFiles.Count == 1 ? AudioStrategy.DirectTranscode : analysis.OrderedFiles.Count <= FilterConcatMaximumFiles ? AudioStrategy.FilterConcatTranscode : AudioStrategy.SegmentedTranscode;
     var reasons = eligibility.IsEligible ? Array.Empty<string>() : eligibility.ReasonCodes.Concat(strategy == AudioStrategy.SegmentedTranscode ? ["strategy.filter-concat-file-limit"] : []).ToArray();
     SpaceEstimate space;
@@ -36,11 +36,14 @@ public sealed class ConversionPlanner : IConversionPlanner
     if (space.AvailableBytes is null) return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.destination-space-unavailable", AnalysisDiagnosticSeverity.Error, "Destination free space could not be read.")]));
     if (space.AvailableBytes < space.TotalRequiredBytes) return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.insufficient-space", AnalysisDiagnosticSeverity.Error, "The destination does not have enough available space.")]));
     var cover = string.IsNullOrWhiteSpace(options.SelectedCoverHash) ? analysis.Cover.Selected : analysis.Cover.Candidates.SingleOrDefault(c => string.Equals(c.ContentHash, options.SelectedCoverHash, StringComparison.OrdinalIgnoreCase));
+    if (options.OmitCover) cover = null;
+    var chapters = analysis.Chapters.Entries.Select(chapter => options.ChapterTitles.TryGetValue(chapter.SourceRelativePath, out var title)
+      ? chapter with { Title = string.IsNullOrWhiteSpace(title) ? chapter.Title : title.Trim() } : chapter).ToArray();
     var jobs = options.Settings.ConversionJobs ?? 6;
     var metadataProfileId = options.Settings.MetadataProfileId;
     if (metadataProfileId is not ("GenericMp4" or "NickMp3tag")) return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.metadata-profile-unknown", AnalysisDiagnosticSeverity.Error, "The selected metadata profile is unavailable.")]));
-    var format = SelectAudioFormat(analysis);
-    var plan = new ConversionPlan(analysis.OrderedFiles.Select(file => file.FullPath).ToArray(), metadata, cover, analysis.Chapters.Entries, options.QualityProfile, options.Settings.ValidationLevel, options.CollisionPolicy, output, strategy, reasons, space, jobs, options.Settings.ConversionJobs is null ? "benchmark-host-automatic-6" : "explicit-setting", metadataProfileId, format.SampleRate, format.Channels);
+    var format = SelectAudioFormat(analysis, options.Settings.ChannelPolicy);
+    var plan = new ConversionPlan(analysis.OrderedFiles.Select(file => file.FullPath).ToArray(), metadata, cover, chapters, options.QualityProfile, options.Settings.ValidationLevel, options.CollisionPolicy, output, strategy, reasons, space, jobs, options.Settings.ConversionJobs is null ? "benchmark-host-automatic-6" : "explicit-setting", metadataProfileId, format.SampleRate, format.Channels);
     return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Ready, plan, diagnostics));
   }
 
@@ -50,13 +53,18 @@ public sealed class ConversionPlanner : IConversionPlanner
     foreach (var (field, edit) in edits.Where(pair => pair.Value.IsSet)) fields[field] = edit.Value is null ? AggregatedValue.Missing(field) : new AggregatedValue(field, AggregationState.Consistent, edit.Value, []);
     return new BookMetadata(fields, new Dictionary<string, string>(source.PreservedTags, StringComparer.OrdinalIgnoreCase), source.InputKeys.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<string>)pair.Value.ToArray()));
   }
-  private static (int SampleRate, int Channels) SelectAudioFormat(BookAnalysis analysis)
+  private static (int SampleRate, int Channels) SelectAudioFormat(BookAnalysis analysis, ChannelPolicy channelPolicy)
   {
     var tracks = analysis.OrderedFiles.Select(file => file.ProbeResult.AudioStreams.Count > 0 ? file.ProbeResult.AudioStreams[0] : null).ToArray();
     var rates = tracks.Select(track => track?.SampleRate).ToArray();
     var sampleRate = rates.Length > 0 && rates.All(rate => rate is 32_000 or 44_100 or 48_000) && rates.Distinct().Count() == 1 ? rates[0]!.Value : 44_100;
     var channels = tracks.Select(track => track?.Channels).ToArray();
-    var channelCount = channels.Length > 0 && channels.All(channel => channel is 1 or 2) && channels.Distinct().Count() == 1 ? channels[0]!.Value : 2;
+    var channelCount = channelPolicy switch
+    {
+      ChannelPolicy.ForceMono => 1,
+      ChannelPolicy.ForceStereo => 2,
+      _ => channels.Length > 0 && channels.All(channel => channel is 1 or 2) && channels.Distinct().Count() == 1 ? channels[0]!.Value : 2,
+    };
     return (sampleRate, channelCount);
   }
   private static SpaceEstimate Estimate(BookAnalysis analysis, QualityProfile profile, AudioStrategy strategy, long? available)

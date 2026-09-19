@@ -178,6 +178,7 @@ public sealed class MediaToolLocatorTests
       ["variant"] = "win64-lgpl",
       ["expectedVersionPrefix"] = "ffmpeg version n9.0.1-11-ge47273f4d9",
       ["sha256"] = digest,
+      ["licenseSha256"] = new string('0', 64),
       ["expectedExecutables"] = new[] { "ffmpeg.exe", "ffprobe.exe" },
     };
 

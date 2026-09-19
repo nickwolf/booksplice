@@ -12,7 +12,7 @@ public sealed record MetadataEdit(bool IsSet, string? Value)
 
 public sealed class ConversionOptions
 {
-  public ConversionOptions(AppSettings settings, QualityProfile qualityProfile, IReadOnlyDictionary<SemanticField, MetadataEdit>? metadataEdits = null, string? destinationDirectory = null, CollisionPolicy? collisionPolicy = null, string? selectedCoverHash = null)
+  public ConversionOptions(AppSettings settings, QualityProfile qualityProfile, IReadOnlyDictionary<SemanticField, MetadataEdit>? metadataEdits = null, string? destinationDirectory = null, CollisionPolicy? collisionPolicy = null, string? selectedCoverHash = null, IReadOnlyDictionary<string, string>? chapterTitles = null, bool omitCover = false)
   {
     Settings = settings;
     QualityProfile = qualityProfile;
@@ -20,11 +20,15 @@ public sealed class ConversionOptions
     DestinationDirectory = destinationDirectory ?? settings.OutputDirectory;
     CollisionPolicy = collisionPolicy ?? settings.CollisionPolicy;
     SelectedCoverHash = selectedCoverHash;
+    ChapterTitles = new Dictionary<string, string>(chapterTitles ?? new Dictionary<string, string>(), StringComparer.Ordinal);
+    OmitCover = omitCover;
   }
   public AppSettings Settings { get; }
   public QualityProfile QualityProfile { get; }
   public IReadOnlyDictionary<SemanticField, MetadataEdit> MetadataEdits { get; }
   public string DestinationDirectory { get; }
   public CollisionPolicy CollisionPolicy { get; }
+  public IReadOnlyDictionary<string, string> ChapterTitles { get; }
+  public bool OmitCover { get; }
   public string? SelectedCoverHash { get; }
 }

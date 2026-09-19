@@ -8,6 +8,7 @@ public static partial class PublicTextRedactor
   {
     ArgumentNullException.ThrowIfNull(value);
     var clean = new string(value.Select(character => char.IsControl(character) ? ' ' : character).ToArray());
+    clean = AbsoluteFilePath().Replace(clean, "[path]");
     if (exactPaths is not null)
     {
       foreach (var path in exactPaths.Where(path => !string.IsNullOrWhiteSpace(path)).OrderByDescending(path => path.Length))
@@ -16,6 +17,9 @@ public static partial class PublicTextRedactor
     return AbsolutePath().Replace(clean, "[path]");
   }
 
-  [GeneratedRegex(@"(?<![A-Za-z0-9])(?:(?:[A-Za-z]:[\\/]|\\\\|/)[^\r\n]*?\.[A-Za-z0-9]{1,8}(?=[\s,;:\)]|$)|(?:[A-Za-z]:[\\/]|\\\\|/)[^\r\n]*)", RegexOptions.CultureInvariant)]
+  [GeneratedRegex(@"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\|/)[^\r\n]*?\.[A-Za-z0-9]{1,8}(?=[\s,;:.\)\x22\x27]|$)", RegexOptions.CultureInvariant)]
+  private static partial Regex AbsoluteFilePath();
+
+  [GeneratedRegex(@"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\|/)[^\r\n]*", RegexOptions.CultureInvariant)]
   private static partial Regex AbsolutePath();
 }

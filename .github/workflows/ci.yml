@@ -15,9 +15,20 @@ jobs:
         with:
           global-json-file: global.json
       - run: dotnet restore
+      - name: Acquire pinned media tools
+        shell: pwsh
+        run: |
+          .\scripts\Get-MediaTools.ps1 -ManifestPath .\tools\ffmpeg\manifest.json -DestinationRoot .\artifacts\tools\ffmpeg
+          $release = (Get-Content .\tools\ffmpeg\manifest.json | ConvertFrom-Json).release
+          "BOOKSPLICE_FFMPEG_DIR=$((Resolve-Path ".\artifacts\tools\ffmpeg\$release").Path)" | Out-File -FilePath $env:GITHUB_ENV -Append
       - run: dotnet build --configuration Release --no-restore
       - run: dotnet test --configuration Release --no-build
       - run: dotnet format --verify-no-changes --no-restore
+      - name: Build and test release package
+        shell: pwsh
+        run: |
+          .\scripts\Build-Release.ps1 -Version 0.1.0-ci -MediaToolDirectory $env:BOOKSPLICE_FFMPEG_DIR
+          .\scripts\Test-Release.ps1 -ArchivePath .\artifacts\release\BookSplice-0.1.0-ci-win-x64.zip -ChecksumPath .\artifacts\release\BookSplice-0.1.0-ci-win-x64.zip.sha256
 
   secret-scan:
     permissions:

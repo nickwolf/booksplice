@@ -1,12 +1,119 @@
 <Window x:Class="BookSplice.Gui.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:BookSplice.Gui"
-        mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
-    <Grid>
-
+        Title="BookSplice" Height="760" Width="1120" MinWidth="760" MinHeight="520"
+        AutomationProperties.AutomationId="BookSpliceMainWindow"
+        AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver">
+  <DockPanel Margin="16">
+    <StackPanel DockPanel.Dock="Top">
+      <StackPanel Margin="0,0,0,12">
+        <TextBlock Text="BookSplice" FontSize="26" FontWeight="SemiBold"/>
+        <WrapPanel x:Name="PrimaryActions" HorizontalAlignment="Left" Margin="0,4,0,0">
+          <Button Content="Add _folder..." Click="AddFolder_Click" Padding="12,6" Margin="4"/>
+          <Button Content="Add f_iles..." Click="AddFiles_Click" Padding="12,6" Margin="4"/>
+          <Button Content="_Convert ready books" Click="ConvertAll_Click" Padding="12,6" Margin="4"/>
+          <Button Content="_Settings" Click="Settings_Click" Padding="12,6" Margin="4"/>
+        </WrapPanel>
+      </StackPanel>
+      <TextBlock x:Name="Destination" TextWrapping="Wrap"/>
+      <TextBlock Text="Drop audiobook folders here. Each folder becomes one book. Add files selects individual books." TextWrapping="Wrap" Margin="0,6"/>
+      <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Foreground="Firebrick" AutomationProperties.LiveSetting="Polite"/>
+    </StackPanel>
+    <Grid Margin="0,12,0,0">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="280" MinWidth="200"/>
+        <ColumnDefinition Width="8"/>
+        <ColumnDefinition Width="*" MinWidth="380"/>
+      </Grid.ColumnDefinitions>
+      <ListBox x:Name="Queue" ItemsSource="{Binding Items}" HorizontalContentAlignment="Stretch" AutomationProperties.Name="Audiobook queue">
+        <ListBox.ItemTemplate>
+          <DataTemplate>
+            <StackPanel Margin="6">
+              <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+              <TextBlock Text="{Binding Status}" Margin="0,4"/>
+              <ProgressBar Value="{Binding Percent}" Maximum="100" Height="5" AutomationProperties.Name="Conversion progress"/>
+            </StackPanel>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+      <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Center"/>
+      <DockPanel Grid.Column="2" DataContext="{Binding SelectedItem, ElementName=Queue}">
+        <StackPanel DockPanel.Dock="Top" Margin="8,0,0,8">
+          <TextBlock Text="{Binding Name}" FontSize="20" FontWeight="SemiBold"/>
+          <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" Margin="0,4"/>
+          <TextBlock Text="{Binding Source}" TextWrapping="Wrap" Foreground="DimGray"/>
+          <WrapPanel Margin="0,8">
+            <Button Content="_Preview output" IsEnabled="{Binding CanConvert}" Click="Preview_Click" Padding="12,6" Margin="0,0,8,0"/>
+            <Button Content="_Convert selected" IsEnabled="{Binding CanConvert}" Click="Convert_Click" Padding="12,6" Margin="0,0,8,0"/>
+            <Button Content="_Cancel" IsEnabled="{Binding IsBusy}" Click="Cancel_Click" Padding="12,6" Margin="0,0,8,0"/>
+            <Button Content="Copy _diagnostics" Click="CopyDiagnostics_Click" Padding="12,6" Margin="0,0,8,0"/>
+            <Button Content="_Open output folder" Click="OpenOutput_Click" Padding="12,6" Margin="0,0,8,0"/>
+            <Button Content="_Remove" IsEnabled="{Binding CanRemove}" Click="Remove_Click" Padding="12,6"/>
+          </WrapPanel>
+        </StackPanel>
+        <TextBox DockPanel.Dock="Bottom" Text="{Binding Details, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap"
+                 VerticalScrollBarVisibility="Auto" MaxHeight="130" MinHeight="50" Margin="8" AutomationProperties.Name="Status and diagnostics"/>
+        <TabControl Margin="8,0,0,0">
+          <TabItem Header="_Metadata">
+            <DataGrid ItemsSource="{Binding Metadata}" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+                      IsEnabled="{Binding CanEdit}" AutomationProperties.Name="Book metadata">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="Field" Binding="{Binding Name}" IsReadOnly="True" Width="130"/>
+                <DataGridTextColumn Header="Value" Binding="{Binding Value, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                <DataGridTextColumn Header="Imported state" Binding="{Binding State}" IsReadOnly="True" Width="110"/>
+                <DataGridTextColumn Header="Source values" Binding="{Binding Candidates}" IsReadOnly="True" Width="*"/>
+              </DataGrid.Columns>
+            </DataGrid>
+          </TabItem>
+          <TabItem Header="_Track order">
+            <DockPanel Margin="8">
+              <StackPanel DockPanel.Dock="Top" IsEnabled="{Binding CanEdit}">
+                <TextBlock Text="Review a candidate's complete track list, then apply it." TextWrapping="Wrap"/>
+                <ComboBox x:Name="OrderChoice" ItemsSource="{Binding OrderCandidates}" DisplayMemberPath="Id" AutomationProperties.Name="Ordering candidate" Margin="0,8"/>
+                <Button Content="_Use selected order" Click="Order_Click" Padding="12,6" HorizontalAlignment="Left"/>
+                <TextBlock Text="Candidate preview" FontWeight="SemiBold" Margin="0,12,0,6"/>
+              </StackPanel>
+              <ListBox ItemsSource="{Binding SelectedItem.FileIds, ElementName=OrderChoice}" AutomationProperties.Name="Candidate track order"/>
+            </DockPanel>
+          </TabItem>
+          <TabItem Header="_Cover">
+            <StackPanel Margin="8" IsEnabled="{Binding CanEdit}">
+              <TextBlock Text="Choose artwork to embed. No artwork is required." TextWrapping="Wrap"/>
+              <CheckBox Content="Do _not embed artwork" IsChecked="{Binding OmitCover}" Margin="0,8"/>
+              <ComboBox ItemsSource="{Binding Covers}" SelectedItem="{Binding SelectedCover}" SelectionChanged="Cover_Changed" DisplayMemberPath="SourceIdentity"
+                        AutomationProperties.Name="Cover artwork" Margin="0,8"/>
+              <Image x:Name="CoverImage" Height="280" Stretch="Uniform" AutomationProperties.Name="Selected cover preview"/>
+            </StackPanel>
+          </TabItem>
+          <TabItem Header="_Output">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <StackPanel Margin="8" IsEnabled="{Binding CanEdit}">
+                <TextBlock Text="These settings apply only to the selected book. Use Preview output to confirm the final filename and audio strategy." TextWrapping="Wrap" Margin="0,0,0,8"/>
+                <Label Content="_Destination folder" Target="{Binding ElementName=BookOutputDirectory}"/>
+                <TextBox x:Name="BookOutputDirectory" Text="{Binding OutputDirectory, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Selected book destination folder"/>
+                <Label Content="_Audio quality" Target="{Binding ElementName=BookQuality}" Margin="0,8,0,0"/>
+                <ComboBox x:Name="BookQuality" ItemsSource="{Binding QualityProfiles}" DisplayMemberPath="DisplayName" SelectedValuePath="Id" SelectedValue="{Binding QualityProfileId}" AutomationProperties.Name="Selected book audio quality"/>
+                <Label Content="C_hannel handling" Target="{Binding ElementName=BookChannels}" Margin="0,8,0,0"/>
+                <ComboBox x:Name="BookChannels" ItemsSource="{Binding ChannelPolicies}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding ChannelPolicy}" AutomationProperties.Name="Selected book channel handling"/>
+                <Label Content="_Metadata profile" Target="{Binding ElementName=BookMetadataProfile}" Margin="0,8,0,0"/>
+                <ComboBox x:Name="BookMetadataProfile" ItemsSource="{Binding MetadataProfiles}" SelectedItem="{Binding MetadataProfileId}" AutomationProperties.Name="Selected book metadata profile"/>
+                <Label Content="_Validation" Target="{Binding ElementName=BookValidation}" Margin="0,8,0,0"/>
+                <ComboBox x:Name="BookValidation" ItemsSource="{Binding ValidationLevels}" SelectedItem="{Binding ValidationLevel}" AutomationProperties.Name="Selected book validation level"/>
+              </StackPanel>
+            </ScrollViewer>
+          </TabItem>
+          <TabItem Header="_Chapters">
+            <DataGrid ItemsSource="{Binding Chapters}" AutoGenerateColumns="False" IsEnabled="{Binding CanEdit}"
+                      CanUserAddRows="False" CanUserDeleteRows="False" AutomationProperties.Name="Chapter titles">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="Start" Binding="{Binding Start}" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Title" Binding="{Binding Title, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                <DataGridTextColumn Header="Source" Binding="{Binding Source}" IsReadOnly="True" Width="*"/>
+              </DataGrid.Columns>
+            </DataGrid>
+          </TabItem>
+        </TabControl>
+      </DockPanel>
     </Grid>
+  </DockPanel>
 </Window>

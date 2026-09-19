@@ -17,7 +17,7 @@ public sealed class CliApplication
   public CliApplication(ISettingsStore settings, IConversionService service, IJobLogWriter? logs = null)
     => (_settings, _service, _logs) = (settings, service, logs);
 
-  public async Task<CliExitCode> RunAsync(IReadOnlyList<string> arguments, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken)
+  public async Task<CliExitCode> RunAsync(IReadOnlyList<string> arguments, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken, TextReader? standardInput = null)
   {
     var parsed = CliParser.Parse(arguments);
     var requestedJson = arguments.Contains("--json", StringComparer.Ordinal);
@@ -78,7 +78,7 @@ public sealed class CliApplication
       options.Source,
       settings.CreateChapters,
       new ConversionOptions(settings, configured.QualityProfile!, destinationDirectory: settings.OutputDirectory, collisionPolicy: options.Overwrite ? CollisionPolicy.Overwrite : settings.CollisionPolicy),
-      options.DryRun);
+      options.DryRun, new BookAnalysisOptions(options.Order));
     var sync = new object();
     if (options.Json) WriteJson(standardOutput, new { SchemaVersion = 1, Event = "started" }, sync);
     else standardOutput.WriteLine("Analyzing audiobook");
@@ -92,7 +92,31 @@ public sealed class CliApplication
     });
 
     ConversionServiceResult result;
-    try { result = await _service.ConvertAsync(request, cancellationToken, progress).ConfigureAwait(false); }
+    try
+    {
+      result = await _service.ConvertAsync(request, cancellationToken, progress).ConfigureAwait(false);
+      if (result.Status == ConversionTerminalStatus.DecisionRequired && !options.Json && standardInput is not null && result.Analysis?.OrderResolution is { } resolution)
+      {
+        var candidates = resolution.Candidates.Where(candidate => candidate.IsCredible).ToArray();
+        for (var index = 0; index < candidates.Length; index++)
+        {
+          standardOutput.WriteLine($"{index + 1}: {candidates[index].Id}");
+          foreach (var file in candidates[index].FileIds) standardOutput.WriteLine($"  {PublicTextRedactor.Sanitize(file)}");
+        }
+        standardOutput.WriteLine("Select an order number, or press Enter to stop:");
+        var answer = await ReadLineWithCancellationAsync(standardInput, cancellationToken).ConfigureAwait(false);
+        if (int.TryParse(answer, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var selection) && selection >= 1 && selection <= candidates.Length)
+        {
+          var candidate = candidates[selection - 1];
+          request = request with
+          {
+            AnalysisOptions = new BookAnalysisOptions(candidate.Id),
+            ExpectedSourcePaths = candidate.FileIds.Select(file => Path.Combine(result.Analysis.SourceRootPath, file)).ToArray()
+          };
+          result = await _service.ConvertAsync(request, cancellationToken, progress).ConfigureAwait(false);
+        }
+      }
+    }
     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
     {
       return await CompletePreServiceAsync(
@@ -197,6 +221,9 @@ public sealed class CliApplication
   {
     lock (sync) writer.WriteLine(JsonSerializer.Serialize(value, JsonOptions));
   }
+
+  private static Task<string?> ReadLineWithCancellationAsync(TextReader reader, CancellationToken cancellationToken)
+    => Task.Run(reader.ReadLine, CancellationToken.None).WaitAsync(cancellationToken);
 
   private sealed class InlineProgress<T>(Action<T> action) : IProgress<T>
   {

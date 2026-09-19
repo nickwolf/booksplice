@@ -13,11 +13,12 @@ public sealed class StreamCopyEligibility
   public bool IsEligible { get; }
   public IReadOnlyList<string> ReasonCodes { get; }
 
-  public static StreamCopyEligibility Evaluate(IReadOnlyList<SourceFile> files)
+  public static StreamCopyEligibility Evaluate(IReadOnlyList<SourceFile> files, ChannelPolicy channelPolicy = ChannelPolicy.PreserveSourceChannels)
   {
     ArgumentNullException.ThrowIfNull(files);
     var reasons = new List<string>();
     if (files.Count == 0) reasons.Add("stream-copy.no-sources");
+    if (channelPolicy != ChannelPolicy.PreserveSourceChannels) reasons.Add("stream-copy.channel-policy");
     var reference = files.Count == 0 ? null : files[0].ProbeResult.AudioStreams.SingleOrDefault();
     foreach (var file in files)
     {

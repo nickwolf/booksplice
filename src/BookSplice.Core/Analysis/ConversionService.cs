@@ -21,7 +21,7 @@ public enum ConversionStage { Analysis, Planning, Execution, Validation, Publica
 public enum ServiceDiagnosticSeverity { Error, Warning, Information }
 public sealed record ServiceDiagnostic(string Code, ServiceDiagnosticSeverity Severity, string Message);
 public sealed record ServiceStageTiming(ConversionStage Stage, DateTimeOffset StartedAt, DateTimeOffset FinishedAt);
-public sealed record ConversionRequest(string Source, bool CreateChapters, ConversionOptions Options, bool DryRun = false, BookAnalysisOptions? AnalysisOptions = null);
+public sealed record ConversionRequest(string Source, bool CreateChapters, ConversionOptions Options, bool DryRun = false, BookAnalysisOptions? AnalysisOptions = null, IReadOnlyList<string>? ExpectedSourcePaths = null);
 
 public sealed record ConversionServiceResult(
   Guid JobId,
@@ -77,6 +77,12 @@ public sealed class ConversionService : IConversionService
       {
         var status = analysis.Status == BookAnalysisStatus.NeedsDecision ? ConversionTerminalStatus.DecisionRequired : ConversionTerminalStatus.InvalidInput;
         return await FinishAsync(Result(status, ConversionStage.Analysis), request.DryRun, started).ConfigureAwait(false);
+      }
+
+      if (request.ExpectedSourcePaths is { } reviewed && !reviewed.SequenceEqual(analysis.OrderedFiles.Select(file => file.FullPath), StringComparer.OrdinalIgnoreCase))
+      {
+        diagnostics.Add(new("analysis.sources-changed", ServiceDiagnosticSeverity.Warning, "Source files or playback order changed after review. Analyze the book again before converting."));
+        return await FinishAsync(Result(ConversionTerminalStatus.DecisionRequired, ConversionStage.Analysis), request.DryRun, started).ConfigureAwait(false);
       }
 
       stage = ConversionStage.Planning;

@@ -7,7 +7,7 @@ public static class CliParser
 {
   private static readonly HashSet<string> ValueOptions = new(StringComparer.Ordinal)
   {
-    "--output", "--quality", "--bitrate", "--jobs",
+    "--output", "--quality", "--bitrate", "--jobs", "--order", "--metadata-profile", "--validation", "--channels",
   };
 
   public static CliParseResult Parse(IReadOnlyList<string> arguments)
@@ -61,12 +61,23 @@ public static class CliParser
     if (quality is not null && QualityProfileCatalog.FindById(quality) is null)
       diagnostics.Add(new("usage.quality-profile", $"Unknown quality profile '{quality}'."));
 
+    values.TryGetValue("--order", out var orderText);
+    Core.Ordering.OrderCandidateId? order = orderText switch { "natural" => Core.Ordering.OrderCandidateId.NaturalPath, "metadata" => Core.Ordering.OrderCandidateId.Metadata, _ => null };
+    if (orderText is not null && order is null) diagnostics.Add(new("usage.order", "Order must be natural or metadata."));
+    values.TryGetValue("--metadata-profile", out var metadataProfile);
+    if (metadataProfile is not null and not ("GenericMp4" or "NickMp3tag")) diagnostics.Add(new("usage.metadata-profile", "Metadata profile must be GenericMp4 or NickMp3tag."));
+    values.TryGetValue("--validation", out var validationText);
+    Core.Settings.ValidationLevel? validation = validationText switch { "lightweight" => Core.Settings.ValidationLevel.Lightweight, "full" => Core.Settings.ValidationLevel.Full, _ => null };
+    if (validationText is not null && validation is null) diagnostics.Add(new("usage.validation", "Validation must be lightweight or full."));
+    values.TryGetValue("--channels", out var channelsText);
+    ChannelPolicy? channelPolicy = channelsText switch { "preserve" => ChannelPolicy.PreserveSourceChannels, "mono" => ChannelPolicy.ForceMono, "stereo" => ChannelPolicy.ForceStereo, _ => null };
+    if (channelsText is not null && channelPolicy is null) diagnostics.Add(new("usage.channels", "Channels must be preserve, mono, or stereo."));
     if (diagnostics.Count != 0) return new(null, diagnostics.AsReadOnly());
     values.TryGetValue("--output", out var output);
     bool? chapters = switches.Contains("--chapters") ? true : switches.Contains("--no-chapters") ? false : null;
     return new(new CliOptions(
       sources[0], output, quality, bitrate, jobs, chapters,
-      switches.Contains("--overwrite"), switches.Contains("--dry-run"), switches.Contains("--json")), []);
+      switches.Contains("--overwrite"), switches.Contains("--dry-run"), switches.Contains("--json"), order, metadataProfile, validation, channelPolicy), []);
   }
 
   private static int? ParseRange(Dictionary<string, string> values, string option, int minimum, int maximum, string code, List<CliDiagnostic> diagnostics)
