@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/nickwolf/booksplice/blob/main/benchmarks/acceptance-corpus.schema.json",
+  "title": "BookSplice private release-gate corpus",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "privateManifest", "copyPermission", "cases"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "privateManifest": { "const": true },
+    "copyPermission": { "const": true },
+    "cases": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": { "$ref": "#/$defs/case" },
+      "allOf": [
+        {
+          "contains": { "properties": { "category": { "const": "long-audiobook" } }, "required": ["category"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "properties": { "category": { "const": "very-long-audiobook" } }, "required": ["category"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "properties": { "category": { "const": "another-drive" } }, "required": ["category"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "properties": { "category": { "const": "mp3tag-roundtrip" } }, "required": ["category"] },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["caseId", "category", "sourcePath", "copyPermission", "expectedOrder", "order"],
+      "properties": {
+        "caseId": { "type": "string", "pattern": "^case-[0-9]{2,4}$" },
+        "category": {
+          "enum": ["long-audiobook", "very-long-audiobook", "another-drive", "mp3tag-roundtrip"]
+        },
+        "sourcePath": { "type": "string", "minLength": 1 },
+        "copyPermission": { "const": true },
+        "copyRoot": { "type": "string", "minLength": 1 },
+        "sourceDriveClass": { "enum": ["same-volume", "other-volume"] },
+        "expectedOrder": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[^<>:\"|?*\\\\/]+(?:[\\\\/][^<>:\"|?*\\\\/]+)*$",
+            "not": { "pattern": "(^|[\\\\/])\\.\\.?([\\\\/]|$)" }
+          }
+        },
+        "minimumAudioDurationSeconds": { "type": "integer", "minimum": 1 },
+        "order": { "enum": ["natural", "metadata"] },
+        "channels": { "enum": ["preserve", "mono", "stereo"] },
+        "quality": { "enum": ["efficient", "balanced", "high-quality", "preserve-more"] },
+        "mp3tagFields": {
+          "type": "object",
+          "minProperties": 4,
+          "required": ["TITLE", "ALBUM", "ARTIST", "ALBUMARTIST"],
+          "additionalProperties": { "type": "string" },
+          "propertyNames": { "pattern": "^[A-Za-z0-9_. -]{1,64}$" }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "category": { "const": "long-audiobook" } }, "required": ["category"] },
+          "then": {
+            "required": ["minimumAudioDurationSeconds"],
+            "properties": { "minimumAudioDurationSeconds": { "minimum": 3600 } }
+          }
+        },
+        {
+          "if": { "properties": { "category": { "const": "very-long-audiobook" } }, "required": ["category"] },
+          "then": {
+            "required": ["minimumAudioDurationSeconds"],
+            "properties": { "minimumAudioDurationSeconds": { "minimum": 21600 } }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "category": { "enum": ["another-drive", "mp3tag-roundtrip"] }
+            },
+            "required": ["category"]
+          },
+          "then": { "not": { "required": ["minimumAudioDurationSeconds"] } }
+        },
+        {
+          "if": { "properties": { "category": { "const": "another-drive" } }, "required": ["category"] },
+          "then": {
+            "required": ["copyRoot", "sourceDriveClass"],
+            "properties": { "sourceDriveClass": { "const": "other-volume" } }
+          }
+        },
+        {
+          "if": { "properties": { "category": { "const": "mp3tag-roundtrip" } }, "required": ["category"] },
+          "then": { "required": ["mp3tagFields"] }
+        }
+      ]
+    }
+  }
+}

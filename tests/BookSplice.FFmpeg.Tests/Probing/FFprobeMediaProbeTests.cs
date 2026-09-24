@@ -1,3 +1,6 @@
+using System.Buffers.Binary;
+using System.Text;
+using BookSplice.Core.Analysis;
 using BookSplice.FFmpeg.Probing;
 using BookSplice.FFmpeg.Execution;
 using BookSplice.FFmpeg.Tools;
@@ -6,6 +9,25 @@ namespace BookSplice.FFmpeg.Tests.Probing;
 
 public sealed class FFprobeMediaProbeTests
 {
+  [Theory]
+  [InlineData(0, 1)]
+  [InlineData(255, 256)]
+  public void NeroReaderDefersToMoreCompleteNativeChapterTrack(int neroCount, int nativeCount)
+  {
+    var path = Path.Combine(Path.GetTempPath(), $"booksplice-chpl-{Guid.NewGuid():N}.m4b");
+    try
+    {
+      var payload = new byte[9 + neroCount * 9];
+      payload[8] = checked((byte)neroCount);
+      for (var index = 0; index < neroCount; index++)
+        BinaryPrimitives.WriteUInt64BigEndian(payload.AsSpan(9 + index * 9, 8), checked((ulong)index * 10_000_000));
+      File.WriteAllBytes(path, Box("moov", Box("udta", Box("chpl", payload))));
+      var native = Enumerable.Range(0, nativeCount).Select(index => new MediaChapter(index, index, index + 1, new Rational(1, 1), new Dictionary<string, string> { ["title"] = $"Chapter {index}" })).ToArray();
+
+      Assert.Null(NeroChapterReader.Read(path, nativeCount, native));
+    }
+    finally { if (File.Exists(path)) File.Delete(path); }
+  }
   [Fact]
   public async Task ProbeAsyncMapsAudioCoverTagsAndChapters()
   {
@@ -34,6 +56,41 @@ public sealed class FFprobeMediaProbeTests
     Assert.Equal(1000, result.SourceByteSize);
   }
 
+  [Fact]
+  public async Task ProbeAsyncUsesMp3PacketCountAndGaplessPaddingForDuration()
+  {
+    var runner = new SequenceRunner(
+      """{"streams":[{"index":0,"codec_name":"mp3","codec_type":"audio","sample_rate":"44100","duration":"99","start_time":"0","time_base":"1/14112000"}],"format":{"duration":"99","format_name":"mp3"}}""",
+      """{"streams":[{"sample_rate":"44100","time_base":"1/14112000","nb_read_packets":"308"}]}""",
+      """{"packets":[{"duration":368640,"side_data_list":[{"side_data_type":"Skip Samples","skip_samples":1105,"discard_padding":0}]}]}""",
+      """{"packets":[{"duration":368640,"side_data_list":[{"side_data_type":"Skip Samples","skip_samples":0,"discard_padding":911}]}]}""");
+    var probe = new FFprobeMediaProbe(runner, new MediaToolSet("ffmpeg", "ffprobe", "", ""));
+
+    var result = await probe.ProbeAsync("generated.mp3", CancellationToken.None);
+
+    Assert.Equal(8m, result.Duration);
+    Assert.Equal(8m, result.AudioStreams.Single().Duration);
+    Assert.Equal(4, runner.Specs.Count);
+    Assert.Contains("-count_packets", runner.Specs[1].Arguments);
+    Assert.Contains("%+#1", runner.Specs[2].Arguments);
+    Assert.Contains("-1%+#1000", runner.Specs[3].Arguments);
+  }
+  [Fact]
+  public async Task ProbeAsyncSubtractsDiscardPaddingWhenFirstPacketHasNoSkipSamples()
+  {
+    var runner = new SequenceRunner(
+      """{"streams":[{"index":0,"codec_name":"mp3","codec_type":"audio","sample_rate":"44100","duration":"99","start_time":"0","time_base":"1/14112000"}],"format":{"duration":"99","format_name":"mp3"}}""",
+      """{"streams":[{"sample_rate":"44100","time_base":"1/14112000","nb_read_packets":"100"}]}""",
+      """{"packets":[{"duration":368640}]}""",
+      """{"packets":[{"duration":368640,"side_data_list":[{"side_data_type":"Skip Samples","skip_samples":0,"discard_padding":576}]}]}""");
+    var probe = new FFprobeMediaProbe(runner, new MediaToolSet("ffmpeg", "ffprobe", "", ""));
+
+    var result = await probe.ProbeAsync("generated.mp3", CancellationToken.None);
+
+    Assert.Equal(114_624m / 44_100m, result.Duration);
+    Assert.Equal(4, runner.Specs.Count);
+    Assert.Contains("-1%+#1000", runner.Specs[3].Arguments);
+  }
   [Fact]
   public async Task ProbeAsyncRetainsWarningsAndReportsNonzeroExit()
   {
@@ -83,7 +140,27 @@ public sealed class FFprobeMediaProbeTests
   }
 
   private static string FixturePath => Path.Combine(AppContext.BaseDirectory, "Fixtures", "ffprobe-complete.json");
+  private static byte[] Box(string type, byte[] payload)
+  {
+    var bytes = new byte[8 + payload.Length];
+    BinaryPrimitives.WriteUInt32BigEndian(bytes, checked((uint)bytes.Length));
+    Encoding.ASCII.GetBytes(type, bytes.AsSpan(4, 4));
+    payload.CopyTo(bytes, 8);
+    return bytes;
+  }
 
+  private sealed class SequenceRunner(params string[] outputs) : IProcessRunner
+  {
+    private int _index;
+    public List<ProcessSpec> Specs { get; } = [];
+
+    public Task<ProcessResult> RunAsync(ProcessSpec spec, IProgress<string>? progress, CancellationToken cancellationToken)
+    {
+      Specs.Add(spec);
+      if (_index >= outputs.Length) throw new InvalidOperationException("The probe made an unexpected process call.");
+      return Task.FromResult(new ProcessResult(0, outputs[_index++], ""));
+    }
+  }
   private sealed class FixtureRunner(string output, int exitCode = 0, string error = "") : IProcessRunner
   {
     public ProcessSpec? LastSpec { get; private set; }

@@ -147,6 +147,131 @@ public sealed class FFmpegRealMediaIntegrationTests
   }
 
   [PinnedMediaFact]
+  public async Task MetadataWritePreservesSparseLongTimelineAndFinalChapter()
+  {
+    var tools = ResolveTools();
+    using var root = new TemporaryDirectory();
+    var metadata = Path.Combine(root.Path, "long-timeline.ffmeta");
+    var output = Path.Combine(root.Path, "long-timeline.m4b");
+    File.WriteAllText(metadata, ";FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000000\nSTART=0\nEND=49999000000\ntitle=Opening\n[CHAPTER]\nTIMEBASE=1/1000000\nSTART=49999000000\nEND=50001000000\ntitle=Final\n", new System.Text.UTF8Encoding(false));
+    var generated = await new ProcessRunner().RunAsync(new ProcessSpec(tools.FFmpegPath,
+      ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-f", "ffmetadata", "-i", metadata,
+       "-map", "0:a:0", "-map_metadata", "1", "-map_chapters", "1", "-filter:a", "asetpts=PTS+50000/TB", "-c:a", "aac", "-b:a", "96k", "-ar", "44100", "-ac", "2", "-movflags", "+faststart", "-f", "ipod", output]), null, CancellationToken.None);
+    Assert.Equal(0, generated.ExitCode);
+
+    var probe = new FFprobeMediaProbe(new ProcessRunner(), tools);
+    var before = await probe.ProbeAsync(output);
+    new Mp4MetadataWriter().Write(output, new Dictionary<string, string> { ["TITLE"] = "Generated long timeline" });
+    var after = await probe.ProbeAsync(output);
+
+    Assert.Equal(49_999m, before.Chapters[0].EndTime);
+    Assert.Equal(49_999m, before.Chapters[1].StartTime);
+    Assert.Equal(before.Duration, after.Duration);
+    Assert.Equal(before.Chapters.Select(chapter => (chapter.Id, chapter.StartTime, chapter.EndTime, Title: chapter.RawTags.GetValueOrDefault("title", ""))), after.Chapters.Select(chapter => (chapter.Id, chapter.StartTime, chapter.EndTime, Title: chapter.RawTags.GetValueOrDefault("title", ""))));
+    Assert.Equal(2, after.Chapters.Count);
+  }
+  [PinnedMediaFact]
+  public async Task LongFormFilterConcatPreservesAllGeneratedChaptersAfterMetadataWrite()
+  {
+    var tools = ResolveTools();
+    using var root = new TemporaryDirectory();
+    var sourceRoot = Directory.CreateDirectory(Path.Combine(root.Path, "sources")).FullName;
+    var sources = await Task.WhenAll(Enumerable.Range(1, 10).Select(index =>
+      GenerateAudioAsync(tools, Path.Combine(sourceRoot, $"{index:D2}.mp3"), "libmp3lame", "1", "44100", (400 + index * 10).ToString(System.Globalization.CultureInfo.InvariantCulture), "240")));
+    var destination = Path.Combine(root.Path, "planned-multi-chapter.m4b");
+    var probe = new FFprobeMediaProbe(new ProcessRunner(), tools);
+    var chapters = new List<ChapterEntry>();
+    long cursor = 0;
+    foreach (var source in sources)
+    {
+      var facts = await probe.ProbeAsync(source);
+      var duration = checked((long)decimal.Round(facts.Duration!.Value * 1_000_000m, 0, MidpointRounding.ToEven));
+      chapters.Add(new ChapterEntry(cursor, checked(cursor + duration), $"Chapter {chapters.Count + 1}", "", Path.GetRelativePath(sourceRoot, source)));
+      cursor = checked(cursor + duration);
+    }
+    var writer = new ObservingMetadataWriter(tools, new Mp4MetadataWriter());
+    var result = await new FFmpegConversionExecutor(
+      new ProcessRunner(),
+      new FFmpegCommandFactory(tools),
+      writer,
+      Path.Combine(root.Path, "jobs-multi-chapter")).ExecuteAsync(
+        CreatePlan(AudioStrategy.FilterConcatTranscode, sources, destination, sourceRoot, chapters), CancellationToken.None);
+
+    Assert.True(result.Status == ExecutionStatus.Succeeded, writer.Failure?.ToString());
+    Assert.Equal(sources.Length, writer.BeforeChapterCount);
+    Assert.Equal(sources.Length, writer.AfterChapterCount);
+    var media = await new FFprobeMediaProbe(new ProcessRunner(), tools).ProbeAsync(result.TemporaryOutputPath!);
+    Assert.Equal(sources.Length, media.Chapters.Count);
+    Assert.All(media.Chapters, chapter => Assert.True(chapter.EndTime > chapter.StartTime));
+    Assert.All(media.Chapters.Zip(media.Chapters.Skip(1)), pair => Assert.True(pair.Second.StartTime >= pair.First.EndTime));
+    var report = await new FFmpegOutputValidator(probe, new ProcessRunner(), tools, new CoverPayloadValidator())
+      .ValidateAsync(CreatePlan(AudioStrategy.FilterConcatTranscode, sources, destination, sourceRoot, chapters), result.TemporaryOutputPath!, CancellationToken.None);
+    Assert.True(report.IsValid, string.Join(Environment.NewLine, report.Checks.Where(check => !check.Passed).Select(check => $"{check.Code}: {check.Message}")));
+  }
+  [PinnedMediaFact]
+  public async Task FilterConcatPreservesChapterTimingForMixedMp3StartTimestamps()
+  {
+    var tools = ResolveTools();
+    using var root = new TemporaryDirectory();
+    var sourceRoot = Directory.CreateDirectory(Path.Combine(root.Path, "mixed-start-sources")).FullName;
+    var sources = new List<string>();
+    for (var index = 1; index <= 10; index++)
+    {
+      sources.Add(await GenerateAudioAsync(
+        tools,
+        Path.Combine(sourceRoot, $"{index:D2}.mp3"),
+        "libmp3lame",
+        "2",
+        "44100",
+        (500 + index * 10).ToString(System.Globalization.CultureInfo.InvariantCulture),
+        index == 10 ? "0.05" : "8",
+        writeXing: index % 2 != 0,
+        quality: index % 2 == 0 ? "9" : null));
+    }
+
+    var probe = new FFprobeMediaProbe(new ProcessRunner(), tools);
+    var chapters = new List<ChapterEntry>();
+    var starts = new List<decimal>();
+    long cursor = 0;
+    foreach (var source in sources)
+    {
+      var facts = await probe.ProbeAsync(source);
+      starts.Add(facts.AudioStreams.Single().StartTime ?? throw new InvalidOperationException("The generated MP3 omitted its start timestamp."));
+      var duration = checked((long)decimal.Round(facts.Duration!.Value * 1_000_000m, 0, MidpointRounding.ToEven));
+      chapters.Add(new ChapterEntry(cursor, checked(cursor + duration), $"Mixed chapter {chapters.Count + 1}", "", Path.GetRelativePath(sourceRoot, source)));
+      cursor = checked(cursor + duration);
+    }
+    Assert.Contains(starts, start => start == 0m);
+    Assert.Contains(starts, start => start > 0m);
+
+    var destination = Path.Combine(root.Path, "planned-mixed-starts.m4b");
+    var plan = CreatePlan(AudioStrategy.FilterConcatTranscode, sources, destination, sourceRoot, chapters, ValidationLevel.Full);
+    var writer = new ObservingMetadataWriter(tools, new Mp4MetadataWriter());
+    var result = await new FFmpegConversionExecutor(
+      new ProcessRunner(),
+      new FFmpegCommandFactory(tools),
+      writer,
+      Path.Combine(root.Path, "jobs-mixed-starts")).ExecuteAsync(plan, CancellationToken.None);
+
+    Assert.True(result.Status == ExecutionStatus.Succeeded, writer.Failure?.ToString());
+    Assert.Equal(sources.Count, writer.BeforeChapters?.Length);
+    Assert.Equal(sources.Count, writer.AfterChapters?.Length);
+    Assert.Equal(writer.BeforeChapters, writer.AfterChapters);
+    Assert.Equal(sources.Count, writer.AfterChapters!.Select(chapter => chapter.Id).Distinct().Count());
+
+    var media = await probe.ProbeAsync(result.TemporaryOutputPath!);
+    Assert.Equal(sources.Count, media.Chapters.Count);
+    Assert.Equal(sources.Count, media.Chapters.Select(chapter => chapter.Id).Distinct().Count());
+    Assert.Equal(chapters.Select(chapter => chapter.Title), media.Chapters.Select(chapter => chapter.RawTags["title"]));
+    Assert.All(media.Chapters, chapter => Assert.True(chapter.EndTime > chapter.StartTime));
+    Assert.All(media.Chapters.Zip(media.Chapters.Skip(1)), pair => Assert.True(pair.Second.StartTime >= pair.First.EndTime));
+
+    var report = await new FFmpegOutputValidator(probe, new ProcessRunner(), tools, new CoverPayloadValidator())
+      .ValidateAsync(plan, result.TemporaryOutputPath!, CancellationToken.None);
+    Assert.True(report.IsValid, string.Join(Environment.NewLine, report.Checks.Where(check => !check.Passed).Select(check => $"{check.Code}: {check.Message}")));
+    Assert.Contains(report.Checks, check => check.Code == "decode.full" && check.Passed);
+  }
+  [PinnedMediaFact]
   public async Task SegmentedFinalMuxSelectsEmbeddedPictureFromLaterSource()
   {
     var tools = ResolveTools();
@@ -228,11 +353,13 @@ public sealed class FFmpegRealMediaIntegrationTests
     Assert.True(report.IsValid, string.Join(Environment.NewLine, report.Checks.Where(check => !check.Passed).Select(check => $"{check.Code}: {check.Message}")) + Environment.NewLine + string.Join(", ", facts.FormatTags.Select(tag => $"{tag.Key}={tag.Value}")));
   }
 
-  private static ConversionPlan CreatePlan(AudioStrategy strategy, IReadOnlyList<string> sources, string destination, string sourceRoot)
+  private static ConversionPlan CreatePlan(AudioStrategy strategy, IReadOnlyList<string> sources, string destination, string sourceRoot) =>
+    CreatePlan(strategy, sources, destination, sourceRoot, sources.Select((path, index) => new ChapterEntry(index * 1_000_000L, (index + 1) * 1_000_000L, $"Chapter {index + 1}", "", Path.GetRelativePath(sourceRoot, path))).ToArray());
+
+  private static ConversionPlan CreatePlan(AudioStrategy strategy, IReadOnlyList<string> sources, string destination, string sourceRoot, IReadOnlyList<ChapterEntry> chapters, ValidationLevel validationLevel = ValidationLevel.Lightweight)
   {
-    var chapters = sources.Select((path, index) => new ChapterEntry(index * 1_000_000L, (index + 1) * 1_000_000L, $"Chapter {index + 1}", "", Path.GetRelativePath(sourceRoot, path))).ToArray();
     var metadata = new BookMetadata(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>());
-    return new ConversionPlan(sources, metadata, null, chapters, QualityProfileCatalog.Version1[2], ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, destination, strategy, [], new SpaceEstimate(1, 1, 1, 1, 0), 2, "integration", "GenericMp4");
+    return new ConversionPlan(sources, metadata, null, chapters, QualityProfileCatalog.Version1[2], validationLevel, CollisionPolicy.AvoidCollision, destination, strategy, [], new SpaceEstimate(1, 1, 1, 1, 0), 2, "integration", "GenericMp4");
   }
 
   private static ConversionPlan CreateTaggedPlan(string source, string cover, string destination)
@@ -256,11 +383,14 @@ public sealed class FFmpegRealMediaIntegrationTests
     return index >= 0 && index + 1 < spec.Arguments.Count ? spec.Arguments[index + 1] : "";
   }
 
-  private static async Task<string> GenerateAudioAsync(MediaToolSet tools, string path, string codec, string channels, string rate, string frequency)
+  private static async Task<string> GenerateAudioAsync(MediaToolSet tools, string path, string codec, string channels, string rate, string frequency, string duration = "1", bool writeXing = true, string? containerFormat = null, string? quality = null)
   {
     Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-    var args = new[] { "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", $"sine=frequency={frequency}:duration=1", "-ac", channels, "-ar", rate, "-c:a", codec };
+    var args = new[] { "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", $"sine=frequency={frequency}:duration={duration}", "-ac", channels, "-ar", rate, "-c:a", codec };
     if (codec == "aac") args = [.. args, "-b:a", "96k"];
+    if (codec == "libmp3lame" && quality is not null) args = [.. args, "-q:a", quality];
+    if (codec == "libmp3lame" && !writeXing) args = [.. args, "-write_xing", "0"];
+    if (containerFormat is not null) args = [.. args, "-f", containerFormat];
     var result = await new ProcessRunner().RunAsync(new ProcessSpec(tools.FFmpegPath, [.. args, path]), null, CancellationToken.None);
     Assert.Equal(0, result.ExitCode);
     return path;
@@ -284,11 +414,19 @@ public sealed class FFmpegRealMediaIntegrationTests
   {
     public string? BeforeAudioHash { get; private set; }
     public string? AfterAudioHash { get; private set; }
+    public ChapterSnapshot[]? BeforeChapters { get; private set; }
+    public ChapterSnapshot[]? AfterChapters { get; private set; }
+    public int? BeforeChapterCount => BeforeChapters?.Length;
+    public int? AfterChapterCount => AfterChapters?.Length;
+    public Exception? Failure { get; private set; }
     public void Write(string path, IReadOnlyDictionary<string, string> tags)
     {
       BeforeAudioHash = AudioHash(path);
-      inner.Write(path, tags);
+      BeforeChapters = Chapters(path);
+      try { inner.Write(path, tags); }
+      catch (Exception exception) { Failure = exception; throw; }
       AfterAudioHash = AudioHash(path);
+      AfterChapters = Chapters(path);
     }
 
     private string AudioHash(string path)
@@ -297,7 +435,13 @@ public sealed class FFmpegRealMediaIntegrationTests
       Assert.Equal(0, result.ExitCode);
       return result.StandardOutput.Trim();
     }
+
+    private ChapterSnapshot[] Chapters(string path) => new FFprobeMediaProbe(new ProcessRunner(), tools).ProbeAsync(path).GetAwaiter().GetResult().Chapters
+      .Select(chapter => new ChapterSnapshot(chapter.Id, chapter.StartTime, chapter.EndTime, chapter.RawTags.GetValueOrDefault("title", "")))
+      .ToArray();
   }
+
+  private readonly record struct ChapterSnapshot(long Id, decimal StartTime, decimal EndTime, string Title);
 
   private static MediaToolSet ResolveTools()
   {
@@ -319,9 +463,50 @@ public sealed class FFmpegRealMediaIntegrationTests
 
   private sealed class TemporaryDirectory : IDisposable
   {
-    public TemporaryDirectory() => Path = Directory.CreateTempSubdirectory("booksplice-ffmpeg-integration-").FullName;
+    private const string Prefix = "booksplice-acceptance-";
+    private const string Marker = ".booksplice-acceptance-owned";
+    private readonly string _baseRoot;
+    private readonly string _token;
+
+    public TemporaryDirectory()
+    {
+      _baseRoot = System.IO.Path.GetFullPath(System.IO.Path.GetTempPath()).TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
+      _token = Guid.NewGuid().ToString("N");
+      Path = System.IO.Path.GetFullPath(System.IO.Path.Combine(_baseRoot, Prefix + Guid.NewGuid().ToString("N")));
+      if (!IsContained(_baseRoot, Path)) throw new IOException("The generated test directory escaped the temporary root.");
+      Directory.CreateDirectory(Path);
+      File.WriteAllText(System.IO.Path.Combine(Path, Marker), _token, new System.Text.UTF8Encoding(false));
+    }
+
     public string Path { get; }
-    public void Dispose() { try { Directory.Delete(Path, true); } catch { } }
+
+    public void Dispose()
+    {
+      var resolved = System.IO.Path.GetFullPath(Path);
+      if (!IsContained(_baseRoot, resolved) || !System.IO.Path.GetFileName(resolved).StartsWith(Prefix, StringComparison.Ordinal) ||
+          System.IO.Path.GetFileName(resolved).Length != Prefix.Length + 32) throw new IOException("The generated test cleanup target was not owned.");
+      if (!Directory.Exists(resolved)) return;
+      if (HasReparsePoint(resolved)) throw new IOException("The generated test cleanup target contains a reparse point.");
+      var marker = System.IO.Path.Combine(resolved, Marker);
+      if (!File.Exists(marker) || !string.Equals(File.ReadAllText(marker).Trim(), _token, StringComparison.Ordinal))
+        throw new IOException("The generated test cleanup token did not match.");
+      Directory.Delete(resolved, true);
+    }
+
+    private static bool IsContained(string root, string candidate)
+    {
+      var relative = System.IO.Path.GetRelativePath(root, candidate);
+      return !System.IO.Path.IsPathRooted(relative) && relative is not "." && relative is not ".." &&
+        !relative.StartsWith(".." + System.IO.Path.DirectorySeparatorChar, StringComparison.Ordinal) &&
+        !relative.StartsWith(".." + System.IO.Path.AltDirectorySeparatorChar, StringComparison.Ordinal);
+    }
+
+    private static bool HasReparsePoint(string root)
+    {
+      if ((File.GetAttributes(root) & FileAttributes.ReparsePoint) != 0) return true;
+      return Directory.EnumerateFileSystemEntries(root, "*", SearchOption.AllDirectories)
+        .Any(path => (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0);
+    }
   }
 }
 

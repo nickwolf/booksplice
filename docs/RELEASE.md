@@ -25,6 +25,18 @@ dotnet format --verify-no-changes --no-restore
 
 Build the same version twice into different output directories and compare SHA-256 hashes before tagging. A release tag must have a matching `docs/releases/<tag>.md` file.
 
+## Private acceptance verification
+
+Run the private release-gate harness with PowerShell 7 against the extracted package after local package verification. The private corpus and raw results stay under the ignored `artifacts\acceptance` directory. Follow `docs/ACCEPTANCE.md` for manifest fields, disposable-copy rules, the another-volume case, and the manual Mp3tag save and reopen.
+
+Run `.\scripts\Test-AcceptanceHarness.ps1` first. It uses generated files only and exercises the harness safeguards without reading the private corpus.
+
+```powershell
+pwsh -NoProfile -File .\scripts\Invoke-Acceptance.ps1 -Mode run -Corpus .\artifacts\acceptance\private-manifest.json -Release .\artifacts\release-extracted -ResultPath .\artifacts\acceptance\private-cli-result.json
+```
+
+The CLI result must report `status: passed` and `gateComplete: true`. The later `verify-mp3tag` result must report `status: passed`, `gateComplete: true`, and `privateGatesComplete: true` after reading that CLI result. The ignored raw CLI and Mp3tag results must have identical `releaseFingerprint` and `corpusFingerprint` values. Do not combine evidence from different packages or corpus manifests, and do not tag from a subset run.
+
 ## Publication
 
 1. Confirm `main` is clean and matches the reviewed release commit.
