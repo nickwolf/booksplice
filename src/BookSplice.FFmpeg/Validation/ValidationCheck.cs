@@ -14,6 +14,7 @@ public static class ValidationCodes
   public const string ChaptersCount = "chapters.count";
   public const string ChaptersMonotonic = "chapters.monotonic";
   public const string ChaptersTiming = "chapters.timing";
+  public const string ChaptersTitles = "chapters.titles";
   public const string CoverPresence = "cover.presence";
   public const string CoverPayload = "cover.payload";
   public const string MetadataRequired = "metadata.required";

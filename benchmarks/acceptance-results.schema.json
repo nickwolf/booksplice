@@ -1,0 +1,289 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/nickwolf/booksplice/blob/main/benchmarks/acceptance-results.schema.json",
+  "title": "BookSplice anonymous private release-gate results",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "mode",
+    "status",
+    "gateComplete",
+    "privateGatesComplete",
+    "releaseFingerprint",
+    "corpusFingerprint",
+    "categories",
+    "cases",
+    "mp3tag"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "mode": {
+      "enum": [
+        "run",
+        "verify-mp3tag"
+      ]
+    },
+    "status": {
+      "enum": [
+        "passed",
+        "failed"
+      ]
+    },
+    "gateComplete": {
+      "type": "boolean"
+    },
+    "privateGatesComplete": {
+      "type": "boolean"
+    },
+    "releaseFingerprint": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    },
+    "corpusFingerprint": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    },
+    "categories": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "long-audiobook",
+          "very-long-audiobook",
+          "another-drive",
+          "mp3tag-roundtrip"
+        ]
+      }
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/case"
+      }
+    },
+    "mp3tag": {
+      "$ref": "#/$defs/mp3tag"
+    }
+  },
+  "allOf": [
+    { "if": { "properties": { "mode": { "const": "run" }, "gateComplete": { "const": true } }, "required": ["mode", "gateComplete"] }, "then": { "properties": { "status": { "const": "passed" }, "privateGatesComplete": { "const": false }, "categories": { "minItems": 3, "maxItems": 3, "allOf": [ { "contains": { "const": "long-audiobook" } }, { "contains": { "const": "very-long-audiobook" } }, { "contains": { "const": "another-drive" } } ] }, "cases": { "minItems": 3, "maxItems": 3, "allOf": [ { "contains": { "$ref": "#/$defs/passedLongCase" } }, { "contains": { "$ref": "#/$defs/passedVeryLongCase" } }, { "contains": { "$ref": "#/$defs/passedAnotherDriveCase" } } ] }, "mp3tag": { "$ref": "#/$defs/notRunMp3tag" } } } },
+    { "if": { "properties": { "mode": { "const": "verify-mp3tag" }, "gateComplete": { "const": true } }, "required": ["mode", "gateComplete"] }, "then": { "properties": { "status": { "const": "passed" }, "privateGatesComplete": { "const": true }, "categories": { "minItems": 1, "maxItems": 1, "contains": { "const": "mp3tag-roundtrip" } }, "cases": { "maxItems": 0 }, "mp3tag": { "$ref": "#/$defs/passedMp3tag" } } } },
+    { "if": { "properties": { "privateGatesComplete": { "const": true } }, "required": ["privateGatesComplete"] }, "then": { "properties": { "mode": { "const": "verify-mp3tag" }, "status": { "const": "passed" }, "gateComplete": { "const": true }, "mp3tag": { "$ref": "#/$defs/passedMp3tag" } } } }
+  ],  "$defs": {
+    "passedCaseEvidence": { "type": "object", "required": ["wallSeconds"], "not": { "required": ["failureCode"] }, "properties": { "status": { "const": "passed" }, "driveClass": { "enum": ["same-volume", "other-volume"] }, "validationStatus": { "const": "full" }, "auditPresent": { "const": true }, "fullDecodePassed": { "const": true }, "durationRequirementMet": { "const": true }, "strategy": { "not": { "const": "unknown" } }, "sourceHashesUnchanged": { "const": true } } },
+    "passedLongCase": { "allOf": [ { "$ref": "#/$defs/case" }, { "$ref": "#/$defs/passedCaseEvidence" }, { "properties": { "category": { "const": "long-audiobook" } } } ] },
+    "passedVeryLongCase": { "allOf": [ { "$ref": "#/$defs/case" }, { "$ref": "#/$defs/passedCaseEvidence" }, { "properties": { "category": { "const": "very-long-audiobook" } } } ] },
+    "passedAnotherDriveCase": { "allOf": [ { "$ref": "#/$defs/case" }, { "$ref": "#/$defs/passedCaseEvidence" }, { "properties": { "category": { "const": "another-drive" }, "driveClass": { "const": "other-volume" } } } ] },
+    "notRunMp3tag": { "allOf": [ { "$ref": "#/$defs/mp3tag" }, { "properties": { "status": { "const": "not-run" }, "step1Exported": { "const": false }, "step2ReopenedSaved": { "const": false }, "fieldsVerified": { "const": false }, "audioEssencePreserved": { "const": false }, "coverPreserved": { "const": false }, "sourceHashesUnchanged": { "const": false } } } ] },
+    "passedMp3tag": { "allOf": [ { "$ref": "#/$defs/mp3tag" }, { "properties": { "status": { "const": "passed" }, "step1Exported": { "const": true }, "step2ReopenedSaved": { "const": true }, "fieldsVerified": { "const": true }, "audioEssencePreserved": { "const": true }, "coverPreserved": { "const": true }, "sourceHashesUnchanged": { "const": true } } } ] },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "allOf": [
+        { "if": { "properties": { "status": { "const": "failed" } }, "required": ["status"] }, "then": { "required": ["failureCode", "failureStage"] } },
+        { "if": { "properties": { "failureStage": { "const": "terminal-status" } }, "required": ["failureStage"] }, "then": { "required": ["processExitCode", "terminalExitCode", "terminalStatus", "diagnosticCodes", "failedValidationCodes", "validationWarningCount", "validationErrorCount", "expectedChapterCount", "actualChapterCount", "nonPositiveChapterCount", "overlappingChapterCount", "distinctChapterIdCount"] } },
+        { "if": { "properties": { "status": { "const": "passed" } }, "required": ["status"] }, "then": { "not": { "anyOf": [ { "required": ["failureCode"] }, { "required": ["failureStage"] }, { "required": ["processExitCode"] }, { "required": ["terminalExitCode"] }, { "required": ["terminalStatus"] }, { "required": ["diagnosticCodes"] }, { "required": ["failedValidationCodes"] }, { "required": ["validationWarningCount"] }, { "required": ["validationErrorCount"] }, { "required": ["expectedChapterCount"] }, { "required": ["actualChapterCount"] }, { "required": ["nonPositiveChapterCount"] }, { "required": ["overlappingChapterCount"] }, { "required": ["distinctChapterIdCount"] } ] } } }
+      ],
+      "required": [
+        "caseId",
+        "category",
+        "status",
+        "sourceFileCount",
+        "driveClass",
+        "validationStatus",
+        "auditPresent",
+        "fullDecodePassed",
+        "durationRequirementMet",
+        "strategy",
+        "sourceHashesUnchanged"
+      ],
+      "properties": {
+        "caseId": {
+          "type": "string",
+          "pattern": "^case-[0-9]{2,4}$"
+        },
+        "category": {
+          "enum": [
+            "long-audiobook",
+            "very-long-audiobook",
+            "another-drive"
+          ]
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed"
+          ]
+        },
+        "sourceFileCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "driveClass": {
+          "enum": [
+            "same-volume",
+            "other-volume",
+            "unknown"
+          ]
+        },
+        "validationStatus": {
+          "enum": [
+            "full",
+            "failed"
+          ]
+        },
+        "auditPresent": {
+          "type": "boolean"
+        },
+        "fullDecodePassed": {
+          "type": "boolean"
+        },
+        "durationRequirementMet": {
+          "type": "boolean"
+        },
+        "strategy": {
+          "type": "string",
+          "pattern": "^(unknown|[A-Za-z][A-Za-z0-9]+)$"
+        },
+        "sourceHashesUnchanged": {
+          "type": "boolean"
+        },
+        "wallSeconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "failureCode": {
+          "enum": [
+            "case-failed"
+          ]
+        },
+        "failureStage": {
+          "enum": [
+            "copy",
+            "process",
+            "source-check",
+            "terminal-event",
+            "terminal-status",
+            "audit",
+            "order",
+            "duration",
+            "output",
+            "cleanup",
+            "fingerprint",
+            "unknown"
+          ]
+        },
+        "processExitCode": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "terminalExitCode": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "terminalStatus": {
+          "enum": [
+            "InvalidInput",
+            "DecisionRequired",
+            "ExecutionFailed",
+            "ValidationFailed",
+            "PublicationFailed",
+            "Cancelled",
+            "UnexpectedFailure"
+          ]
+        },
+        "diagnosticCodes": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9.-]{0,127}$"
+          }
+        },
+        "failedValidationCodes": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9.-]{0,127}$"
+          }
+        },
+        "validationWarningCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "validationErrorCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expectedChapterCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "actualChapterCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "nonPositiveChapterCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "overlappingChapterCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "distinctChapterIdCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "mp3tag": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "step1Exported",
+        "step2ReopenedSaved",
+        "fieldsVerified",
+        "audioEssencePreserved",
+        "coverPreserved",
+        "sourceHashesUnchanged"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "not-run",
+            "passed",
+            "failed"
+          ]
+        },
+        "step1Exported": {
+          "type": "boolean"
+        },
+        "step2ReopenedSaved": {
+          "type": "boolean"
+        },
+        "fieldsVerified": {
+          "type": "boolean"
+        },
+        "audioEssencePreserved": {
+          "type": "boolean"
+        },
+        "coverPreserved": {
+          "type": "boolean"
+        },
+        "sourceHashesUnchanged": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

@@ -24,6 +24,7 @@ internal sealed class FFprobeStream
   [JsonPropertyName("codec_tag_string")] public string? CodecTag { get; set; }
   [JsonPropertyName("extradata_hash")] public string? ExtradataHash { get; set; }
   [JsonPropertyName("bit_rate")] public string? BitRate { get; set; }
+  [JsonPropertyName("nb_read_packets")] public string? NbReadPackets { get; set; }
   public int? Width { get; set; }
   public int? Height { get; set; }
   [JsonPropertyName("disposition")] public FFprobeDisposition? Disposition { get; set; }
@@ -36,6 +37,21 @@ internal sealed class FFprobeFormat
   [JsonPropertyName("format_name")] public string? FormatName { get; set; }
   public string? Size { get; set; }
   public Dictionary<string, JsonElement>? Tags { get; set; }
+}
+internal sealed class FFprobePacketDocument
+{
+  [JsonPropertyName("packets")] public List<FFprobePacket>? Packets { get; set; }
+}
+internal sealed class FFprobePacket
+{
+  public long? Duration { get; set; }
+  [JsonPropertyName("side_data_list")] public List<FFprobePacketSideData>? SideData { get; set; }
+}
+internal sealed class FFprobePacketSideData
+{
+  [JsonPropertyName("side_data_type")] public string? Type { get; set; }
+  [JsonPropertyName("skip_samples")] public long SkipSamples { get; set; }
+  [JsonPropertyName("discard_padding")] public long DiscardPadding { get; set; }
 }
 internal sealed class FFprobeChapter
 {

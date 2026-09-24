@@ -9,6 +9,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'ReleaseOwnedDirectory.ps1')
 
 $resolvedArchive = [IO.Path]::GetFullPath($ArchivePath)
 $resolvedChecksum = [IO.Path]::GetFullPath($ChecksumPath)
@@ -34,7 +35,8 @@ try {
 }
 finally { $inspection.Dispose() }
 
-$testRoot = Join-Path ([IO.Path]::GetTempPath()) "booksplice-release-$([guid]::NewGuid().ToString('N'))"
+$ownedTestRoot = New-ReleaseOwnedDirectory ([IO.Path]::GetTempPath()) "booksplice-release-$([guid]::NewGuid().ToString('N'))"
+$testRoot = $ownedTestRoot.Path
 try {
     Expand-Archive -LiteralPath $resolvedArchive -DestinationPath $testRoot
     $required = @(
@@ -143,7 +145,7 @@ try {
     }
 }
 finally {
-    if (Test-Path -LiteralPath $testRoot) { Remove-Item -LiteralPath $testRoot -Recurse -Force }
+    Remove-ReleaseOwnedDirectory $ownedTestRoot
 }
 
 [pscustomobject]@{ ArchivePath = $resolvedArchive; Sha256 = $actualHash; SmokeTest = 'passed' }

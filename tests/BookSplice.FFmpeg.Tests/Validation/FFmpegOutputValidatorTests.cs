@@ -67,6 +67,19 @@ public sealed class FFmpegOutputValidatorTests
     Assert.Contains(report.Checks, check => check.Code == "audio.extra" && !check.Passed);
   }
 
+  [Fact]
+  public async Task ValidateAsyncRejectsSilentlyTruncatedChapterTitle()
+  {
+    using var output = new TemporaryOutput();
+    var longTitle = new string('T', 256);
+    var plan = Plan(chapterTitle: longTitle);
+    var truncated = new MediaChapter(0, 0m, 4m, new Rational(1, 1), new Dictionary<string, string> { ["title"] = longTitle[..255] });
+
+    var report = await Validator(new Probe(Media(chapters: [truncated]))).ValidateAsync(plan, output.Path, CancellationToken.None);
+
+    Assert.False(report.IsValid);
+    Assert.Contains(report.Checks, check => check.Code == "chapters.titles" && !check.Passed);
+  }
   [Theory]
   [InlineData(1_000_000, 1, 2_000_000)]
   [InlineData(10_000_000_000, 100, 10_000_000)]
@@ -131,14 +144,14 @@ public sealed class FFmpegOutputValidatorTests
   private static FFmpegOutputValidator Validator(IMediaProbe probe, Runner? runner = null)
     => new(probe, runner ?? new Runner(), new MediaToolSet("ffmpeg.exe", "ffprobe.exe", "pinned", "pinned"), new CoverPayloadValidator());
 
-  private static ConversionPlan Plan(string? output = null, ValidationLevel level = ValidationLevel.Lightweight, int sampleRate = 44_100, int channels = 1, string metadataProfileId = "GenericMp4", BookMetadata? metadata = null)
+  private static ConversionPlan Plan(string? output = null, ValidationLevel level = ValidationLevel.Lightweight, int sampleRate = 44_100, int channels = 1, string metadataProfileId = "GenericMp4", BookMetadata? metadata = null, string chapterTitle = "One")
   {
     metadata ??= new BookMetadata(new Dictionary<SemanticField, AggregatedValue> { [SemanticField.BookTitle] = new(SemanticField.BookTitle, AggregationState.Consistent, "Book", []) }, new Dictionary<string, string> { ["CUSTOM"] = "Value" }, new Dictionary<SemanticField, IReadOnlyList<string>>());
-    return new ConversionPlan(["source-01.mp3"], metadata, null, [new ChapterEntry(0, 4_000_000, "One", "", "source-01.mp3")], QualityProfileCatalog.Version1[0], level, CollisionPolicy.AvoidCollision, output ?? Path.Combine(Path.GetTempPath(), "Book.m4b"), AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "test", metadataProfileId, sampleRate, channels);
+    return new ConversionPlan(["source-01.mp3"], metadata, null, [new ChapterEntry(0, 4_000_000, chapterTitle, "", "source-01.mp3")], QualityProfileCatalog.Version1[0], level, CollisionPolicy.AvoidCollision, output ?? Path.Combine(Path.GetTempPath(), "Book.m4b"), AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "test", metadataProfileId, sampleRate, channels);
   }
 
   private static MediaProbeResult Media(IReadOnlyList<AudioTrack>? audio = null, decimal duration = 4m, IReadOnlyList<MediaChapter>? chapters = null, IReadOnlyDictionary<string, string>? tags = null)
-    => new(audio ?? [Track()], [], chapters ?? [new MediaChapter(0, 0m, 4m, new Rational(1, 1), new Dictionary<string, string>())], new TagCollection(tags ?? new Dictionary<string, string> { ["TITLE"] = "Book", ["ALBUM"] = "Book", ["CUSTOM"] = "Value" }), tags ?? new Dictionary<string, string> { ["TITLE"] = "Book", ["ALBUM"] = "Book", ["CUSTOM"] = "Value" }, [], duration, "mov,mp4,m4a,3gp,3g2,mj2", 1);
+    => new(audio ?? [Track()], [], chapters ?? [new MediaChapter(0, 0m, 4m, new Rational(1, 1), new Dictionary<string, string> { ["title"] = "One" })], new TagCollection(tags ?? new Dictionary<string, string> { ["TITLE"] = "Book", ["ALBUM"] = "Book", ["CUSTOM"] = "Value" }), tags ?? new Dictionary<string, string> { ["TITLE"] = "Book", ["ALBUM"] = "Book", ["CUSTOM"] = "Value" }, [], duration, "mov,mp4,m4a,3gp,3g2,mj2", 1);
   private static AudioTrack Track(string codec = "aac", int channels = 1, int sampleRate = 44_100, string layout = "mono") => new(0, codec, "audio", channels, sampleRate, 4m, new Rational(1, sampleRate), new Dictionary<string, string>(), "LC", layout, 0m, "mp4a", null, 64_000);
 
   private sealed class Probe(MediaProbeResult? result = null, Exception? exception = null) : IMediaProbe

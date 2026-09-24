@@ -12,6 +12,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'ReleaseOwnedDirectory.ps1')
 
 $repositoryRoot = Split-Path $PSScriptRoot -Parent
 $mediaManifest = Get-Content -LiteralPath (Join-Path $repositoryRoot 'tools\ffmpeg\manifest.json') -Raw | ConvertFrom-Json
@@ -52,12 +53,12 @@ if (-not $resolvedStaging.StartsWith($releasePrefix, [StringComparison]::Ordinal
 }
 
 if (Test-Path -LiteralPath $resolvedStaging) {
-    Remove-Item -LiteralPath $resolvedStaging -Recurse -Force
+    throw 'Release staging target already exists; use a fresh output directory.'
 }
 foreach ($oldFile in @($archivePath, $checksumPath)) {
-    if (Test-Path -LiteralPath $oldFile) { Remove-Item -LiteralPath $oldFile -Force }
+    if (Test-Path -LiteralPath $oldFile) { throw 'Release archive or checksum already exists; use a fresh output directory.' }
 }
-New-Item -ItemType Directory -Path $resolvedStaging | Out-Null
+$ownedStaging = New-ReleaseOwnedDirectory $releaseRoot ([IO.Path]::GetFileName($resolvedStaging))
 
 $commonPublish = @(
     '--configuration', 'Release',
@@ -100,7 +101,7 @@ Add-Type -AssemblyName System.IO.Compression
 $archive = [IO.Compression.ZipFile]::Open($archivePath, [IO.Compression.ZipArchiveMode]::Create)
 $fixedTimestamp = [DateTimeOffset]::new(1980, 1, 1, 0, 0, 0, [TimeSpan]::Zero)
 try {
-    $files = @(Get-ChildItem -LiteralPath $resolvedStaging -File -Recurse | Sort-Object FullName)
+    $files = @(Get-ChildItem -LiteralPath $resolvedStaging -File -Recurse | Where-Object FullName -ne (Join-Path $resolvedStaging '.booksplice-release-owner') | Sort-Object FullName)
     foreach ($file in $files) {
         $relativePath = [IO.Path]::GetRelativePath($resolvedStaging, $file.FullName).Replace('\', '/')
         $entry = $archive.CreateEntry($relativePath, [IO.Compression.CompressionLevel]::Optimal)
@@ -115,7 +116,7 @@ finally { $archive.Dispose() }
 
 $hash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
 [IO.File]::WriteAllText($checksumPath, "$hash  $([IO.Path]::GetFileName($archivePath))`r`n", [Text.UTF8Encoding]::new($false))
-Remove-Item -LiteralPath $resolvedStaging -Recurse -Force
+Remove-ReleaseOwnedDirectory $ownedStaging
 
 [pscustomobject]@{
     ArchivePath = $archivePath

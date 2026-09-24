@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 using BookSplice.Core.Analysis;
 using BookSplice.Core.Metadata;
@@ -99,6 +100,10 @@ public sealed class FFmpegOutputValidator : IOutputValidator
     checks.Add(Check(ValidationCodes.ChaptersMonotonic, monotonic, "The output chapters are not positive and monotonic."));
     var timing = chapters.Count == plan.Chapters.Count && chapters.Zip(plan.Chapters, (actual, expected) => WithinChapterTolerance(actual.StartTime, expected.StartMicroseconds) && WithinChapterTolerance(actual.EndTime, expected.EndMicroseconds)).All(value => value);
     checks.Add(Check(ValidationCodes.ChaptersTiming, timing, "The output chapter timings do not match the plan."));
+    var longTitlesPreserved = chapters.Count == plan.Chapters.Count && chapters.Zip(plan.Chapters, (actual, expected) =>
+      Encoding.UTF8.GetByteCount(expected.Title) <= 255 ||
+      (actual.RawTags.TryGetValue("title", out var title) && string.Equals(title, expected.Title, StringComparison.Ordinal))).All(value => value);
+    checks.Add(Check(ValidationCodes.ChaptersTitles, longTitlesPreserved, "A long output chapter title was truncated or changed."));
   }
 
   private void ValidateCover(ConversionPlan plan, string outputPath, MediaProbeResult facts, List<ValidationCheck> checks)
