@@ -13,7 +13,7 @@ namespace BookSplice.FFmpeg.Validation;
 
 public sealed class FFmpegOutputValidator : IOutputValidator
 {
-  private const long ChapterToleranceMicroseconds = 20_000;
+  private const long ChapterToleranceMicroseconds = 50_000;
   private readonly IMediaProbe _probe;
   private readonly IProcessRunner _runner;
   private readonly MediaToolSet _tools;

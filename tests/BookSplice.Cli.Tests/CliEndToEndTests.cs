@@ -244,7 +244,8 @@ public sealed class CliEndToEndTests
     var arguments = new List<string> { "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", $"sine=frequency={frequency}:duration={duration}", "-ac", "1", "-ar", "44100", "-c:a", codec };
     if (codec == "aac") arguments.AddRange(["-b:a", "96k"]);
     arguments.AddRange(["-metadata", $"track={track}", path]);
-    var result = await new ProcessRunner().RunAsync(new ProcessSpec(tools.FFmpegPath, arguments), null, CancellationToken.None);
+    var generator = codec == "libmp3lame" ? FixtureGeneratorPath() : tools.FFmpegPath;
+    var result = await new ProcessRunner().RunAsync(new ProcessSpec(generator, arguments), null, CancellationToken.None);
     Assert.Equal(0, result.ExitCode);
     return path;
   }
@@ -289,6 +290,11 @@ public sealed class CliEndToEndTests
   }
   private static string ToolDirectory() => Environment.GetEnvironmentVariable("BOOKSPLICE_FFMPEG_DIR")!;
   private static MediaToolSet ResolveTools() => new MediaToolLocator(ToolDirectory()).Resolve();
+  private static string FixtureGeneratorPath()
+  {
+    var directory = Environment.GetEnvironmentVariable("BOOKSPLICE_FIXTURE_FFMPEG_DIR") ?? ToolDirectory();
+    return new MediaToolLocator(directory).Resolve().FFmpegPath;
+  }
 
   private sealed class TemporaryDirectory : IDisposable
   {

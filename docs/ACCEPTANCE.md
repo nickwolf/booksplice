@@ -1,8 +1,12 @@
 # Acceptance status
 
-As of 2026-09-24, the unpublished 0.1.0 acceptance candidate passed the automated suite and all four private release-gate cases with the pinned `autobuild-2026-09-18-13-22` LGPL FFmpeg build. Automated tests use generated media. Private checks use disposable copies and verify the original source file hashes are unchanged.
+The earlier unpublished `0.1.0-acceptance.4` candidate passed the automated suite and all four private release-gate cases with the pinned `autobuild-2026-09-18-13-22` LGPL FFmpeg build. That evidence applies only to the earlier package and corpus.
 
-The Release build currently passes 381 tests with no skips when `BOOKSPLICE_FFMPEG_DIR` points to the pinned tools. The extracted ZIP smoke test starts the packaged GUI, runs the packaged CLI, converts a generated MP3 with full-decode validation, probes the M4B, checks its audio stream and chapter, confirms an audit record, and verifies the source SHA-256 is unchanged. Three isolated builds of this candidate produced byte-identical ZIP archives, and all three checksum files match their archives.
+The source-built `0.1.0-acceptance.5` candidate passed 381 generated tests with no skips, an extracted-package smoke test, and two byte-identical ZIP builds. It is superseded because its minimal FFmpeg build lacked the raw decoded-audio output required by the Mp3tag verifier. Its single private CLI case passed, but its complete three-case CLI run failed one case after that private corpus entry no longer contained its expected supported files. Neither result transfers to a later package.
+
+The corrected source-built FFmpeg binaries from two independent builds are byte identical and match `tools/ffmpeg/manifest.json`. The `0.1.0-acceptance.6` ZIPs were byte identical and passed the extracted-package smoke test. Its schema-valid single private CLI case passed with full decode and unchanged source hashes. That package is superseded by the chapter-timing fix from local commit `f3ce2d1`; its private result does not transfer.
+
+As of 2026-09-25, the Release suite passes 383 generated tests with no skips using the corrected tool and chapter fix. The chapter regression failed before the fix and passed afterward. Two `0.1.0-acceptance.7` ZIP builds are byte identical, and the generated extracted-package smoke test passes. Formatting, diff, inventory, parser, and privacy checks passed before the chapter fix; formatting and diff checks passed again after it. The new private corpus is schema-valid and its expected source files exist. The exact acceptance.7 package passed its single-case and complete three-case private CLI gates with schema-valid matching 43-character fingerprints, full decode, unchanged source hashes, and zero owned acceptance trees. Its manual Mp3tag save and reopen also passed: the schema-valid result has `privateGatesComplete=true`, matching release and corpus fingerprints, preserved decoded audio, cover, and required fields, unchanged source hashes, and completed owned-tree cleanup.
 
 The GUI contract tests cover per-book option parity between preview and conversion, stream-copy preview wording, keyboard access keys, UI Automation names, minimum-window layout, a 1920 by 1080 work area at 200% scaling, and the per-monitor V2 manifest declaration. They do not emulate moving a running window between monitors with different DPI settings.
 
@@ -11,7 +15,7 @@ The GUI contract tests cover per-book option parity between preview and conversi
 | Category | Current evidence | State |
 | --- | --- | --- |
 | 1. Normal multi-MP3 audiobook | Generated multi-file CLI conversion and source hashes | Automated pass |
-| 2. Long audiobook | Private disposable-copy conversion, full decode, and unchanged source hashes | Private acceptance pass |
+| 2. Long audiobook | Exact acceptance.7 package: private disposable-copy conversion, full decode, and unchanged source hashes | Current private CLI pass |
 | 3. Many short MP3 tracks | Generated multi-source strategy and chapter tests | Automated pass |
 | 4. Many-track audiobook | Segmented strategy selection and generated-media FFmpeg execution | Automated pass |
 | 5. Mixed MP3 bitrates | Stream-copy rejection and AAC transcode planning | Automated pass |
@@ -29,10 +33,10 @@ The GUI contract tests cover per-book option parity between preview and conversi
 | 17. Existing destination file | Collision-safe repeated conversion and overwrite fault tests | Automated pass |
 | 18. Path containing spaces | Generated CLI conversion from a spaced path | Automated pass |
 | 19. Unicode filenames | Generated CLI and FFmpeg integration paths | Automated pass |
-| 20. Source on another drive | Private disposable copy on another volume; Windows partition mapping confirmed a different physical disk | Private acceptance pass |
+| 20. Source on another drive | Exact acceptance.7 package: private disposable copy on a verified different physical disk, full decode, and unchanged source hashes | Current private CLI pass |
 | 21. Cancellation | Live FFmpeg process-tree cancellation, audit, cleanup, and source hashes | Automated pass |
-| 22. Very long audiobook | Private disposable-copy conversion, full decode, and unchanged source hashes | Private acceptance pass |
-| 23. Existing M4B | Inspection-only analysis and conversion rejection; a previously saved and reopened M4B uniquely matched this candidate by decoded audio, cover, and required fields | Private acceptance pass |
+| 22. Very long audiobook | Exact acceptance.7 package: replacement private source passed its duration floor, full decode, and unchanged source hashes | Current private CLI pass |
+| 23. Existing M4B | Exact acceptance.7 package: manual Mp3tag save and reopen with preserved audio, cover, required fields, and source hashes | Current private pass |
 
 ## Private release-gate runner
 
@@ -67,7 +71,7 @@ pwsh -NoProfile -File .\scripts\Invoke-Acceptance.ps1 `
   -CaseId case-04
 ```
 
-The prepare command prints the M4B to open and the directory where the operator must save a separate file. Open the prepared file in Mp3tag, save a separate M4B inside the printed save directory, close it, and reopen the saved file. The runner does not automate Mp3tag.
+The prepare command prints the prepared M4B and its owned save directory. Copy the prepared M4B to a unique file in that directory before opening Mp3tag. Open only that disposable copy in Mp3tag, make a metadata-only change outside the required fields, save it in place, close it, and reopen that same copy. Leave the prepared baseline untouched. The runner does not automate Mp3tag.
 
 ```powershell
 pwsh -NoProfile -File .\scripts\Invoke-Acceptance.ps1 `
@@ -86,8 +90,8 @@ Verification requires the four core mapped fields, any additional fields declare
 
 ## Manual release gates
 
-The unpublished acceptance candidate passed all three private CLI cases and the Mp3tag verifier. The saved M4B had been manually reopened in Mp3tag for an older package. A read-only check found one unique external file matching this candidate's sealed decoded-audio, cover, and required-field baselines; the same file predated the earlier verifier result and remained unchanged. Its byte-identical copy in the owned save directory passed the current verifier. The anonymous CLI and Mp3tag results are schema-valid with identical release and corpus fingerprints; the complete CLI result reports `gateComplete: true`, and the Mp3tag result reports `privateGatesComplete: true`, preserved audio and cover, verified fields, and unchanged source hashes. The another-drive copy used a different physical disk. This evidence applies only to the exact candidate package and private manifest; it does not establish a pass for the final tagged package.
+The earlier `0.1.0-acceptance.4` package passed all three private CLI cases and the Mp3tag verifier with matching fingerprints, preserved media and fields, unchanged source hashes, and a verified different physical disk for the another-drive case. Those results cannot establish a pass for the corrected source-built package. A new private manifest now points to available sources for all four gates, including a replacement very-long book and a covered book for a fresh manual Mp3tag save and reopen. Do not publish private source details or raw results. The exact acceptance.7 package now has a schema-valid complete three-case CLI pass with matching single-case fingerprints, full decode, unchanged source hashes, and zero owned trees. The exact acceptance.7 package also has a schema-valid manual Mp3tag pass with matching 43-character fingerprints, preserved audio, cover, and required fields, unchanged source hashes, and zero owned trees.
 
-The third-party binary license inventory for the pinned FFmpeg build is generated at `licenses/FFmpeg-components.md` by `scripts/Get-FFmpegLicenseInventory.ps1`. Its vendor, platform, transitive-dependency, patent, and custom-license review items remain open before publication. Record only anonymous outcomes. Do not commit titles, source paths, media, or command output containing private paths.
+The third-party inventory for the source-built FFmpeg is generated at `licenses/FFmpeg-components.md` by `scripts/Get-FFmpegLicenseInventory.ps1`. The package includes the exact FFmpeg and zlib source archives, build recipe, and licenses. The project owner approved proceeding with the 0.1.0 release after review of the unresolved codec patent question; no patent clearance or legal opinion is claimed. Record only anonymous outcomes. Do not commit titles, source paths, media, or command output containing private paths.
 
 The final clean-machine gate uses the unpublished draft GitHub release. On a Windows x64 machine without the development SDK, authenticate to GitHub and download the draft ZIP, checksum, and `Test-Release.ps1` assets. Run the downloaded script against the downloaded ZIP and checksum, compare its digest with the workflow result, then publish the draft only after the gate passes.

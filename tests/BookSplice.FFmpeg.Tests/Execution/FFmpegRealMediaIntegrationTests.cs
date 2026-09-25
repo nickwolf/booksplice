@@ -391,7 +391,9 @@ public sealed class FFmpegRealMediaIntegrationTests
     if (codec == "libmp3lame" && quality is not null) args = [.. args, "-q:a", quality];
     if (codec == "libmp3lame" && !writeXing) args = [.. args, "-write_xing", "0"];
     if (containerFormat is not null) args = [.. args, "-f", containerFormat];
-    var result = await new ProcessRunner().RunAsync(new ProcessSpec(tools.FFmpegPath, [.. args, path]), null, CancellationToken.None);
+    var generatorDirectory = codec == "libmp3lame" ? Environment.GetEnvironmentVariable("BOOKSPLICE_FIXTURE_FFMPEG_DIR") : null;
+    var generatorPath = string.IsNullOrWhiteSpace(generatorDirectory) ? tools.FFmpegPath : new MediaToolLocator(generatorDirectory).Resolve().FFmpegPath;
+    var result = await new ProcessRunner().RunAsync(new ProcessSpec(generatorPath, [.. args, path]), null, CancellationToken.None);
     Assert.Equal(0, result.ExitCode);
     return path;
   }

@@ -4,7 +4,7 @@ BookSplice converts folders of audiobook tracks into validated, chaptered M4B fi
 
 ## Install
 
-1. Keep this extracted folder together, including `tools\ffmpeg` and `licenses`.
+1. Keep this extracted folder together, including `tools\ffmpeg`, `licenses`, and `sources`.
 2. Run `BookSplice.Gui.exe`.
 3. Complete first-run setup and choose an existing output folder.
 
@@ -20,4 +20,4 @@ BookSplice does not modify source files. It stores settings, job logs, and tempo
 
 Project documentation, source code, and issue tracking are available at [github.com/nickwolf/booksplice](https://github.com/nickwolf/booksplice).
 
-BookSplice is licensed under the MIT License in `LICENSE`. Third-party terms and source locations are listed in `THIRD-PARTY-NOTICES.md` and the `licenses` directory.
+BookSplice is licensed under the MIT License in `LICENSE`. Third-party terms are listed in `THIRD-PARTY-NOTICES.md` and `licenses`. The corresponding FFmpeg and zlib source archives and rebuild instructions are in `sources`.

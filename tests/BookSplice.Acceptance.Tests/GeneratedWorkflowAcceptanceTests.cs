@@ -19,14 +19,14 @@ public sealed class GeneratedWorkflowAcceptanceTests
     {
       var tools = new MediaToolLocator(Environment.GetEnvironmentVariable("BOOKSPLICE_FFMPEG_DIR")!).Resolve();
       var runner = new ProcessRunner();
-      var source = Path.Combine(root, "source.mp3");
+      var source = Path.Combine(root, "source.m4a");
       var cover = Path.Combine(root, "art.jpg");
       var generated = await runner.RunAsync(new ProcessSpec(tools.FFmpegPath,
         ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=blue:s=64x64", "-frames:v", "1", "-y", cover]), null, CancellationToken.None);
       Assert.Equal(0, generated.ExitCode);
       generated = await runner.RunAsync(new ProcessSpec(tools.FFmpegPath,
         ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-i", cover,
-         "-map", "0:a", "-map", "1:v", "-c:a", "libmp3lame", "-c:v", "copy", "-disposition:v:0", "attached_pic", "-y", source]), null, CancellationToken.None);
+         "-map", "0:a", "-map", "1:v", "-c:a", "aac", "-c:v", "copy", "-disposition:v:0", "attached_pic", "-y", source]), null, CancellationToken.None);
       Assert.Equal(0, generated.ExitCode);
       File.Delete(cover);
       var before = SHA256.HashData(await File.ReadAllBytesAsync(source));

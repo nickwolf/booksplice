@@ -5,10 +5,13 @@ BookSplice releases are self-contained Windows x64 ZIP archives. They include th
 ## Local verification
 
 ```powershell
-$toolRoot = Join-Path $PWD 'artifacts\tools\ffmpeg'
-.\scripts\Get-MediaTools.ps1 -ManifestPath .\tools\ffmpeg\manifest.json -DestinationRoot $toolRoot
-$toolRelease = (Get-Content .\tools\ffmpeg\manifest.json | ConvertFrom-Json).release
-$toolDirectory = Join-Path $toolRoot $toolRelease
+$toolBuild = Join-Path $PWD ('artifacts\tools\ffmpeg\source-build-' + [guid]::NewGuid().ToString('N'))
+.\scripts\Build-MediaTools.ps1 -DestinationDirectory $toolBuild
+$toolDirectory = Join-Path $toolBuild 'output'
+$fixtureRoot = Join-Path $PWD 'artifacts\tools\fixtures'
+.\scripts\Get-MediaTools.ps1 -ManifestPath .\tools\ffmpeg\fixture-generator-manifest.json -DestinationRoot $fixtureRoot
+$fixtureRelease = (Get-Content .\tools\ffmpeg\fixture-generator-manifest.json | ConvertFrom-Json).release
+$env:BOOKSPLICE_FIXTURE_FFMPEG_DIR = Join-Path $fixtureRoot $fixtureRelease
 .\scripts\Get-FFmpegLicenseInventory.ps1 -MediaToolDirectory $toolDirectory -Check
 
 dotnet restore
@@ -25,6 +28,12 @@ dotnet format --verify-no-changes --no-restore
 
 Build the same version twice into different output directories and compare SHA-256 hashes before tagging. A release tag must have a matching `docs/releases/<tag>.md` file.
 
+## Media-tool review
+
+The release build uses FFmpeg source commit `946fcce07b6dcd0331c8cc609192aeff5e1924f8` and zlib 1.3.2. `tools/ffmpeg/manifest.json` pins both source archives, the Debian base and signed package snapshot, the exact configure output, executable hashes, and license hashes. The generated component inventory verifies the pinned binary and configuration. The build disables automatic dependency detection, GPL and nonfree options, and unused components; zlib is the only enabled external library. PE import inspection of both executables found only `bcrypt.dll`, `KERNEL32.dll`, `msvcrt.dll`, and `SHELL32.dll`. The ZIP includes the matching source archives, build recipe, FFmpeg LGPL 2.1 text, and zlib license.
+
+The [FFmpeg legal checklist](https://ffmpeg.org/legal.html) calls for corresponding source, build instructions, and review of external libraries. Those materials are included in the candidate ZIP. Codec patent exposure is not resolved by the copyright license or the executable configuration, so the patent and final third-party review disposition remains a publication gate. The project owner approved proceeding with the 0.1.0 release on 2026-09-25 after this review. This records a publication decision, not a patent clearance or legal opinion. The clean-machine draft-release smoke remains required before publication.
+
 ## Private acceptance verification
 
 Run the private release-gate harness with PowerShell 7 against the extracted package after local package verification. The private corpus and raw results stay under the ignored `artifacts\acceptance` directory. Follow `docs/ACCEPTANCE.md` for manifest fields, disposable-copy rules, the another-volume case, and the manual Mp3tag save and reopen.
@@ -34,6 +43,8 @@ Run `.\scripts\Test-AcceptanceHarness.ps1` first. It uses generated files only a
 ```powershell
 pwsh -NoProfile -File .\scripts\Invoke-Acceptance.ps1 -Mode run -Corpus .\artifacts\acceptance\private-manifest.json -Release .\artifacts\release-extracted -ResultPath .\artifacts\acceptance\private-cli-result.json
 ```
+
+The source-built FFmpeg binaries are a material package change. Earlier private CLI and Mp3tag passes against the BtbN-based candidate do not apply to a source-built candidate. Build a new unique ZIP, verify its digest and source bundle, then rerun the private gates for that exact package. Do not reuse an Mp3tag reopen confirmation unless the saved file is uniquely verified against the new candidate. The codec patent review and clean-machine draft-release smoke remain open.
 
 The CLI result must report `status: passed` and `gateComplete: true`. The later `verify-mp3tag` result must report `status: passed`, `gateComplete: true`, and `privateGatesComplete: true` after reading that CLI result. The ignored raw CLI and Mp3tag results must have identical `releaseFingerprint` and `corpusFingerprint` values. Do not combine evidence from different packages or corpus manifests, and do not tag from a subset run.
 

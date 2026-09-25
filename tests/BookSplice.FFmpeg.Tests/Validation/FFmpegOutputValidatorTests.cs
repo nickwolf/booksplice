@@ -80,6 +80,21 @@ public sealed class FFmpegOutputValidatorTests
     Assert.False(report.IsValid);
     Assert.Contains(report.Checks, check => check.Code == "chapters.titles" && !check.Passed);
   }
+
+  [Theory]
+  [InlineData("4.023", true)]
+  [InlineData("4.100", false)]
+  public async Task ValidateAsyncAllowsAacFrameRoundingAtFinalChapterEnd(string actualEndText, bool expectedPass)
+  {
+    using var output = new TemporaryOutput();
+    var actualEnd = decimal.Parse(actualEndText, System.Globalization.CultureInfo.InvariantCulture);
+    var chapter = new MediaChapter(0, 0m, actualEnd, new Rational(1, 1_000_000), new Dictionary<string, string> { ["title"] = "One" });
+
+    var report = await Validator(new Probe(Media(duration: actualEnd, chapters: [chapter]))).ValidateAsync(Plan(), output.Path, CancellationToken.None);
+
+    Assert.Equal(expectedPass, report.Checks.Single(check => check.Code == "chapters.timing").Passed);
+  }
+
   [Theory]
   [InlineData(1_000_000, 1, 2_000_000)]
   [InlineData(10_000_000_000, 100, 10_000_000)]

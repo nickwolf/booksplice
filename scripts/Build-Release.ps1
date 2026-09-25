@@ -41,6 +41,19 @@ $actualLicenseSha256 = (Get-FileHash -LiteralPath $mediaLicensePath -Algorithm S
 if (-not [string]::Equals($actualLicenseSha256, $expectedLicenseSha256, [StringComparison]::Ordinal)) {
     throw "Media tool license checksum mismatch. Expected '$expectedLicenseSha256', received '$actualLicenseSha256'."
 }
+$zlibLicensePath = Join-Path $resolvedTools 'zlib-LICENSE.txt'
+if (-not (Test-Path -LiteralPath $zlibLicensePath -PathType Leaf)) { throw 'Media tool directory is missing zlib-LICENSE.txt.' }
+if ((Get-FileHash -LiteralPath $zlibLicensePath -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$mediaManifest.zlibLicenseSha256) {
+    throw 'zlib license checksum mismatch.'
+}
+$sourceDirectory = [IO.Path]::GetFullPath((Join-Path $resolvedTools '..'))
+foreach ($source in @($mediaManifest.sourceArchives)) {
+    $sourcePath = Join-Path $sourceDirectory ([string]$source.fileName)
+    if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) { throw "Source archive is missing: $($source.fileName)" }
+    if ((Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$source.sha256) {
+        throw "Source archive checksum mismatch: $($source.fileName)"
+    }
+}
 
 & (Join-Path $PSScriptRoot 'Get-FFmpegLicenseInventory.ps1') -MediaToolDirectory $resolvedTools -Check
 if ($LASTEXITCODE -ne 0) { throw "FFmpeg component inventory check failed with exit code $LASTEXITCODE." }
@@ -84,15 +97,26 @@ Copy-Item -LiteralPath (Join-Path $resolvedTools 'ffmpeg.exe') -Destination $too
 Copy-Item -LiteralPath (Join-Path $resolvedTools 'ffprobe.exe') -Destination $toolOutput.FullName
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') -Destination $resolvedStaging
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'THIRD-PARTY-NOTICES.md') -Destination $resolvedStaging
-Copy-Item -LiteralPath (Join-Path $repositoryRoot 'licenses') -Destination $resolvedStaging -Recurse
-Copy-Item -LiteralPath $mediaLicensePath -Destination (Join-Path $resolvedStaging 'licenses\FFmpeg-LICENSE.txt') -Force
+$licenseOutput = New-Item -ItemType Directory -Path (Join-Path $resolvedStaging 'licenses')
+Copy-Item -LiteralPath (Join-Path $repositoryRoot 'licenses\LGPL-2.1.txt') -Destination $licenseOutput.FullName
+Copy-Item -LiteralPath (Join-Path $repositoryRoot 'licenses\FFmpeg-components.md') -Destination $licenseOutput.FullName
+Copy-Item -LiteralPath $mediaLicensePath -Destination (Join-Path $licenseOutput.FullName 'FFmpeg-LICENSE.txt')
+Copy-Item -LiteralPath $zlibLicensePath -Destination (Join-Path $licenseOutput.FullName 'zlib-LICENSE.txt')
+$sourceOutput = New-Item -ItemType Directory -Path (Join-Path $resolvedStaging 'sources')
+foreach ($source in @($mediaManifest.sourceArchives)) {
+    Copy-Item -LiteralPath (Join-Path $sourceDirectory ([string]$source.fileName)) -Destination $sourceOutput.FullName
+}
+foreach ($recipe in @('Dockerfile', 'build-minimal.sh', 'manifest.json', 'BUILDING.md')) {
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot "tools\ffmpeg\$recipe") -Destination $sourceOutput.FullName
+}
+Copy-Item -LiteralPath (Join-Path $repositoryRoot 'scripts\Build-MediaTools.ps1') -Destination $sourceOutput.FullName
 $releaseReadme = (Get-Content -LiteralPath (Join-Path $repositoryRoot 'docs\README-RELEASE.md') -Raw).Replace('{{VERSION}}', $Version)
 [IO.File]::WriteAllText((Join-Path $resolvedStaging 'README.md'), $releaseReadme, [Text.UTF8Encoding]::new($false))
 
 $manifest = @"
 BookSplice $Version
 Runtime: Windows x64, self-contained .NET 10
-Media tools: BtbN FFmpeg-Builds $($mediaManifest.release), $($mediaManifest.asset), LGPL
+Media tools: source-built FFmpeg $($mediaManifest.release), LGPL 2.1 or later; zlib 1.3.2
 Media license SHA-256: $expectedLicenseSha256
 "@
 [IO.File]::WriteAllText((Join-Path $resolvedStaging 'VERSION.txt'), $manifest.Replace("`n", "`r`n"), [Text.UTF8Encoding]::new($false))

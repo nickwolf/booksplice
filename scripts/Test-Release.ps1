@@ -41,8 +41,8 @@ try {
     Expand-Archive -LiteralPath $resolvedArchive -DestinationPath $testRoot
     $required = @(
         'BookSplice.Gui.exe', 'booksplice.exe', 'LICENSE', 'README.md', 'THIRD-PARTY-NOTICES.md', 'VERSION.txt',
-        'licenses\FFmpeg-LICENSE.txt', 'licenses\FFmpeg-components.md', 'licenses\GPL-3.0.txt', 'licenses\LGPL-2.1.txt', 'licenses\LGPL-3.0.txt',
-        'tools\ffmpeg\ffmpeg.exe', 'tools\ffmpeg\ffprobe.exe'
+        'licenses\FFmpeg-LICENSE.txt', 'licenses\FFmpeg-components.md', 'licenses\LGPL-2.1.txt', 'licenses\zlib-LICENSE.txt',
+        'tools\ffmpeg\ffmpeg.exe', 'tools\ffmpeg\ffprobe.exe', 'sources\manifest.json', 'sources\BUILDING.md', 'sources\Dockerfile', 'sources\build-minimal.sh', 'sources\Build-MediaTools.ps1', 'sources\ffmpeg-946fcce07b.tar.gz', 'sources\zlib-v1.3.2.tar.gz'
     )
     foreach ($relativePath in $required) {
         if (-not (Test-Path -LiteralPath (Join-Path $testRoot $relativePath) -PathType Leaf)) {
@@ -54,6 +54,22 @@ try {
     if (-not $licenseMatch.Success) { throw 'Release version manifest does not contain the media license SHA-256.' }
     $licenseHash = (Get-FileHash -LiteralPath (Join-Path $testRoot 'licenses\FFmpeg-LICENSE.txt') -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($licenseHash -ne $licenseMatch.Groups[1].Value) { throw 'Bundled FFmpeg license checksum mismatch.' }
+    $sourceManifest = Get-Content -LiteralPath (Join-Path $testRoot 'sources\manifest.json') -Raw | ConvertFrom-Json
+    foreach ($source in @($sourceManifest.sourceArchives)) {
+        $sourcePath = Join-Path (Join-Path $testRoot 'sources') ([string]$source.fileName)
+        if ((Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$source.sha256) {
+            throw "Bundled source archive checksum mismatch: $($source.fileName)"
+        }
+    }
+    foreach ($tool in @('ffmpeg.exe', 'ffprobe.exe')) {
+        $expected = if ($tool -eq 'ffmpeg.exe') { [string]$sourceManifest.ffmpegSha256 } else { [string]$sourceManifest.ffprobeSha256 }
+        if ((Get-FileHash -LiteralPath (Join-Path $testRoot "tools\ffmpeg\$tool") -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected) {
+            throw "Bundled media tool checksum mismatch: $tool"
+        }
+    }
+    if ((Get-FileHash -LiteralPath (Join-Path $testRoot 'licenses\zlib-LICENSE.txt') -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$sourceManifest.zlibLicenseSha256) {
+        throw 'Bundled zlib license checksum mismatch.'
+    }
     $releaseReadme = Get-Content -LiteralPath (Join-Path $testRoot 'README.md') -Raw
     if ($releaseReadme.Contains('{{VERSION}}')) { throw 'Release README contains an unresolved version placeholder.' }
     if (@(Get-ChildItem -LiteralPath $testRoot -Filter '*.pdb' -File -Recurse).Count -ne 0) {
@@ -66,10 +82,10 @@ try {
     $help = & $cli --help 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0 -or $help -notmatch 'booksplice <source>') { throw 'Packaged CLI help failed.' }
 
-    $source = Join-Path $testRoot 'generated-source.mp3'
+    $source = Join-Path $testRoot 'generated-source.m4a'
     $output = New-Item -ItemType Directory -Path (Join-Path $testRoot 'output')
     $localData = Join-Path $testRoot 'local-data'
-    & $ffmpeg -hide_banner -loglevel error -f lavfi -i 'sine=frequency=440:duration=2' -metadata album=ReleaseSmoke -metadata artist=BookSplice -c:a libmp3lame -y $source
+    & $ffmpeg -hide_banner -loglevel error -f lavfi -i 'sine=frequency=440:duration=2' -metadata album=ReleaseSmoke -metadata artist=BookSplice -c:a aac -y $source
     if ($LASTEXITCODE -ne 0) { throw 'Could not create the release smoke-test source.' }
     $sourceHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
     $priorLocalData = $env:BOOKSPLICE_LOCAL_APP_DATA
@@ -135,6 +151,11 @@ try {
     if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne $sourceHash) { throw 'Packaged conversion changed its source file.' }
     $result = @(Get-ChildItem -LiteralPath $output.FullName -Filter '*.m4b' -File)
     if ($result.Count -ne 1) { throw "Expected one packaged conversion output, found $($result.Count)." }
+    $decoded = Join-Path $testRoot 'decoded.f32le'
+    & $ffmpeg -hide_banner -loglevel error -nostdin -i $result[0].FullName -map '0:a:0' -vn -sn -dn -f f32le -acodec pcm_f32le $decoded
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $decoded -PathType Leaf) -or (Get-Item -LiteralPath $decoded).Length -eq 0) {
+        throw 'Packaged media tool could not produce decoded f32 audio for Mp3tag verification.'
+    }
     $probeJson = & $ffprobe -v error -show_streams -show_chapters -of json $result[0].FullName | Out-String
     if ($LASTEXITCODE -ne 0) { throw 'Packaged output could not be probed.' }
     $probe = $probeJson | ConvertFrom-Json
