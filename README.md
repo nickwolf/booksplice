@@ -19,7 +19,7 @@ BookSplice does not modify source files. Existing M4B files can be inspected but
 
 ## Install on Windows
 
-1. Download `BookSplice-0.1.0-win-x64.zip` and `BookSplice-0.1.0-win-x64.zip.sha256` from the GitHub release.
+1. Download `BookSplice-0.1.0-win-x64.zip` and `BookSplice-0.1.0-win-x64.zip.sha256` from the [GitHub release](https://github.com/nickwolf/booksplice/releases/latest).
 2. Verify the archive in PowerShell:
 
 ```powershell
@@ -103,13 +103,16 @@ Audit records contain local source paths, imported and final metadata, artwork s
 
 ## Build from source
 
-The repository requires the .NET 10 SDK selected by [`global.json`](global.json), PowerShell, and Git.
+The repository requires the .NET 10 SDK selected by [`global.json`](global.json), PowerShell, Git, and Docker with Linux containers for the pinned FFmpeg source build. Use a fresh build directory for each run. The broad BtbN binary is used only to generate MP3 test fixtures and is not included in the release package.
 
 ```powershell
-$toolRoot = Join-Path $PWD 'artifacts\tools\ffmpeg'
-.\scripts\Get-MediaTools.ps1 -ManifestPath .\tools\ffmpeg\manifest.json -DestinationRoot $toolRoot
-$release = (Get-Content .\tools\ffmpeg\manifest.json | ConvertFrom-Json).release
-$env:BOOKSPLICE_FFMPEG_DIR = Join-Path $toolRoot $release
+$toolBuild = Join-Path $PWD ('artifacts\tools\ffmpeg\source-build-' + [guid]::NewGuid().ToString('N'))
+.\scripts\Build-MediaTools.ps1 -DestinationDirectory $toolBuild
+$env:BOOKSPLICE_FFMPEG_DIR = Join-Path $toolBuild 'output'
+$fixtureRoot = Join-Path $PWD 'artifacts\tools\fixtures'
+.\scripts\Get-MediaTools.ps1 -ManifestPath .\tools\ffmpeg\fixture-generator-manifest.json -DestinationRoot $fixtureRoot
+$fixtureRelease = (Get-Content .\tools\ffmpeg\fixture-generator-manifest.json | ConvertFrom-Json).release
+$env:BOOKSPLICE_FIXTURE_FFMPEG_DIR = Join-Path $fixtureRoot $fixtureRelease
 
 dotnet restore
 dotnet build --configuration Release --no-restore

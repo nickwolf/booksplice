@@ -10,27 +10,23 @@ The managed dependency writes native iTunes MP4 atoms and iTunes freeform atoms 
 
 The release includes the LGPL 2.1 text at `licenses/LGPL-2.1.txt`. Corresponding source for the packaged version is available from the [TagLibSharp 2.3.0 tag](https://github.com/mono/taglib-sharp/tree/2.3.0).
 
-BookSplice can acquire and use the following third-party components. The downloaded binaries are build artifacts and are not committed to this repository.
-
 ## FFmpeg
 
 - Project: [FFmpeg](https://ffmpeg.org/)
-- Version: `n9.0.1-84-g946fcce07b`
-- Build source: [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds)
-- Build release: `autobuild-2026-09-18-13-22`
-- Build variant: `win64-lgpl`
-- Runtime license: GNU Lesser General Public License, version 3 or later
+- Source commit: [`946fcce07b6dcd0331c8cc609192aeff5e1924f8`](https://github.com/FFmpeg/FFmpeg/commit/946fcce07b6dcd0331c8cc609192aeff5e1924f8)
+- Executable version: `9.0.2`
+- License: GNU Lesser General Public License, version 2.1 or later, subject to component-specific terms in the source
 
-The pinned executable reports that it is an LGPL version 3 or later build. Its configuration does not enable FFmpeg's GPL or nonfree build options.
+BookSplice bundles standalone `ffmpeg.exe` and `ffprobe.exe` built from this source commit. The application invokes those executables as separate processes. The build disables FFmpeg's GPL and nonfree options, automatic external-library detection, network support, and unused components. It enables zlib as its only external library. The exact configure flags and executable hashes are recorded in [`licenses/FFmpeg-components.md`](licenses/FFmpeg-components.md).
 
-The release includes the license file from the exact binary archive at `licenses/FFmpeg-LICENSE.txt`, plus the LGPL 3.0 and GPL 3.0 texts at `licenses/LGPL-3.0.txt` and `licenses/GPL-3.0.txt`. FFmpeg source is available at [commit `946fcce07b`](https://github.com/FFmpeg/FFmpeg/commit/946fcce07b). The [BtbN build tag](https://github.com/BtbN/FFmpeg-Builds/tree/autobuild-2026-09-18-13-22) records the build scripts, dependency revisions, and source repository URLs used for this artifact.
+The release ZIP includes the exact FFmpeg source archive, the build recipe, the builder definition, and the source manifest in `sources/`. It includes the FFmpeg LGPL 2.1 text in `licenses/FFmpeg-LICENSE.txt`. The source archive also contains `LICENSE.md`, which lists component-specific terms. The build uses no local FFmpeg source patches.
 
-FFmpeg includes separately maintained libraries. Those components remain subject to their respective license terms. The exact enabled-component list comes from `ffmpeg -buildconf`; dependency revisions and source locations come from the pinned BtbN build tag above. The generated [pinned component inventory](licenses/FFmpeg-components.md) records the 61 enabled configure flags and links each reviewed mapping to an upstream source and license or terms page. Run `scripts/Get-FFmpegLicenseInventory.ps1 -Check` against the extracted pinned tools before release review. The inventory is evidence for review and does not claim legal completeness from build flags alone.
+## zlib
 
-## BtbN FFmpeg-Builds
+- Project: [zlib](https://zlib.net/)
+- Version: `1.3.2`
+- License: zlib License
 
-- Project: [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds)
-- Copyright: 2020-2021 BtbN
-- Build-script license: MIT License
+The static FFmpeg build uses zlib for compressed metadata. The release ZIP includes its exact source archive in `sources/` and its license in `licenses/zlib-LICENSE.txt`. The source and binary hashes are pinned in `sources/manifest.json`.
 
-The acquisition script verifies the archive against its pinned SHA-256 digest before extraction. It also checks the executable versions and the capabilities required by BookSplice.
+The broad BtbN FFmpeg build is acquired only to generate MP3 fixtures for automated tests. It is not bundled with the release ZIP. Codec patent questions remain part of the manual release review.

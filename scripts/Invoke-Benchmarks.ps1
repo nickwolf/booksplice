@@ -1,4 +1,4 @@
-param([string]$Corpus = "artifacts/fixtures/corpus.json", [string]$Output = "artifacts/benchmarks/smoke.csv", [string]$Tools = "artifacts/tools/ffmpeg")
+param([string]$Corpus = "artifacts/fixtures/corpus.json", [string]$Output = "artifacts/benchmarks/smoke.csv", [string]$Tools = "artifacts/tools/ffmpeg/source-build/output")
 $repo = Split-Path -Parent $PSScriptRoot
 $toolPath = Join-Path $repo $Tools
 if (-not (Test-Path (Join-Path $toolPath "ffmpeg.exe"))) { $toolPath = (Get-ChildItem -Path $toolPath -Directory | Where-Object { Test-Path (Join-Path $_.FullName "ffmpeg.exe") } | Select-Object -First 1 -ExpandProperty FullName) }

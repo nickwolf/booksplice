@@ -7,7 +7,20 @@ on:
       - main
 
 jobs:
+  media-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build pinned FFmpeg from source
+        shell: pwsh
+        run: ./scripts/Build-MediaTools.ps1 -DestinationDirectory ./artifacts/tools/ffmpeg/source-build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: booksplice-source-built-ffmpeg
+          path: artifacts/tools/ffmpeg/source-build/
+          if-no-files-found: error
   build-and-test:
+    needs: media-tools
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,12 +31,17 @@ jobs:
         shell: pwsh
         run: .\scripts\Test-AcceptanceHarness.ps1
       - run: dotnet restore
-      - name: Acquire pinned media tools
+      - uses: actions/download-artifact@v4
+        with:
+          name: booksplice-source-built-ffmpeg
+          path: artifacts/tools/ffmpeg/source-build
+      - name: Resolve production and fixture tools
         shell: pwsh
         run: |
-          .\scripts\Get-MediaTools.ps1 -ManifestPath .\tools\ffmpeg\manifest.json -DestinationRoot .\artifacts\tools\ffmpeg
-          $release = (Get-Content .\tools\ffmpeg\manifest.json | ConvertFrom-Json).release
-          "BOOKSPLICE_FFMPEG_DIR=$((Resolve-Path ".\artifacts\tools\ffmpeg\$release").Path)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          .\scripts\Get-MediaTools.ps1 -ManifestPath .\tools\ffmpeg\fixture-generator-manifest.json -DestinationRoot .\artifacts\tools\fixtures
+          $fixtureRelease = (Get-Content .\tools\ffmpeg\fixture-generator-manifest.json | ConvertFrom-Json).release
+          "BOOKSPLICE_FFMPEG_DIR=$((Resolve-Path '.\artifacts\tools\ffmpeg\source-build\output').Path)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "BOOKSPLICE_FIXTURE_FFMPEG_DIR=$((Resolve-Path ".\artifacts\tools\fixtures\$fixtureRelease").Path)" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Verify pinned FFmpeg component inventory
         shell: pwsh
         run: .\scripts\Get-FFmpegLicenseInventory.ps1 -MediaToolDirectory $env:BOOKSPLICE_FFMPEG_DIR -Check

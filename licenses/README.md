@@ -1,3 +1,3 @@
 # License texts
 
-`LGPL-2.1.txt` applies to TagLibSharp 2.3.0. `FFmpeg-LICENSE.txt` is the license file from the exact pinned BtbN binary archive. `LGPL-3.0.txt` and `GPL-3.0.txt` state the terms for that FFmpeg build, which reports LGPL version 3 or later. `FFmpeg-components.md` is the generated inventory of enabled configure flags and reviewed upstream source and license links. See `THIRD-PARTY-NOTICES.md` for component and corresponding-source information.
+`LGPL-2.1.txt` applies to TagLibSharp 2.3.0. `FFmpeg-LICENSE.txt` is the LGPL 2.1 text copied from the exact FFmpeg source archive used to build the release executables. `zlib-LICENSE.txt` is copied from the exact zlib 1.3.2 source archive. `FFmpeg-components.md` records the pinned executable hashes, configure flags, and source archive hashes. See `THIRD-PARTY-NOTICES.md` for source and build information.

@@ -2,3 +2,9 @@
 *.md text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+tools/ffmpeg/build-minimal.sh text eol=lf
+tools/ffmpeg/Dockerfile text eol=lf
+tools/ffmpeg/manifest.json text eol=lf
+scripts/Build-MediaTools.ps1 text eol=lf
+licenses/FFmpeg-LICENSE.txt text eol=lf
+licenses/zlib-LICENSE.txt text eol=lf
