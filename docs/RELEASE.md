@@ -56,6 +56,7 @@ The CLI result must report `status: passed` and `gateComplete: true`. The later 
 4. Complete and record the manual and third-party-license gates in `docs/ACCEPTANCE.md` using disposable copies and the exact pinned media-tool artifact.
 5. Create and push an annotated `v<version>` tag.
 6. The release workflow rebuilds and tests the package, creates a build-provenance attestation, and attaches the ZIP, checksum, and smoke-test script to an unpublished draft release. Existing same-named assets are never overwritten.
+   If the tag-triggered run fails before creating a draft, fix the workflow on `main` and dispatch `release.yml` with the existing annotated tag. The retry checks out that tag and verifies its object and commit before building. Do not move the tag or overwrite draft assets.
 7. On a clean Windows x64 machine, authenticate to GitHub, download the draft assets, run the downloaded script against the ZIP and checksum, and compare the downloaded artifact digest with the workflow result.
 8. Publish the draft release only after the clean-machine gate passes.
 

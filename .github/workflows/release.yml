@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - v*
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing annotated release tag
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -15,6 +21,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
       - name: Build pinned FFmpeg from source
         shell: pwsh
         run: ./scripts/Build-MediaTools.ps1 -DestinationDirectory ./artifacts/tools/ffmpeg/source-build
@@ -29,23 +38,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
           fetch-depth: 0
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
       - name: Resolve release version
         shell: pwsh
+        env:
+          BOOKSPLICE_REQUESTED_TAG: ${{ inputs.tag }}
         run: |
-          if ($env:GITHUB_REF_NAME -notmatch '^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') { throw "Invalid release tag '$env:GITHUB_REF_NAME'." }
-          $version = $env:GITHUB_REF_NAME.Substring(1)
-          $tagType = (git cat-file -t "refs/tags/$env:GITHUB_REF_NAME").Trim()
-          if ($tagType -ne 'tag') { throw "Release tag '$env:GITHUB_REF_NAME' must be annotated." }
+          $releaseTag = if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $env:BOOKSPLICE_REQUESTED_TAG } else { $env:GITHUB_REF_NAME }
+          if ($releaseTag -notmatch '^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') { throw "Invalid release tag '$releaseTag'." }
+          $version = $releaseTag.Substring(1)
+          git fetch --force origin "refs/tags/$($releaseTag):refs/tags/$releaseTag"
+          if ($LASTEXITCODE -ne 0) { throw "Could not fetch release tag '$releaseTag'." }
+          $tagType = (git cat-file -t "refs/tags/$releaseTag").Trim()
+          if ($tagType -ne 'tag') { throw "Release tag '$releaseTag' must be annotated." }
           git fetch origin main
-          $tagCommit = (git rev-list -n 1 "refs/tags/$env:GITHUB_REF_NAME").Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'Could not fetch main.' }
+          $tagCommit = (git rev-list -n 1 "refs/tags/$releaseTag").Trim()
+          if ((git rev-parse HEAD).Trim() -ne $tagCommit) { throw "Checkout does not match release tag '$releaseTag'." }
           git merge-base --is-ancestor $tagCommit origin/main
-          if ($LASTEXITCODE -ne 0) { throw "Release tag '$env:GITHUB_REF_NAME' is not reachable from origin/main." }
-          $notes = ".\docs\releases\$env:GITHUB_REF_NAME.md"
+          if ($LASTEXITCODE -ne 0) { throw "Release tag '$releaseTag' is not reachable from origin/main." }
+          $notes = ".\docs\releases\$releaseTag.md"
           if (-not (Test-Path -LiteralPath $notes -PathType Leaf)) { throw "Release notes were not found at '$notes'." }
+          "BOOKSPLICE_TAG=$releaseTag" | Out-File -FilePath $env:GITHUB_ENV -Append
           "BOOKSPLICE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
           "BOOKSPLICE_RELEASE_NOTES=$notes" | Out-File -FilePath $env:GITHUB_ENV -Append
           "BOOKSPLICE_PRERELEASE=$($version.Contains('-').ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_ENV -Append
@@ -77,6 +95,7 @@ jobs:
           subject-path: artifacts/release/BookSplice-*-win-x64.zip
       - uses: softprops/action-gh-release@5113cdc90fd4d541c801c55356214017bf5ae34b # v3
         with:
+          tag_name: ${{ env.BOOKSPLICE_TAG }}
           body_path: ${{ env.BOOKSPLICE_RELEASE_NOTES }}
           prerelease: ${{ env.BOOKSPLICE_PRERELEASE }}
           draft: true
