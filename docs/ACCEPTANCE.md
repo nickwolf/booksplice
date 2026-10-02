@@ -8,6 +8,8 @@ The corrected source-built FFmpeg binaries from two independent builds are byte 
 
 As of 2026-09-25, the Release suite passes 383 generated tests with no skips using the corrected tool and chapter fix. The chapter regression failed before the fix and passed afterward. Two `0.1.0-acceptance.7` ZIP builds are byte identical, and the generated extracted-package smoke test passes. Formatting, diff, inventory, parser, and privacy checks passed before the chapter fix; formatting and diff checks passed again after it. The new private corpus is schema-valid and its expected source files exist. The exact acceptance.7 package passed its single-case and complete three-case private CLI gates with schema-valid matching 43-character fingerprints, full decode, unchanged source hashes, and zero owned acceptance trees. Its manual Mp3tag save and reopen also passed: the schema-valid result has `privateGatesComplete=true`, matching release and corpus fingerprints, preserved decoded audio, cover, and required fields, unchanged source hashes, and completed owned-tree cleanup.
 
+The local `0.1.0` release candidate was built twice into separate directories with byte-identical ZIPs (SHA-256 `571a85d5dc807496f3312728e508f4b5fe8d16b9727abe25bed4c6e2542f7a72`). Its extracted-package smoke test passed. On 2026-10-02, the exact package passed the corrected single-case and complete three-case private CLI gates. Both anonymous results are schema-valid with matching 43-character release and corpus fingerprints. All three full-gate cases passed full decode, audit, duration, and unchanged source-hash checks. The manual Mp3tag save and reopen then passed with a schema-valid `privateGatesComplete=true` result, matching fingerprints, preserved decoded audio, cover, and required fields, unchanged source hashes, and zero owned acceptance trees. The draft-release ZIP has not yet been compared with this accepted candidate, and the clean-machine smoke remains open.
+
 The GUI contract tests cover per-book option parity between preview and conversion, stream-copy preview wording, keyboard access keys, UI Automation names, minimum-window layout, a 1920 by 1080 work area at 200% scaling, and the per-monitor V2 manifest declaration. They do not emulate moving a running window between monitors with different DPI settings.
 
 ## Specification matrix
@@ -15,7 +17,7 @@ The GUI contract tests cover per-book option parity between preview and conversi
 | Category | Current evidence | State |
 | --- | --- | --- |
 | 1. Normal multi-MP3 audiobook | Generated multi-file CLI conversion and source hashes | Automated pass |
-| 2. Long audiobook | Exact acceptance.7 package: private disposable-copy conversion, full decode, and unchanged source hashes | Current private CLI pass |
+| 2. Long audiobook | Exact local `0.1.0` candidate: private disposable-copy conversion, full decode, and unchanged source hashes | Current private CLI pass |
 | 3. Many short MP3 tracks | Generated multi-source strategy and chapter tests | Automated pass |
 | 4. Many-track audiobook | Segmented strategy selection and generated-media FFmpeg execution | Automated pass |
 | 5. Mixed MP3 bitrates | Stream-copy rejection and AAC transcode planning | Automated pass |
@@ -33,10 +35,10 @@ The GUI contract tests cover per-book option parity between preview and conversi
 | 17. Existing destination file | Collision-safe repeated conversion and overwrite fault tests | Automated pass |
 | 18. Path containing spaces | Generated CLI conversion from a spaced path | Automated pass |
 | 19. Unicode filenames | Generated CLI and FFmpeg integration paths | Automated pass |
-| 20. Source on another drive | Exact acceptance.7 package: private disposable copy on a verified different physical disk, full decode, and unchanged source hashes | Current private CLI pass |
+| 20. Source on another drive | Exact local `0.1.0` candidate: private disposable copy on a verified different physical disk, full decode, and unchanged source hashes | Current private CLI pass |
 | 21. Cancellation | Live FFmpeg process-tree cancellation, audit, cleanup, and source hashes | Automated pass |
-| 22. Very long audiobook | Exact acceptance.7 package: replacement private source passed its duration floor, full decode, and unchanged source hashes | Current private CLI pass |
-| 23. Existing M4B | Exact acceptance.7 package: manual Mp3tag save and reopen with preserved audio, cover, required fields, and source hashes | Current private pass |
+| 22. Very long audiobook | Exact local `0.1.0` candidate: replacement private source passed its duration floor, full decode, and unchanged source hashes | Current private CLI pass |
+| 23. Existing M4B | Exact local `0.1.0` candidate: manual Mp3tag save and reopen with preserved audio, cover, required fields, and source hashes | Current private pass |
 
 ## Private release-gate runner
 
@@ -90,7 +92,7 @@ Verification requires the four core mapped fields, any additional fields declare
 
 ## Manual release gates
 
-The earlier `0.1.0-acceptance.4` package passed all three private CLI cases and the Mp3tag verifier with matching fingerprints, preserved media and fields, unchanged source hashes, and a verified different physical disk for the another-drive case. Those results cannot establish a pass for the corrected source-built package. A new private manifest now points to available sources for all four gates, including a replacement very-long book and a covered book for a fresh manual Mp3tag save and reopen. Do not publish private source details or raw results. The exact acceptance.7 package now has a schema-valid complete three-case CLI pass with matching single-case fingerprints, full decode, unchanged source hashes, and zero owned trees. The exact acceptance.7 package also has a schema-valid manual Mp3tag pass with matching 43-character fingerprints, preserved audio, cover, and required fields, unchanged source hashes, and zero owned trees.
+The earlier `0.1.0-acceptance.4` and `0.1.0-acceptance.7` packages passed their private CLI and Mp3tag gates, but their evidence does not transfer to a different package. The exact local `0.1.0` candidate now has its own schema-valid complete three-case CLI pass and manual Mp3tag pass with matching 43-character release and corpus fingerprints, full decode, preserved audio, cover, and required fields, unchanged source hashes, and zero owned trees. Do not publish private source details or raw results. Only a byte-identical draft-release ZIP can inherit these private-gate results; clean-machine verification remains open.
 
 The third-party inventory for the source-built FFmpeg is generated at `licenses/FFmpeg-components.md` by `scripts/Get-FFmpegLicenseInventory.ps1`. The package includes the exact FFmpeg and zlib source archives, build recipe, and licenses. The project owner approved proceeding with the 0.1.0 release after review of the unresolved codec patent question; no patent clearance or legal opinion is claimed. Record only anonymous outcomes. Do not commit titles, source paths, media, or command output containing private paths.
 
