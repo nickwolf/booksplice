@@ -105,3 +105,4 @@ jobs:
             artifacts/release/BookSplice-*-win-x64.zip
             artifacts/release/BookSplice-*-win-x64.zip.sha256
             scripts/Test-Release.ps1
+            scripts/ReleaseOwnedDirectory.ps1
