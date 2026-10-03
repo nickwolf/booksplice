@@ -91,20 +91,20 @@ public sealed class MetadataAggregatorTests
   }
 
   [Fact]
-  public void NickMp3tag_profile_maps_canonical_fields_and_preserves_unknown_tag_spelling()
+  public void GenericMp4_profile_maps_canonical_fields_and_preserves_unknown_tag_spelling()
   {
     var metadata = _aggregator.Aggregate([
       File("one.m4a", ("ALBUM", "Book"), ("ALBUMARTIST", "Author"), ("COMPOSER", "Narrator"), ("SERIES", "Series"), ("SERIES-PART", "2"), ("ASIN", "B000000000"), ("AUDIBLE_Custom", "Keep me")),
       File("two.m4a", ("ALBUM", "Book"), ("ALBUMARTIST", "Author"), ("COMPOSER", "Narrator"), ("SERIES", "Series"), ("SERIES-PART", "2"), ("ASIN", "B000000000"), ("AUDIBLE_Custom", "Keep me"))
     ]);
 
-    var tags = MetadataProfiles.NickMp3tag.Apply(metadata);
+    var tags = MetadataProfiles.GenericMp4.Apply(metadata);
 
-    Assert.Equal("Book", tags["TITLE"]);
-    Assert.Equal("Book", tags["ALBUM"]);
-    Assert.Equal("Author", tags["ARTIST"]);
-    Assert.Equal("Author", tags["ALBUMARTIST"]);
-    Assert.Equal("Narrator", tags["COMPOSER"]);
+    Assert.Equal("Book", tags["title"]);
+    Assert.Equal("Book", tags["album"]);
+    Assert.Equal("Author", tags["artist"]);
+    Assert.Equal("Author", tags["album_artist"]);
+    Assert.Equal("Narrator", tags["composer"]);
     Assert.Equal("Series", tags["SERIES"]);
     Assert.Equal("2", tags["SERIES-PART"]);
     Assert.Equal("B000000000", tags["ASIN"]);

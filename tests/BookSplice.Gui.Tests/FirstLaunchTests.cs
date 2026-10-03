@@ -126,7 +126,7 @@ public sealed class FirstLaunchTests : IDisposable
     {
       OutputDirectory = _root,
       ConversionJobs = 3,
-      MetadataProfileId = "NickMp3tag",
+      MetadataProfileId = "GenericMp4",
       ValidationLevel = ValidationLevel.Full,
       LogLevel = LogLevel.Debug,
       ChannelPolicy = ChannelPolicy.ForceStereo
@@ -134,7 +134,7 @@ public sealed class FirstLaunchTests : IDisposable
     Assert.True(await model.SaveAsync());
     var saved = (await store.LoadAsync()).Settings!;
     Assert.Equal(3, saved.ConversionJobs);
-    Assert.Equal("NickMp3tag", saved.MetadataProfileId);
+    Assert.Equal("GenericMp4", saved.MetadataProfileId);
     Assert.Equal(ValidationLevel.Full, saved.ValidationLevel);
     Assert.Equal(LogLevel.Debug, saved.LogLevel);
     Assert.Equal(ChannelPolicy.ForceStereo, saved.ChannelPolicy);

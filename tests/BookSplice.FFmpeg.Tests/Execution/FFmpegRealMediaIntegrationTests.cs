@@ -300,48 +300,48 @@ public sealed class FFmpegRealMediaIntegrationTests
   }
 
   [PinnedMediaFact]
-  public async Task NickMp3tagMetadataWriterPreservesAudioPacketsAndWritesMappedTags()
+  public async Task GenericMp4MetadataWriterPreservesAudioPacketsAndWritesMappedTags()
   {
     var tools = ResolveTools();
     using var root = new TemporaryDirectory();
     var source = await GenerateAudioAsync(tools, Path.Combine(root.Path, "spoken.mp3"), "libmp3lame", "1", "44100", "440");
     var fields = new Dictionary<SemanticField, AggregatedValue>
     {
-      [SemanticField.BookTitle] = Value(SemanticField.BookTitle, "Nick Book"),
-      [SemanticField.Author] = Value(SemanticField.Author, "Nick Author"),
-      [SemanticField.Narrator] = Value(SemanticField.Narrator, "Nick Narrator"),
+      [SemanticField.BookTitle] = Value(SemanticField.BookTitle, "Sample Book"),
+      [SemanticField.Author] = Value(SemanticField.Author, "Sample Author"),
+      [SemanticField.Narrator] = Value(SemanticField.Narrator, "Sample Narrator"),
     };
     var metadata = new BookMetadata(fields, new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>());
-    var destination = Path.Combine(root.Path, "planned-nick.m4b");
-    var plan = new ConversionPlan([source], metadata, null, [new ChapterEntry(0, 1_000_000, "Opening", "", "spoken.mp3")], QualityProfileCatalog.Version1[2], ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, destination, AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "integration", "NickMp3tag", 44100, 1);
+    var destination = Path.Combine(root.Path, "planned-sample.m4b");
+    var plan = new ConversionPlan([source], metadata, null, [new ChapterEntry(0, 1_000_000, "Opening", "", "spoken.mp3")], QualityProfileCatalog.Version1[2], ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, destination, AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "integration", "GenericMp4", 44100, 1);
     var writer = new ObservingMetadataWriter(tools, new Mp4MetadataWriter());
-    var result = await new FFmpegConversionExecutor(new RecordingRunner(new ProcessRunner()), new FFmpegCommandFactory(tools), writer, Path.Combine(root.Path, "jobs-nick"))
+    var result = await new FFmpegConversionExecutor(new RecordingRunner(new ProcessRunner()), new FFmpegCommandFactory(tools), writer, Path.Combine(root.Path, "jobs-sample"))
       .ExecuteAsync(plan, CancellationToken.None);
 
     Assert.Equal(ExecutionStatus.Succeeded, result.Status);
     Assert.Equal(writer.BeforeAudioHash, writer.AfterAudioHash);
     var media = await new FFprobeMediaProbe(new ProcessRunner(), tools).ProbeAsync(result.TemporaryOutputPath!);
-    Assert.Equal("Nick Book", media.FormatTags["title"]);
-    Assert.Equal("Nick Author", media.FormatTags["artist"]);
-    Assert.Equal("Nick Narrator", media.FormatTags["composer"]);
+    Assert.Equal("Sample Book", media.FormatTags["title"]);
+    Assert.Equal("Sample Author", media.FormatTags["artist"]);
+    Assert.Equal("Sample Narrator", media.FormatTags["composer"]);
   }
   [PinnedMediaFact]
-  public async Task NickMp3tagOutputPassesFullProfileAwareValidation()
+  public async Task GenericMp4OutputPassesFullProfileAwareValidation()
   {
     var tools = ResolveTools();
     using var root = new TemporaryDirectory();
     var source = await GenerateAudioAsync(tools, Path.Combine(root.Path, "spoken.mp3"), "libmp3lame", "1", "44100", "440");
     var fields = new Dictionary<SemanticField, AggregatedValue>
     {
-      [SemanticField.BookTitle] = Value(SemanticField.BookTitle, "Nick Book"),
-      [SemanticField.Author] = Value(SemanticField.Author, "Nick Author"),
-      [SemanticField.Narrator] = Value(SemanticField.Narrator, "Nick Narrator"),
+      [SemanticField.BookTitle] = Value(SemanticField.BookTitle, "Sample Book"),
+      [SemanticField.Author] = Value(SemanticField.Author, "Sample Author"),
+      [SemanticField.Narrator] = Value(SemanticField.Narrator, "Sample Narrator"),
     };
     var metadata = new BookMetadata(fields, new Dictionary<string, string> { ["CUSTOM"] = "Preserved" }, new Dictionary<SemanticField, IReadOnlyList<string>>());
-    var destination = Path.Combine(root.Path, "planned-nick.m4b");
-    var plan = new ConversionPlan([source], metadata, null, [new ChapterEntry(0, 1_000_000, "Opening", "", "spoken.mp3")], QualityProfileCatalog.Version1[2], ValidationLevel.Full, CollisionPolicy.AvoidCollision, destination, AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "integration", "NickMp3tag", 44100, 1);
+    var destination = Path.Combine(root.Path, "planned-sample.m4b");
+    var plan = new ConversionPlan([source], metadata, null, [new ChapterEntry(0, 1_000_000, "Opening", "", "spoken.mp3")], QualityProfileCatalog.Version1[2], ValidationLevel.Full, CollisionPolicy.AvoidCollision, destination, AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "integration", "GenericMp4", 44100, 1);
     var runner = new ProcessRunner();
-    var result = await new FFmpegConversionExecutor(runner, new FFmpegCommandFactory(tools), new Mp4MetadataWriter(), Path.Combine(root.Path, "jobs-nick-validation"))
+    var result = await new FFmpegConversionExecutor(runner, new FFmpegCommandFactory(tools), new Mp4MetadataWriter(), Path.Combine(root.Path, "jobs-sample-validation"))
       .ExecuteAsync(plan, CancellationToken.None);
 
     Assert.Equal(ExecutionStatus.Succeeded, result.Status);

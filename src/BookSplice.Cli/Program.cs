@@ -12,7 +12,7 @@ if (args is ["--help"] or ["-h"])
       --bitrate <32-320>                 Custom AAC bitrate in kbps
       --jobs <1-32>                      Parallel segment encoders
       --order <natural|metadata>        Explicit source ordering candidate
-      --metadata-profile <name>          GenericMp4 or NickMp3tag
+      --metadata-profile <name>          GenericMp4
       --validation <lightweight|full>    Output validation level
       --channels <preserve|mono|stereo>   Output channel handling
       --chapters | --no-chapters         Chapter creation

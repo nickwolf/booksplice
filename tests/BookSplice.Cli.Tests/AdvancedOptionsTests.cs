@@ -14,11 +14,11 @@ public sealed class AdvancedOptionsTests
   [Fact]
   public void AdvancedOptionsOverrideSavedValues()
   {
-    var parsed = CliParser.Parse(["book", "--order", "metadata", "--metadata-profile", "NickMp3tag", "--validation", "full", "--channels", "mono"]);
+    var parsed = CliParser.Parse(["book", "--order", "metadata", "--metadata-profile", "GenericMp4", "--validation", "full", "--channels", "mono"]);
     Assert.True(parsed.IsSuccess);
     Assert.Equal(OrderCandidateId.Metadata, parsed.Options!.Order);
     var configuration = CliConfiguration.Resolve(parsed.Options!, new(SettingsLoadCode.Valid, AppSettings.Defaults with { OutputDirectory = Path.GetTempPath() }, []));
-    Assert.Equal("NickMp3tag", configuration.Settings!.MetadataProfileId);
+    Assert.Equal("GenericMp4", configuration.Settings!.MetadataProfileId);
     Assert.Equal(ValidationLevel.Full, configuration.Settings.ValidationLevel);
     Assert.Equal(BookSplice.Core.Planning.ChannelPolicy.ForceMono, configuration.Settings.ChannelPolicy);
   }
