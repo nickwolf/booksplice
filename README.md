@@ -15,23 +15,23 @@ BookSplice turns folders of audiobook tracks into validated, chaptered M4B files
 - Queue multiple books with bounded concurrency, progress, cancellation, retry, and independent failure handling.
 - Use the same engine from the `booksplice` CLI with dry runs and newline-delimited JSON events.
 
-BookSplice does not modify source files. Existing M4B files can be inspected but are not conversion inputs in version 0.1.0.
+BookSplice does not modify source files. Existing M4B files can be inspected but are not conversion inputs in version 0.1.1.
 
 ## Install on Windows
 
-1. Download `BookSplice-0.1.0-win-x64.zip` and `BookSplice-0.1.0-win-x64.zip.sha256` from the [GitHub release](https://github.com/nickwolf/booksplice/releases/latest).
+1. Download `BookSplice-0.1.1-win-x64.zip` and `BookSplice-0.1.1-win-x64.zip.sha256` from the [GitHub release](https://github.com/nickwolf/booksplice/releases/latest).
 2. Verify the archive in PowerShell:
 
 ```powershell
-$expected = (Get-Content .\BookSplice-0.1.0-win-x64.zip.sha256 -Raw).Split()[0]
-$actual = (Get-FileHash .\BookSplice-0.1.0-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+$expected = (Get-Content .\BookSplice-0.1.1-win-x64.zip.sha256 -Raw).Split()[0]
+$actual = (Get-FileHash .\BookSplice-0.1.1-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actual -ne $expected) { throw 'BookSplice checksum mismatch.' }
 ```
 
 3. Extract the ZIP to a folder you can keep, such as `%LOCALAPPDATA%\Programs\BookSplice`.
 4. Run `BookSplice.Gui.exe`.
 
-The package is self-contained and does not require the .NET SDK. It includes the pinned LGPL FFmpeg tools. Windows may show a SmartScreen warning because version 0.1.0 is not code signed.
+The package is self-contained and does not require the .NET SDK. It includes the pinned LGPL FFmpeg tools. Windows may show a SmartScreen warning because version 0.1.1 is not code signed.
 
 ## First launch and settings
 
@@ -74,7 +74,7 @@ booksplice <source> [options]
   --bitrate <32-320>                Custom AAC bitrate in kbps
   --jobs <1-32>                     Parallel segment encoders
   --order <natural|metadata>        Explicit source ordering candidate
-  --metadata-profile <name>         GenericMp4 or NickMp3tag
+  --metadata-profile <name>         GenericMp4
   --validation <lightweight|full>   Output validation level
   --channels <preserve|mono|stereo> Output channel handling
   --chapters | --no-chapters        Chapter creation

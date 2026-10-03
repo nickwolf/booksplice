@@ -1,5 +1,7 @@
 # Release process
 
+The unpublished v0.1.0 draft is superseded by a public-profile scope change. Keep its tag and assets intact, and do not publish it. Build a replacement under a new version and repeat package-bound gates before publication.
+
 BookSplice releases are self-contained Windows x64 ZIP archives. They include the WPF application, CLI, .NET runtime, pinned `ffmpeg.exe` and `ffprobe.exe`, license, notices, README, and version manifest.
 
 ## Local verification
@@ -20,8 +22,8 @@ dotnet build --configuration Release --no-restore
 dotnet test --configuration Release --no-build
 dotnet format --verify-no-changes --no-restore
 
-.\scripts\Build-Release.ps1 -Version 0.1.0 -MediaToolDirectory $toolDirectory
-.\scripts\Test-Release.ps1 -ArchivePath .\artifacts\release\BookSplice-0.1.0-win-x64.zip -ChecksumPath .\artifacts\release\BookSplice-0.1.0-win-x64.zip.sha256
+.\scripts\Build-Release.ps1 -Version 0.1.1 -MediaToolDirectory $toolDirectory
+.\scripts\Test-Release.ps1 -ArchivePath .\artifacts\release\BookSplice-0.1.1-win-x64.zip -ChecksumPath .\artifacts\release\BookSplice-0.1.1-win-x64.zip.sha256
 ```
 
 `Test-Release.ps1` verifies the checksum, archive structure, required license files, exact pinned FFmpeg license digest, and packaged GUI startup. It then runs the packaged CLI, converts generated audio with full-decode validation, probes the M4B, checks its chapter and audio stream, confirms an audit record exists, and confirms the source hash did not change.

@@ -33,7 +33,7 @@ public sealed class FirstLaunchViewModel(FirstLaunchService service, AppSettings
     new(ChannelPolicy.ForceMono, "Force mono"),
     new(ChannelPolicy.ForceStereo, "Force stereo"),
   ];
-  public IReadOnlyList<string> MetadataProfiles { get; } = ["GenericMp4", "NickMp3tag"];
+  public IReadOnlyList<string> MetadataProfiles { get; } = ["GenericMp4"];
   public IReadOnlyList<ValidationLevel> ValidationLevels { get; } = Enum.GetValues<ValidationLevel>();
   public IReadOnlyList<LogLevel> LogLevels { get; } = Enum.GetValues<LogLevel>();
   public IReadOnlyList<int?> JobChoices { get; } = new int?[] { null }.Concat(Enumerable.Range(1, 32).Select(value => (int?)value)).ToArray();

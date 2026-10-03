@@ -90,7 +90,7 @@ public sealed class QueueTests
       item.QualityProfileId = "efficient";
       item.ChannelPolicy = ChannelPolicy.ForceMono;
       item.ValidationLevel = ValidationLevel.Full;
-      item.MetadataProfileId = "NickMp3tag";
+      item.MetadataProfileId = "GenericMp4";
 
       await model.PreviewAsync(item);
 
@@ -98,7 +98,7 @@ public sealed class QueueTests
       Assert.Equal("efficient", planner.Options.QualityProfile.Id);
       Assert.Equal(ChannelPolicy.ForceMono, planner.Options.Settings.ChannelPolicy);
       Assert.Equal(ValidationLevel.Full, planner.Options.Settings.ValidationLevel);
-      Assert.Equal("NickMp3tag", planner.Options.Settings.MetadataProfileId);
+      Assert.Equal("GenericMp4", planner.Options.Settings.MetadataProfileId);
       Assert.Equal(1, planner.Options.Settings.ConversionJobs);
       Assert.Contains(Path.Combine(output.FullName, "Preview.m4b"), item.Details);
       Assert.Contains("Efficient 48 kbps | mono", item.Details);

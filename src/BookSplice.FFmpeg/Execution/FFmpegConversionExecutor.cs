@@ -222,7 +222,7 @@ public sealed class FFmpegConversionExecutor : IConversionExecutor
   }
 
   private static string Escape(string value) => value.Replace("\\", "\\\\").Replace("=", "\\=").Replace(";", "\\;").Replace("#", "\\#").Replace("\r\n", "\\\n").Replace("\n", "\\\n").Replace("\r", "\\\n");
-  private static MetadataProfile ResolveProfile(string id) => id == "GenericMp4" ? MetadataProfiles.GenericMp4 : id == "NickMp3tag" ? MetadataProfiles.NickMp3tag : throw new InvalidOperationException();
+  private static MetadataProfile ResolveProfile(string id) => id == MetadataProfiles.GenericMp4.Name ? MetadataProfiles.GenericMp4 : throw new InvalidOperationException();
 
   internal static void Cleanup(IEnumerable<string> artifacts, string? job, Func<string, FileAttributes>? getAttributes = null)
   {

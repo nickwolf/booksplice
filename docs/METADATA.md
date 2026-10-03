@@ -16,18 +16,14 @@ The repository ffprobe output represents common iTunes/MP4 atoms with lowercase 
 
 Profiles are public, immutable Core objects with a name and version. A caller can construct another `MetadataProfile` from `MetadataFieldMapping` values without adding FFmpeg-specific behavior to Core.
 
-| Semantic value | GenericMp4 v1 | NickMp3tag v1 |
-| --- | --- | --- |
-| Book title | `title`, `album` | `TITLE`, `ALBUM` |
-| Author | `artist`, `album_artist` | `ARTIST`, `ALBUMARTIST` |
-| Narrator | `composer` | `COMPOSER` |
-| Series and position | Preserved if present | `SERIES`, `SERIES-PART` |
-| Subtitle and album sort | Preserved if present | `SUBTITLE`, `ALBUMSORT` |
-| Genre and years | `genre`, `date` | `GENRE`, `YEAR`, `RELEASETIME` |
-| Description and rights | `comment`, `description`, `copyright` | `COMMENT`, `DESCRIPTION`, `PUBLISHER`, `COPYRIGHT` |
-| Identifiers and media type | Preserved if present | `ASIN`, `WWWAUDIOFILE`, `ISBN`, `LANGUAGE`, `ITUNESMEDIATYPE` |
-
-The local profile also maps `RATING WMP`, `CONTENTGROUP`, `MOVEMENTNAME`, `MOVEMENT`, `ITUNESGAPLESS`, `AUDIBLE_ASIN`, `AUDIBLE_ALBUMARTISTID`, `AUDIBLE_ACR`, `AUDIBLE_LOCALE`, `FORMAT`, `EXPLICIT`, and `RATING` when those values are resolved.
+| Semantic value | GenericMp4 v1 |
+| --- | --- |
+| Book title | title, album |
+| Author | artist, album_artist |
+| Narrator | composer |
+| Genre and year | genre, date |
+| Description and rights | comment, description, copyright |
+| Language and media type | language, media_type |
 
 Input tags not mapped by a profile are retained using their original key spelling. A mapped profile value wins only when its output key collides with a preserved input key. Conflicting semantic values are not emitted by a mapping. This is a best-effort metadata rule, not a promise that every container or external tag editor can retain every custom MP4 atom.
 

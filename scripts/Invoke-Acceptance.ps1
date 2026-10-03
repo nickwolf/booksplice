@@ -1175,7 +1175,7 @@ function Invoke-Mp3tagPrepare([object]$Case, [object]$ReleasePaths, [string]$Cor
             '--output', $output,
             '--validation', 'full',
             '--json',
-            '--metadata-profile', 'NickMp3tag',
+            '--metadata-profile', 'GenericMp4',
             '--order', [string](Get-OptionalProperty $Case 'order')
         )
         foreach ($name in @('channels', 'quality')) {

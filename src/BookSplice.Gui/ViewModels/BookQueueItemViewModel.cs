@@ -27,12 +27,12 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings) 
     new(ChannelPolicy.ForceStereo, "Force stereo"),
   ];
   public IReadOnlyList<ValidationLevel> ValidationLevels { get; } = Enum.GetValues<ValidationLevel>();
-  public IReadOnlyList<string> MetadataProfiles { get; } = ["GenericMp4", "NickMp3tag"];
+  public IReadOnlyList<string> MetadataProfiles { get; } = ["GenericMp4"];
   public string OutputDirectory { get => Settings.OutputDirectory; set => UpdateSettings(Settings with { OutputDirectory = value }); }
   public string QualityProfileId { get => Settings.QualityProfileId; set { if (QualityProfileCatalog.FindById(value) is not null) UpdateSettings(Settings with { QualityProfileId = value }); } }
   public ChannelPolicy ChannelPolicy { get => Settings.ChannelPolicy; set => UpdateSettings(Settings with { ChannelPolicy = value }); }
   public ValidationLevel ValidationLevel { get => Settings.ValidationLevel; set => UpdateSettings(Settings with { ValidationLevel = value }); }
-  public string MetadataProfileId { get => Settings.MetadataProfileId; set { if (value is "GenericMp4" or "NickMp3tag") UpdateSettings(Settings with { MetadataProfileId = value }); } }
+  public string MetadataProfileId { get => Settings.MetadataProfileId; set { if (value == "GenericMp4") UpdateSettings(Settings with { MetadataProfileId = value }); } }
   public BookAnalysis? Analysis { get; private set; }
   public OrderCandidateId? SelectedOrder { get; set; }
   public CoverCandidate? SelectedCover { get; set; }

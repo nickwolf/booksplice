@@ -168,7 +168,7 @@ public sealed class FFmpegConversionExecutorTests
   }
 
   [Fact]
-  public async Task NickMp3tagProfileIsAppliedBeforeMetadataWriterCall()
+  public async Task GenericMp4ProfileIsAppliedBeforeMetadataWriterCall()
   {
     using var root = new TemporaryDirectory();
     var fields = new Dictionary<SemanticField, AggregatedValue>
@@ -179,12 +179,12 @@ public sealed class FFmpegConversionExecutorTests
     };
     var metadata = new BookMetadata(fields, new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>());
     var writer = new FakeMetadataWriter();
-    var result = await Executor(new FakeRunner(), root.Path, writer).ExecuteAsync(Plan(AudioStrategy.DirectTranscode, 1, 1, metadata: metadata, metadataProfileId: "NickMp3tag"), CancellationToken.None);
+    var result = await Executor(new FakeRunner(), root.Path, writer).ExecuteAsync(Plan(AudioStrategy.DirectTranscode, 1, 1, metadata: metadata, metadataProfileId: "GenericMp4"), CancellationToken.None);
 
     Assert.Equal(ExecutionStatus.Succeeded, result.Status);
-    Assert.Equal("Book", writer.LastTags!["TITLE"]);
-    Assert.Equal("Author", writer.LastTags["ARTIST"]);
-    Assert.Equal("Narrator", writer.LastTags["COMPOSER"]);
+    Assert.Equal("Book", writer.LastTags!["title"]);
+    Assert.Equal("Author", writer.LastTags["artist"]);
+    Assert.Equal("Narrator", writer.LastTags["composer"]);
   }
 
   [Fact]

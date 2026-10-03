@@ -65,7 +65,7 @@ public static class CliParser
     Core.Ordering.OrderCandidateId? order = orderText switch { "natural" => Core.Ordering.OrderCandidateId.NaturalPath, "metadata" => Core.Ordering.OrderCandidateId.Metadata, _ => null };
     if (orderText is not null && order is null) diagnostics.Add(new("usage.order", "Order must be natural or metadata."));
     values.TryGetValue("--metadata-profile", out var metadataProfile);
-    if (metadataProfile is not null and not ("GenericMp4" or "NickMp3tag")) diagnostics.Add(new("usage.metadata-profile", "Metadata profile must be GenericMp4 or NickMp3tag."));
+    if (metadataProfile is not null and not "GenericMp4") diagnostics.Add(new("usage.metadata-profile", "Metadata profile must be GenericMp4."));
     values.TryGetValue("--validation", out var validationText);
     Core.Settings.ValidationLevel? validation = validationText switch { "lightweight" => Core.Settings.ValidationLevel.Lightweight, "full" => Core.Settings.ValidationLevel.Full, _ => null };
     if (validationText is not null && validation is null) diagnostics.Add(new("usage.validation", "Validation must be lightweight or full."));
