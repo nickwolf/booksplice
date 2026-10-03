@@ -1,6 +1,6 @@
 # Release process
 
-The unpublished v0.1.0 draft is superseded by a public-profile scope change. Keep its tag and assets intact, and do not publish it. Build a replacement under a new version and repeat package-bound gates before publication.
+The unpublished v0.1.0 draft is superseded by a public-profile scope change. Keep its tag and assets intact, and do not publish it. The profile-free `v0.1.1` replacement was built under a new tag. Its exact draft package passed the clean-machine smoke; its private real-media gates were not completed, as recorded in `docs/ACCEPTANCE.md`.
 
 BookSplice releases are self-contained Windows x64 ZIP archives. They include the WPF application, CLI, .NET runtime, pinned `ffmpeg.exe` and `ffprobe.exe`, license, notices, README, and version manifest.
 
@@ -46,20 +46,20 @@ Run `.\scripts\Test-AcceptanceHarness.ps1` first. It uses generated files only a
 pwsh -NoProfile -File .\scripts\Invoke-Acceptance.ps1 -Mode run -Corpus .\artifacts\acceptance\private-manifest.json -Release .\artifacts\release-extracted -ResultPath .\artifacts\acceptance\private-cli-result.json
 ```
 
-The source-built FFmpeg binaries are a material package change. Earlier private CLI and Mp3tag passes against the BtbN-based candidate do not apply to a source-built candidate. Build a new unique ZIP, verify its digest and source bundle, then rerun the private gates for that exact package. Do not reuse an Mp3tag reopen confirmation unless the saved file is uniquely verified against the new candidate. The codec patent review and clean-machine draft-release smoke remain open.
+The source-built FFmpeg binaries are a material package change. Earlier private CLI and Mp3tag passes against the BtbN-based candidate do not apply to a source-built candidate. Build a new unique ZIP, verify its digest and source bundle, then normally rerun the private gates for that exact package. Do not reuse an Mp3tag reopen confirmation unless the saved file is uniquely verified against the new candidate. For `v0.1.1`, the owner accepted release without a complete new private CLI gate or fresh Mp3tag save and reopen after the exact draft passed the generated suite and SDK-free Windows smoke. Record these as unverified, not passed. Codec patent clearance was not established.
 
-The CLI result must report `status: passed` and `gateComplete: true`. The later `verify-mp3tag` result must report `status: passed`, `gateComplete: true`, and `privateGatesComplete: true` after reading that CLI result. The ignored raw CLI and Mp3tag results must have identical `releaseFingerprint` and `corpusFingerprint` values. Do not combine evidence from different packages or corpus manifests, and do not tag from a subset run.
+The CLI result must report `status: passed` and `gateComplete: true`. The later `verify-mp3tag` result must report `status: passed`, `gateComplete: true`, and `privateGatesComplete: true` after reading that CLI result. The ignored raw CLI and Mp3tag results must have identical `releaseFingerprint` and `corpusFingerprint` values. Do not combine evidence from different packages or corpus manifests, or describe a subset run as a completed full gate.
 
 ## Publication
 
 1. Confirm `main` is clean and matches the reviewed release commit.
 2. Run the local gates above.
 3. Review the release notes and public repository diff for private paths, media, credentials, and machine-specific data.
-4. Complete and record the manual and third-party-license gates in `docs/ACCEPTANCE.md` using disposable copies and the exact pinned media-tool artifact.
+4. Complete and record the manual and third-party-license gates in `docs/ACCEPTANCE.md` using disposable copies and the exact pinned media-tool artifact. If the owner explicitly accepts an unrun private gate, record the missing coverage and decision without claiming a pass.
 5. Create and push an annotated `v<version>` tag.
 6. The release workflow rebuilds and tests the package, creates a build-provenance attestation, and attaches the ZIP, checksum, smoke-test script, and its helper to an unpublished draft release. Existing same-named assets are never overwritten.
    If the tag-triggered run fails before creating a draft, fix the workflow on `main` and dispatch `release.yml` with the existing annotated tag. The retry checks out that tag and verifies its object and commit before building. Do not move the tag or overwrite draft assets.
 7. On a clean Windows x64 machine, authenticate to GitHub, download the draft assets into one directory, run the downloaded script against the ZIP and checksum, and compare the downloaded artifact digest with the workflow result.
-8. Publish the draft release only after the clean-machine gate passes.
+8. Publish the draft release only after the clean-machine gate passes and the disposition of every other release gate is recorded.
 
 Do not publish a release from an uncommitted tree. Do not replace a published asset under the same tag.
