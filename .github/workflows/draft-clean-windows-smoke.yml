@@ -71,7 +71,7 @@ jobs:
       - name: Download and verify the exact unpublished draft assets
         shell: pwsh
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.BOOKSPLICE_DRAFT_READ_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
           $release = @(gh api repos/nickwolf/booksplice/releases | ConvertFrom-Json |
