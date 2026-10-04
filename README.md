@@ -1,3 +1,5 @@
+<img src="assets/booksplice-icon.svg" alt="BookSplice icon" width="96">
+
 # BookSplice
 
 [![CI](https://github.com/nickwolf/booksplice/actions/workflows/ci.yml/badge.svg)](https://github.com/nickwolf/booksplice/actions/workflows/ci.yml)
