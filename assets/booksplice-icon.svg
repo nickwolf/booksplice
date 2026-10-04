@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="BookSplice icon">
+  <rect width="512" height="512" rx="96" fill="#0B2545"/>
+  <path d="M72 132 Q144 101 214 127 Q236 135 248 153 L248 407 Q208 372 148 372 Q107 372 72 390 Z" fill="#FFF9EC"/>
+  <path d="M440 132 Q368 101 298 127 Q276 135 264 153 L264 407 Q304 372 364 372 Q405 372 440 390 Z" fill="#FFF9EC"/>
+  <g fill="#008F89">
+    <rect x="105" y="245" width="20" height="32" rx="10"/>
+    <rect x="139" y="218" width="20" height="86" rx="10"/>
+    <rect x="173" y="189" width="20" height="144" rx="10"/>
+    <rect x="207" y="226" width="20" height="70" rx="10"/>
+    <rect x="285" y="226" width="20" height="70" rx="10"/>
+    <rect x="319" y="189" width="20" height="144" rx="10"/>
+    <rect x="353" y="218" width="20" height="86" rx="10"/>
+    <rect x="387" y="245" width="20" height="32" rx="10"/>
+    <rect x="220" y="251" width="72" height="20" rx="10"/>
+  </g>
+  <circle cx="256" cy="261" r="22" fill="#D98643"/>
+</svg>
