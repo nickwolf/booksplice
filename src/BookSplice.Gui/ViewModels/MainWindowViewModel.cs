@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.Windows.Threading;
 using BookSplice.Core.Analysis;
 using BookSplice.Core.Execution;
 using BookSplice.Core.Ordering;
@@ -78,29 +79,42 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     using var cancellation = new CancellationTokenSource();
     item.Cancellation = cancellation;
     var acquired = false;
-    var elapsed = Stopwatch.StartNew();
+    var elapsed = new Stopwatch();
+    var display = new ConversionProgressDisplay();
+    var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+    timer.Tick += (_, _) =>
+    {
+      if (elapsed.IsRunning && ReferenceEquals(item.Cancellation, cancellation)) item.Details = display.Describe(elapsed.Elapsed);
+    };
     var progress = new Progress<ConversionProgress>(value =>
     {
-      if (!item.IsBusy) return;
-      item.Percent = value.DisplayPercent ?? item.Percent;
-      item.Details = $"{elapsed.Elapsed:g} elapsed | {value.Speed:0.0}x speed | {value.State}";
+      if (!elapsed.IsRunning || !ReferenceEquals(item.Cancellation, cancellation)) return;
+      display.Report(value, elapsed.Elapsed);
+      item.Percent = Math.Min(99, value.DisplayPercent ?? item.Percent);
+      item.Details = display.Describe(elapsed.Elapsed);
     });
     try
     {
       item.Status = "Waiting";
+      item.Details = "Waiting for a conversion slot…";
       await _slots.WaitAsync(cancellation.Token);
       acquired = true;
       item.Status = "Converting";
+      elapsed.Start();
+      item.Details = display.Describe(elapsed.Elapsed);
+      timer.Start();
       var result = await conversion.ConvertAsync(new ConversionRequest(item.Source, item.Settings.CreateChapters, item.CreateOptions(singleConversionJob: true),
         AnalysisOptions: new BookAnalysisOptions(item.SelectedOrder), ExpectedSourcePaths: item.Analysis!.OrderedFiles.Select(file => file.FullPath).ToArray()), cancellation.Token, progress);
+      elapsed.Stop();
+      timer.Stop();
       item.Status = result.Status == ConversionTerminalStatus.Succeeded ? "Complete" : result.Status.ToString();
       item.PublishedPath = result.Status == ConversionTerminalStatus.Succeeded ? result.PublishedPath : null;
-      item.Details = $"{elapsed.Elapsed:g} elapsed" + Environment.NewLine + string.Join(Environment.NewLine, result.Diagnostics.Select(diagnostic => diagnostic.Message));
+      item.Details = ConversionProgressDisplay.ElapsedText(elapsed.Elapsed) + Environment.NewLine + string.Join(Environment.NewLine, result.Diagnostics.Select(diagnostic => diagnostic.Message));
       if (result.Status == ConversionTerminalStatus.Succeeded) item.Percent = 100;
     }
-    catch (OperationCanceledException) { item.Status = "Cancelled"; }
-    catch (Exception exception) { item.Status = "Conversion failed"; item.Details = exception.Message; }
-    finally { if (acquired) _slots.Release(); item.Cancellation = null; item.IsBusy = false; }
+    catch (OperationCanceledException) { item.Status = "Cancelled"; item.Details = ConversionProgressDisplay.ElapsedText(elapsed.Elapsed); }
+    catch (Exception exception) { item.Status = "Conversion failed"; item.Details = ConversionProgressDisplay.ElapsedText(elapsed.Elapsed) + Environment.NewLine + exception.Message; }
+    finally { timer.Stop(); elapsed.Stop(); if (acquired) _slots.Release(); item.Cancellation = null; item.IsBusy = false; }
   }
 
   public async Task PreviewAsync(BookQueueItemViewModel item)
