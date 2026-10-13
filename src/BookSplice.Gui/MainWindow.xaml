@@ -31,7 +31,7 @@
             <StackPanel Margin="6">
               <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap"/>
               <TextBlock Text="{Binding Status}" Margin="0,4"/>
-              <ProgressBar Value="{Binding Percent}" Maximum="100" Height="5" AutomationProperties.Name="Conversion progress"/>
+              <ProgressBar Value="{Binding Percent, Mode=OneWay}" Maximum="100" Height="5" AutomationProperties.Name="Conversion progress"/>
             </StackPanel>
           </DataTemplate>
         </ListBox.ItemTemplate>
