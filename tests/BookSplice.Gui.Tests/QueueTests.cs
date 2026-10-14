@@ -146,6 +146,48 @@ public sealed class QueueTests
     Assert.Single(model.Items, item => item.Status == "ExecutionFailed");
   }
 
+  [Fact]
+  public async Task ConversionKeepsSpeedWhenTheNextUpdateOnlyContainsState()
+  {
+    string? runningDetails = null;
+    var converter = new ProgressConverter((progress, item) =>
+    {
+      progress.Report(new(null, 12.3, null, 0));
+      progress.Report(new(null, null, "continue", 0, null, 25));
+      runningDetails = item.Details;
+    });
+    using var model = new MainWindowViewModel(new Analyzer(), converter, AppSettings.Defaults);
+    await model.AddAsync(Path.GetFullPath("book"));
+    var item = model.Items[0];
+    await model.ResolveOrderAsync(item, OrderCandidateId.NaturalPath);
+    converter.Item = item;
+    var priorContext = SynchronizationContext.Current;
+    try
+    {
+      SynchronizationContext.SetSynchronizationContext(new InlineContext());
+      await model.ConvertAsync(item);
+    }
+    finally { SynchronizationContext.SetSynchronizationContext(priorContext); }
+    Assert.Equal("Elapsed: 0s · Speed: 12.3× · Est. remaining: Calculating…", runningDetails);
+    Assert.Equal("Complete", item.Status);
+    Assert.Equal("Elapsed: 0s", item.Details.Trim());
+  }
+
+  private sealed class InlineContext : SynchronizationContext
+  {
+    public override void Post(SendOrPostCallback callback, object? state) => callback(state);
+  }
+
+  private sealed class ProgressConverter(Action<IProgress<ConversionProgress>, BookQueueItemViewModel> report) : IConversionService
+  {
+    public BookQueueItemViewModel? Item { get; set; }
+    public Task<ConversionServiceResult> ConvertAsync(ConversionRequest request, CancellationToken cancellationToken, IProgress<ConversionProgress>? progress = null)
+    {
+      report(progress!, Item!);
+      return Task.FromResult(new ConversionServiceResult(Guid.NewGuid(), ConversionTerminalStatus.Succeeded, ConversionStage.Completed,
+        null, null, null, null, null, [], [], "finished.m4b"));
+    }
+  }
   private sealed class RecordingPlanner(AudioStrategy strategy = AudioStrategy.DirectTranscode) : IConversionPlanner
   {
     public ConversionOptions? Options { get; private set; }
