@@ -31,6 +31,7 @@ public sealed class FFmpegOutputValidator : IOutputValidator
     var checks = new List<ValidationCheck>();
     var warnings = new List<string>();
     var errors = new List<string>();
+    var toolDiagnostics = new List<string>();
     if (!File.Exists(outputPath)) return Failed(outputPath, checks, errors, ValidationCodes.FileExists, "The temporary output does not exist.", plan.PlanId);
     checks.Add(Pass(ValidationCodes.FileExists));
 
@@ -39,6 +40,7 @@ public sealed class FFmpegOutputValidator : IOutputValidator
     catch (OperationCanceledException) { throw; }
     catch (Exception exception) { return Failed(outputPath, checks, errors, ValidationCodes.ContainerParse, "The temporary output could not be parsed.", plan.PlanId, exception); }
     checks.Add(Pass(ValidationCodes.ContainerParse));
+    toolDiagnostics.AddRange(facts.Warnings);
     warnings.AddRange(facts.Warnings.Select(Sanitize));
 
     ValidateAudio(plan, facts, checks);
@@ -47,10 +49,10 @@ public sealed class FFmpegOutputValidator : IOutputValidator
     ValidateChapters(plan, facts, checks);
     ValidateCover(plan, outputPath, facts, checks);
     ValidateMetadata(plan, facts, checks);
-    if (plan.ValidationLevel == Core.Settings.ValidationLevel.Full) await ValidateFullDecodeAsync(outputPath, checks, warnings, cancellationToken).ConfigureAwait(false);
+    if (plan.ValidationLevel == Core.Settings.ValidationLevel.Full) await ValidateFullDecodeAsync(outputPath, checks, warnings, toolDiagnostics, cancellationToken).ConfigureAwait(false);
     var failed = checks.Where(check => check.Required && !check.Passed).ToArray();
     errors.AddRange(failed.Select(check => check.Message));
-    return new ValidationReport(outputPath, failed.Length == 0, checks, facts, warnings, errors, plan.PlanId);
+    return new ValidationReport(outputPath, failed.Length == 0, checks, facts, warnings, errors, plan.PlanId, toolDiagnostics);
   }
 
   private static void ValidateAudio(ConversionPlan plan, MediaProbeResult facts, List<ValidationCheck> checks)
@@ -126,11 +128,12 @@ public sealed class FFmpegOutputValidator : IOutputValidator
     checks.Add(Check(ValidationCodes.MetadataRequired, valid, "Required output metadata is missing or changed."));
   }
 
-  private async Task ValidateFullDecodeAsync(string outputPath, List<ValidationCheck> checks, List<string> warnings, CancellationToken cancellationToken)
+  private async Task ValidateFullDecodeAsync(string outputPath, List<ValidationCheck> checks, List<string> warnings, List<string> toolDiagnostics, CancellationToken cancellationToken)
   {
     try
     {
       var result = await _runner.RunAsync(new ProcessSpec(_tools.FFmpegPath, ["-hide_banner", "-v", "warning", "-i", outputPath, "-map", "0:a:0", "-f", "null", "-"]), null, cancellationToken).ConfigureAwait(false);
+      if (!string.IsNullOrWhiteSpace(result.StandardError)) toolDiagnostics.Add(result.StandardError);
       warnings.AddRange(result.StandardError.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Select(Sanitize));
       var decodeError = result.ExitCode != 0 || Regex.IsMatch(result.StandardError, "\\b(error|invalid data)\\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
       checks.Add(Check(ValidationCodes.FullDecode, !decodeError, "A full FFmpeg decode reported an error."));
@@ -154,7 +157,8 @@ public sealed class FFmpegOutputValidator : IOutputValidator
     checks.Add(Check(code, false, message));
     errors.Add(message);
     if (exception is MediaProbeException probe) errors.AddRange(probe.Warnings.Select(Sanitize));
-    return new ValidationReport(path, false, checks, warnings: [], errors: errors, planId: planId);
+    return new ValidationReport(path, false, checks, warnings: [], errors: errors, planId: planId,
+      toolDiagnostics: exception is MediaProbeException failure ? failure.Warnings : []);
   }
-  private static string Sanitize(string value) => Regex.Replace(value, @"[A-Za-z]:\\[^\s\r\n]*", "[path]");
+  private static string Sanitize(string value) => PublicTextRedactor.Sanitize(value);
 }

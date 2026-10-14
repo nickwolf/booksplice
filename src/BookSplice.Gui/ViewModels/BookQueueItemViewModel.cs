@@ -15,6 +15,7 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings) 
   private bool _busy;
   private double _percent;
   private string? _publishedPath;
+  private ConversionResultDisplay? _result;
   private AppSettings _settings = settings;
   public string Source { get; } = source;
   public string Name => Path.GetFileName(Source.TrimEnd(Path.DirectorySeparatorChar));
@@ -43,11 +44,15 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings) 
   public IReadOnlyList<CoverCandidate> Covers => Analysis?.Cover.Candidates ?? [];
   public IReadOnlyList<string> OrderedFiles => Analysis?.OrderedFiles.Select(file => file.RelativePath).ToArray() ?? [];
   public string Summary => Analysis is null ? "" : $"{Analysis.OrderedFiles.Count} files | {TimeSpan.FromMicroseconds(Analysis.Chapters.TotalDurationMicroseconds):g} | {string.Join(", ", Analysis.OrderedFiles.SelectMany(file => file.ProbeResult.AudioStreams).Select(stream => stream.CodecName).Distinct())}";
-  public string Status { get => _status; internal set { _status = value; Changed(); Changed(nameof(CanConvert)); } }
+  public string Status { get => _status; internal set { _status = value; Changed(); Changed(nameof(QueueStatus)); Changed(nameof(CanConvert)); } }
+  public string QueueStatus => Result?.Title ?? Status;
+  public ConversionResultDisplay? Result { get => _result; internal set { _result = value; Changed(); Changed(nameof(HasResult)); Changed(nameof(QueueStatus)); } }
+  public bool HasResult => Result is not null;
   public string Details { get => _details; internal set { _details = value; Changed(); } }
   public double Percent { get => _percent; internal set { _percent = value; Changed(); } }
-  public string? PublishedPath { get => _publishedPath; internal set { _publishedPath = value; Changed(); } }
-  public bool IsBusy { get => _busy; internal set { _busy = value; Changed(); Changed(nameof(CanEdit)); Changed(nameof(CanRemove)); Changed(nameof(CanConvert)); } }
+  public string? PublishedPath { get => _publishedPath; internal set { _publishedPath = value; Changed(); Changed(nameof(CanOpenOutput)); } }
+  public bool CanOpenOutput => !IsBusy && PublishedPath is { } path && File.Exists(path);
+  public bool IsBusy { get => _busy; internal set { _busy = value; Changed(); Changed(nameof(CanEdit)); Changed(nameof(CanRemove)); Changed(nameof(CanConvert)); Changed(nameof(CanOpenOutput)); } }
   public bool CanRemove => !IsBusy;
   public bool CanEdit => !IsBusy && Status != "Complete";
   public bool CanConvert => !IsBusy && Analysis?.Status == BookAnalysisStatus.Ready && Status != "Complete";

@@ -35,6 +35,8 @@ public sealed record MediaChapter(
   Rational? TimeBase,
   IReadOnlyDictionary<string, string> RawTags);
 
+public sealed record MediaStreamInfo(int Index, string? CodecType, string? CodecName, string? CodecTag);
+
 public sealed class TagCollection : IReadOnlyDictionary<string, string>
 {
   private readonly Dictionary<string, string> _values;
@@ -60,7 +62,8 @@ public sealed record MediaProbeResult(
   IReadOnlyList<string> Warnings,
   decimal? Duration = null,
   string? FormatNames = null,
-  long? SourceByteSize = null);
+  long? SourceByteSize = null,
+  IReadOnlyList<MediaStreamInfo>? OtherStreams = null);
 
 public interface IMediaProbe
 {

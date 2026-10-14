@@ -113,6 +113,22 @@ public sealed class FFmpegOutputValidatorTests
   }
 
   [Fact]
+  public async Task DecodeWarningsRedactWholePathsWithSpacesWithoutHidingTheError()
+  {
+    using var output = new TemporaryOutput();
+    var runner = new Runner { DecodeResult = new ProcessResult(1, "", @"Cannot decode C:\Private Library\Secret Book\track.m4b: Invalid data") };
+    var report = await Validator(new Probe(Media()), runner).ValidateAsync(Plan(level: ValidationLevel.Full), output.Path, CancellationToken.None);
+    var warning = Assert.Single(report.Warnings);
+    Assert.Contains("[path]", warning);
+    Assert.Contains("Invalid data", warning);
+    Assert.DoesNotContain("Private Library", warning);
+    Assert.DoesNotContain("Secret Book", warning);
+    Assert.DoesNotContain("track.m4b", warning);
+    Assert.Contains(@"C:\Private Library\Secret Book\track.m4b", Assert.Single(report.ToolDiagnostics));
+    Assert.False(report.IsValid);
+  }
+
+  [Fact]
   public async Task ValidateAsyncReportsDecodeFailureAndUsesNullMuxerInFullMode()
   {
     using var output = new TemporaryOutput();

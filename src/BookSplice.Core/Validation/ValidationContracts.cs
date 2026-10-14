@@ -7,7 +7,7 @@ public sealed record ValidationCheck(string Code, bool Passed, string Message, b
 
 public sealed class ValidationReport
 {
-  public ValidationReport(string temporaryOutputPath, bool isValid, IEnumerable<ValidationCheck> checks, MediaProbeResult? outputFacts = null, IEnumerable<string>? warnings = null, IEnumerable<string>? errors = null, Guid? planId = null)
+  public ValidationReport(string temporaryOutputPath, bool isValid, IEnumerable<ValidationCheck> checks, MediaProbeResult? outputFacts = null, IEnumerable<string>? warnings = null, IEnumerable<string>? errors = null, Guid? planId = null, IEnumerable<string>? toolDiagnostics = null)
   {
     TemporaryOutputPath = Path.GetFullPath(temporaryOutputPath);
     IsValid = isValid;
@@ -16,6 +16,7 @@ public sealed class ValidationReport
     Warnings = Array.AsReadOnly((warnings ?? []).ToArray());
     Errors = Array.AsReadOnly((errors ?? []).ToArray());
     PlanId = planId;
+    ToolDiagnostics = Array.AsReadOnly((toolDiagnostics ?? []).ToArray());
   }
 
   public string TemporaryOutputPath { get; }
@@ -25,6 +26,7 @@ public sealed class ValidationReport
   public IReadOnlyList<string> Warnings { get; }
   public IReadOnlyList<string> Errors { get; }
   public Guid? PlanId { get; }
+  public IReadOnlyList<string> ToolDiagnostics { get; }
 
   public static ValidationReport Passed(string temporaryOutputPath, IEnumerable<ValidationCheck> checks, Guid? planId = null) => new(temporaryOutputPath, true, checks, planId: planId);
   public static ValidationReport Failed(string temporaryOutputPath, IEnumerable<ValidationCheck> checks, IEnumerable<string>? errors = null, Guid? planId = null) => new(temporaryOutputPath, false, checks, errors: errors, planId: planId);

@@ -4,6 +4,9 @@
         Title="BookSplice" Height="760" Width="1120" MinWidth="760" MinHeight="520"
         AutomationProperties.AutomationId="BookSpliceMainWindow"
         AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver">
+  <Window.Resources>
+    <BooleanToVisibilityConverter x:Key="BooleanVisibility"/>
+  </Window.Resources>
   <DockPanel Margin="16">
     <StackPanel DockPanel.Dock="Top">
       <StackPanel Margin="0,0,0,12">
@@ -30,14 +33,15 @@
           <DataTemplate>
             <StackPanel Margin="6">
               <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap"/>
-              <TextBlock Text="{Binding Status}" Margin="0,4"/>
+              <TextBlock Text="{Binding QueueStatus}" Margin="0,4" TextWrapping="Wrap"/>
               <ProgressBar Value="{Binding Percent, Mode=OneWay}" Maximum="100" Height="5" AutomationProperties.Name="Conversion progress"/>
             </StackPanel>
           </DataTemplate>
         </ListBox.ItemTemplate>
       </ListBox>
       <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Center"/>
-      <DockPanel Grid.Column="2" DataContext="{Binding SelectedItem, ElementName=Queue}">
+      <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+      <DockPanel DataContext="{Binding SelectedItem, ElementName=Queue}">
         <StackPanel DockPanel.Dock="Top" Margin="8,0,0,8">
           <TextBlock Text="{Binding Name}" FontSize="20" FontWeight="SemiBold"/>
           <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" Margin="0,4"/>
@@ -47,13 +51,57 @@
             <Button Content="_Convert selected" IsEnabled="{Binding CanConvert}" Click="Convert_Click" Padding="12,6" Margin="0,0,8,0"/>
             <Button Content="_Cancel" IsEnabled="{Binding IsBusy}" Click="Cancel_Click" Padding="12,6" Margin="0,0,8,0"/>
             <Button Content="Copy _diagnostics" Click="CopyDiagnostics_Click" Padding="12,6" Margin="0,0,8,0"/>
-            <Button Content="_Open output folder" Click="OpenOutput_Click" Padding="12,6" Margin="0,0,8,0"/>
             <Button Content="_Remove" IsEnabled="{Binding CanRemove}" Click="Remove_Click" Padding="12,6"/>
           </WrapPanel>
         </StackPanel>
+        <Border x:Name="ConversionResultCard" DockPanel.Dock="Top" Margin="8,0,0,8" Padding="12" BorderBrush="Gray" BorderThickness="1"
+                Visibility="{Binding HasResult, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}" AutomationProperties.Name="Conversion result">
+          <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="260">
+            <StackPanel>
+              <TextBlock x:Name="ResultTitle" Text="{Binding Result.Title}" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+              <TextBlock Text="{Binding Result.Summary}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+              <TextBlock Text="{Binding Result.OutputText}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+              <TextBlock Text="{Binding Result.ElapsedText}" Margin="0,4,0,0"/>
+              <TextBlock Text="{Binding Result.ValidationText}" TextWrapping="Wrap" Margin="0,8,0,0"/>
+              <TextBlock Text="{Binding Result.DecodeText}" TextWrapping="Wrap"/>
+              <Button x:Name="OpenResultOutput" Content="_Open output folder" IsEnabled="{Binding CanOpenOutput}" Click="OpenOutput_Click" Padding="12,6" HorizontalAlignment="Left" Margin="0,8"/>
+              <StackPanel Visibility="{Binding Result.HasWarnings, Converter={StaticResource BooleanVisibility}}">
+                <TextBlock Text="Warnings" FontWeight="SemiBold"/>
+                <ItemsControl ItemsSource="{Binding Result.Warnings}" AutomationProperties.Name="Conversion warnings">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <StackPanel Margin="0,6,0,0">
+                        <TextBlock Text="{Binding Explanation}" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding Message}" TextWrapping="Wrap"/>
+                      </StackPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+              <Expander Header="Validation _checks" Margin="0,8,0,0" AutomationProperties.Name="Validation checks">
+                <ItemsControl ItemsSource="{Binding Result.Checks}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,3"/></DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </Expander>
+              <Expander Header="_Diagnostics" AutomationProperties.Name="Tool diagnostics">
+                <TextBox Text="{Binding Result.DiagnosticsText, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="160" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Raw tool diagnostics"/>
+              </Expander>
+            </StackPanel>
+          </ScrollViewer>
+        </Border>
         <TextBox DockPanel.Dock="Bottom" Text="{Binding Details, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap"
-                 VerticalScrollBarVisibility="Auto" MaxHeight="130" MinHeight="50" Margin="8" AutomationProperties.Name="Status and diagnostics"/>
-        <TabControl Margin="8,0,0,0">
+                 VerticalScrollBarVisibility="Auto" MaxHeight="130" MinHeight="50" Margin="8" AutomationProperties.Name="Status and diagnostics">
+          <TextBox.Style>
+            <Style TargetType="TextBox">
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding HasResult}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+              </Style.Triggers>
+            </Style>
+          </TextBox.Style>
+        </TextBox>
+        <TabControl Margin="8,0,0,0" MinHeight="220">
           <TabItem Header="_Metadata">
             <DataGrid ItemsSource="{Binding Metadata}" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
                       IsEnabled="{Binding CanEdit}" AutomationProperties.Name="Book metadata">
@@ -114,6 +162,7 @@
           </TabItem>
         </TabControl>
       </DockPanel>
+      </ScrollViewer>
     </Grid>
   </DockPanel>
 </Window>

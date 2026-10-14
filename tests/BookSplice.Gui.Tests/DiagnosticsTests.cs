@@ -12,6 +12,28 @@ namespace BookSplice.Gui.Tests;
 public sealed class DiagnosticsTests
 {
   [Fact]
+  public void CompletedDiagnosticsIncludeRawToolErrorsWithPathsRedactedAndFrozenValidation()
+  {
+    var item = new BookQueueItemViewModel(@"C:\Private Library\Secret Book", AppSettings.Defaults);
+    var validation = new BookSplice.Core.Validation.ValidationReport(Path.GetFullPath("temporary.m4b"), false,
+      [new("decode.full", false, "Full decode failed.")], toolDiagnostics: [@"Cannot decode C:\Private Library\Secret Book\Secret Track.mp3: Invalid data"]);
+    var result = new ConversionServiceResult(Guid.NewGuid(), ConversionTerminalStatus.ValidationFailed, ConversionStage.Validation,
+      null, null, new(BookSplice.Core.Execution.ExecutionStatus.Succeeded, null,
+        [new(1, "", @"Decoder error at C:\Private Library\Secret Book\Secret Track.mp3")], []), validation, null, [], [], null);
+    var display = ConversionResultDisplay.Create(result, TimeSpan.Zero, ValidationLevel.Full);
+    typeof(BookQueueItemViewModel).GetProperty(nameof(BookQueueItemViewModel.Result))!.SetValue(item, display);
+    typeof(BookQueueItemViewModel).GetProperty(nameof(BookQueueItemViewModel.Details))!.SetValue(item, display.Details);
+    item.ValidationLevel = ValidationLevel.Lightweight;
+    var text = DiagnosticsTextBuilder.Build(item);
+    Assert.Contains("Full audio decode: Failed", text);
+    Assert.Contains("Decoder error", text);
+    Assert.Contains("Cannot decode", text);
+    Assert.Contains("Invalid data", text);
+    Assert.Contains("[path]", text);
+    Assert.DoesNotContain("Private Library", text, StringComparison.OrdinalIgnoreCase);
+    Assert.DoesNotContain("Secret Track", text, StringComparison.OrdinalIgnoreCase);
+  }
+  [Fact]
   public void ExportIncludesUsefulStateAndRedactsLocalPaths()
   {
     var item = new BookQueueItemViewModel(@"C:\Private Library\Secret Book", AppSettings.Defaults);

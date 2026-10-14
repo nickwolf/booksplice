@@ -39,6 +39,7 @@ public sealed class QueueTests
     Assert.Equal("Complete", item.Status);
     Assert.True(item.CanRemove);
     Assert.Equal("finished.m4b", item.PublishedPath);
+    Assert.Contains("Conversion complete", item.Details);
   }
 
   [Fact]
@@ -69,9 +70,13 @@ public sealed class QueueTests
     item.Cancel();
     await running;
     Assert.Equal("Cancelled", item.Status);
+    Assert.Contains("Conversion cancelled", item.Details);
     Assert.Null(item.PublishedPath);
     Assert.False(item.IsBusy);
     Assert.True(item.CanConvert);
+    await model.ResolveOrderAsync(item, OrderCandidateId.NaturalPath);
+    Assert.Null(item.Result);
+    Assert.Equal("Ready", item.QueueStatus);
   }
 
   [Fact]
@@ -170,7 +175,8 @@ public sealed class QueueTests
     finally { SynchronizationContext.SetSynchronizationContext(priorContext); }
     Assert.Equal("Elapsed: 0s · Speed: 12.3× · Est. remaining: Calculating…", runningDetails);
     Assert.Equal("Complete", item.Status);
-    Assert.Equal("Elapsed: 0s", item.Details.Trim());
+    Assert.Contains("Conversion complete", item.Details);
+    Assert.Contains("Elapsed: 0s", item.Details);
   }
 
   private sealed class InlineContext : SynchronizationContext

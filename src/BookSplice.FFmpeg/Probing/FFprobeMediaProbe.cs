@@ -35,7 +35,9 @@ public sealed class FFprobeMediaProbe : IMediaProbe
       duration = await GetExactMp3DurationAsync(inputPath, cancellationToken).ConfigureAwait(false);
       audio[0] = audio[0] with { Duration = duration };
     }
-    return new MediaProbeResult(audio, covers, chapters, formatTags, ToRawTags(document.Format?.Tags), warnings, duration, document.Format?.FormatName, Long(document.Format?.Size));
+    var otherStreams = (document.Streams ?? []).Where(s => !string.Equals(s.CodecType, "audio", StringComparison.OrdinalIgnoreCase) && s.Disposition?.AttachedPic != 1)
+      .Select(s => new MediaStreamInfo(s.Index, s.CodecType, s.CodecName, s.CodecTag)).ToArray();
+    return new MediaProbeResult(audio, covers, chapters, formatTags, ToRawTags(document.Format?.Tags), warnings, duration, document.Format?.FormatName, Long(document.Format?.Size), otherStreams);
   }
 
   private async Task<decimal> GetExactMp3DurationAsync(string inputPath, CancellationToken cancellationToken)
