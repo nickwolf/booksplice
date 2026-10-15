@@ -6,7 +6,7 @@ public static class CheckSchedule
   {
     var earliest = now.AddSeconds(60);
     var due = lastSuccess is null || lastSuccess > now ? earliest : lastSuccess.Value.AddHours(24);
-    if (due < earliest)
+    if (due <= now)
     {
       due = earliest;
     }

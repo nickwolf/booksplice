@@ -24,6 +24,37 @@ public sealed class ReleaseClientTests
     Assert.NotEqual(first.Identity!.Assets[0], changed.Identity!.Assets[0]);
   }
 
+  [Theory]
+  [InlineData(false)]
+  [InlineData(true)]
+  public async Task BuildMetadataUrlsAcceptLiteralAndEscapedPlus(bool escaped)
+  {
+    const string tag = "v1.2.3+build.1";
+    var version = tag[1..];
+    var names = new[]
+    {
+      $"BookSplice-{version}-win-x64.zip",
+      $"BookSplice-{version}-win-x64.zip.sha256",
+      $"BookSplice-{version}-win-x64.update.json",
+      $"BookSplice-{version}-win-x64.update.sig.json"
+    };
+    var urlTag = escaped ? Uri.EscapeDataString(tag) : tag;
+    var assets = names.Select((name, index) =>
+      $$"""{"id":{{index + 1}},"name":"{{name}}","size":100,"browser_download_url":"https://github.com/nickwolf/booksplice/releases/download/{{urlTag}}/{{(escaped ? Uri.EscapeDataString(name) : name)}}"}""");
+    var release = ReleaseRaw(7, tag, $"[{string.Join(',', assets)}]")
+      .Replace($"/releases/tag/{tag}", $"/releases/tag/{urlTag}", StringComparison.Ordinal);
+    var client = Client(_ => Page(release));
+    var selected = ReleaseSelector.Select(await client.FetchAsync(CancellationToken.None));
+    Assert.Equal(SelectionKind.Available, selected.Kind);
+    Assert.True(selected.Installable);
+    using var transport = new ValidatedHttpTransport(new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+    {
+      Content = new ByteArrayContent([1])
+    }), TimeProvider.System);
+    using var response = await transport.OpenAssetAsync(selected.Candidate!.Assets[0], tag, CancellationToken.None);
+    Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+  }
+
   [Fact]
   public async Task EleventhPageIsExplicitFailure()
   {
@@ -151,6 +182,34 @@ public sealed class ReleaseClientTests
   {
     var client = Client(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(new byte[UpdateLimits.ReleasePageMaxBytes + 1]) });
     await Assert.ThrowsAsync<ReleaseTransportException>(() => client.FetchAsync(CancellationToken.None));
+  }
+
+  [Fact]
+  public async Task LargeMalformedAngleNotesAreBoundedWithoutRegexBacktracking()
+  {
+    var notes = new string('<', 262144);
+    var release = Release(7, "v1.0.0", 11, 100).Replace("\"body\":\"notes\"", $"\"body\":{System.Text.Json.JsonSerializer.Serialize(notes)}", StringComparison.Ordinal);
+    var client = Client(_ => Page(release));
+    var watch = System.Diagnostics.Stopwatch.StartNew();
+    var result = await client.FetchAsync(CancellationToken.None);
+    watch.Stop();
+    Assert.Equal(new string('<', (int)UpdateLimits.NotesMaxBytes), result[0].Notes);
+    Assert.True(watch.Elapsed < TimeSpan.FromMilliseconds(500), $"Notes processing took {watch.Elapsed}.");
+  }
+
+  [Fact]
+  public async Task NotesDropCompleteHtmlTagsAndDecodeEntitiesAsText()
+  {
+    var release = Release(7, "v1.0.0", 11, 100).Replace("\"body\":\"notes\"", "\"body\":\"<b>Release</b> &amp; notes\"", StringComparison.Ordinal);
+    var result = await Client(_ => Page(release)).FetchAsync(CancellationToken.None);
+    Assert.Equal("Release & notes", result[0].Notes);
+  }
+
+  [Fact]
+  public async Task EncodedSlashCannotChangeBoundReleaseTag()
+  {
+    var release = Release(7, "v1.0.0", 11, 100).Replace("/releases/tag/v1.0.0", "/releases/tag/v1.0.0%2Fother", StringComparison.Ordinal);
+    await Assert.ThrowsAsync<ReleaseTransportException>(() => Client(_ => Page(release)).FetchAsync(CancellationToken.None));
   }
 
   [Fact]

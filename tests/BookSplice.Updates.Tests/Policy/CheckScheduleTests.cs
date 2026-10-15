@@ -19,6 +19,8 @@ public sealed class CheckScheduleTests
   {
     Assert.Equal(Now.AddHours(24), CheckSchedule.NextDue(Now, Now, null));
     Assert.Equal(Now.AddSeconds(60), CheckSchedule.NextDue(Now, Now.AddDays(-2), null));
+    Assert.Equal(Now.AddSeconds(30), CheckSchedule.NextDue(Now, Now.AddHours(-24).AddSeconds(30), null));
+    Assert.Equal(Now.AddSeconds(60), CheckSchedule.NextDue(Now, Now.AddHours(-24), null));
   }
 
   [Fact]

@@ -138,7 +138,7 @@ public sealed class GitHubReleaseClient : IReleaseClient, IDisposable
   private static bool ValidReleasePage(Uri uri, string tag) =>
     uri.IsAbsoluteUri && uri.Scheme == Uri.UriSchemeHttps && uri.Host == "github.com" && uri.IsDefaultPort &&
     uri.UserInfo.Length == 0 && uri.Query.Length == 0 && uri.Fragment.Length == 0 &&
-    uri.AbsolutePath == $"/nickwolf/booksplice/releases/tag/{Uri.EscapeDataString(tag)}";
+    ValidatedHttpTransport.MatchesReleaseTagPath(uri, tag);
 
   private static string PlainNotes(string? notes)
   {
@@ -147,8 +147,35 @@ public sealed class GitHubReleaseClient : IReleaseClient, IDisposable
       return "";
     }
 
-    var text = Regex.Replace(notes, "<[^>]*>", "", RegexOptions.Singleline | RegexOptions.CultureInvariant);
-    text = System.Net.WebUtility.HtmlDecode(text);
+    var plain = new StringBuilder();
+    var inTag = false;
+    var tagStart = 0;
+    for (var i = 0; i < notes.Length; i++)
+    {
+      if (inTag)
+      {
+        if (notes[i] == '>')
+        {
+          inTag = false;
+        }
+      }
+      else if (notes[i] == '<')
+      {
+        inTag = true;
+        tagStart = i;
+      }
+      else if (plain.Length < UpdateLimits.NotesMaxBytes)
+      {
+        plain.Append(notes[i]);
+      }
+    }
+
+    if (inTag && plain.Length < UpdateLimits.NotesMaxBytes)
+    {
+      plain.Append(notes.AsSpan(tagStart, Math.Min(notes.Length - tagStart, (int)UpdateLimits.NotesMaxBytes - plain.Length)));
+    }
+
+    var text = System.Net.WebUtility.HtmlDecode(plain.ToString());
     var builder = new StringBuilder();
     var bytes = 0;
     foreach (var rune in text.EnumerateRunes())

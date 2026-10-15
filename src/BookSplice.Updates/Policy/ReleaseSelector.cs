@@ -92,5 +92,5 @@ public static class ReleaseSelector
   private static bool ValidAssetUri(Uri uri, string tag, string name) =>
     uri.IsAbsoluteUri && uri.Scheme == Uri.UriSchemeHttps && uri.Host == "github.com" && uri.IsDefaultPort &&
     uri.UserInfo.Length == 0 && uri.Query.Length == 0 && uri.Fragment.Length == 0 &&
-    uri.AbsolutePath == $"/nickwolf/booksplice/releases/download/{Uri.EscapeDataString(tag)}/{Uri.EscapeDataString(name)}";
+    Transport.ValidatedHttpTransport.MatchesAssetPath(uri, tag, name);
 }

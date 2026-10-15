@@ -113,9 +113,8 @@ public sealed class ValidatedHttpTransport : IDisposable
 
   public async Task<HttpResponseMessage> OpenAssetAsync(ReleaseAsset asset, string tag, CancellationToken cancellationToken)
   {
-    var expectedPath = $"/nickwolf/booksplice/releases/download/{Uri.EscapeDataString(tag)}/{Uri.EscapeDataString(asset.Name)}";
     var uri = asset.DownloadUri;
-    if (!ValidGithubUri(uri) || uri.AbsolutePath != expectedPath)
+    if (!ValidGithubUri(uri) || !MatchesAssetPath(uri, tag, asset.Name))
     {
       throw new ReleaseTransportException("Asset URL does not match the selected repository release.");
     }
@@ -168,6 +167,26 @@ public sealed class ValidatedHttpTransport : IDisposable
 
   private static bool ValidGithubUri(Uri uri) => uri.IsAbsoluteUri && uri.Scheme == Uri.UriSchemeHttps &&
     uri.Host == "github.com" && uri.IsDefaultPort && uri.UserInfo.Length == 0 && uri.Query.Length == 0 && uri.Fragment.Length == 0;
+
+  public static bool MatchesReleaseTagPath(Uri uri, string tag)
+  {
+    var segments = uri.AbsolutePath.Split('/');
+    return segments.Length == 6 && segments[0].Length == 0 && segments[1] == "nickwolf" &&
+      segments[2] == "booksplice" && segments[3] == "releases" && segments[4] == "tag" &&
+      ValidPathComponent(tag) && Uri.UnescapeDataString(segments[5]) == tag;
+  }
+
+  public static bool MatchesAssetPath(Uri uri, string tag, string name)
+  {
+    var segments = uri.AbsolutePath.Split('/');
+    return segments.Length == 7 && segments[0].Length == 0 && segments[1] == "nickwolf" &&
+      segments[2] == "booksplice" && segments[3] == "releases" && segments[4] == "download" &&
+      ValidPathComponent(tag) && ValidPathComponent(name) &&
+      Uri.UnescapeDataString(segments[5]) == tag && Uri.UnescapeDataString(segments[6]) == name;
+  }
+
+  private static bool ValidPathComponent(string value) => value.Length != 0 &&
+    !value.Contains('/') && !value.Contains('\\');
 
   private static bool ValidAssetDeliveryUri(Uri uri) => uri.IsAbsoluteUri && uri.Scheme == Uri.UriSchemeHttps &&
     uri.IsDefaultPort && uri.UserInfo.Length == 0 && uri.Fragment.Length == 0 &&
