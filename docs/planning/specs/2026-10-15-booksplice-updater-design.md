@@ -1,6 +1,6 @@
 # BookSplice Windows updater
 
-Date: 2026-10-15. Issue: [#77](https://github.com/nickwolf/booksplice/issues/77). Target: v0.2.0. Status: written specification awaiting review. The approach has been approved; implementation has not started.
+Date: 2026-10-15. Issue: [#77](https://github.com/nickwolf/booksplice/issues/77). Target: v0.2.0. Status: specification approved; implementation plan awaiting review. Implementation has not started.
 
 ## Purpose and scope
 
