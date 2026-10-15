@@ -4,6 +4,22 @@ namespace BookSplice.Core.Execution;
 
 public enum ExecutionStatus { Succeeded, Failed, Cancelled }
 
+public enum ConversionPhase
+{
+  Analysis,
+  Planning,
+  Preparation,
+  Encoding,
+  StreamCopy,
+  Assembly,
+  MetadataWriting,
+  ValidationChecks,
+  FullDecode,
+  Publication,
+  Cleanup,
+  AuditWriting
+}
+
 public sealed record ExecutionDiagnostic(string Code, string Message);
 
 public sealed record ExecutionProcessResult(
@@ -26,7 +42,17 @@ public sealed record ConversionProgress(
   string? State,
   int StageIndex,
   int? SourceIndex = null,
-  double? DisplayPercent = null);
+  double? DisplayPercent = null,
+  ConversionPhase? Phase = null,
+  Guid? PhaseOccurrenceId = null,
+  bool IsPhaseEntry = false,
+  double? PhasePercent = null,
+  double? PhaseSpeed = null,
+  bool ExpectsMeasurableUpdates = false,
+  int? CompletedSources = null,
+  int? TotalSources = null,
+  Guid? JobId = null,
+  long? Sequence = null);
 
 public interface IConversionExecutor
 {
