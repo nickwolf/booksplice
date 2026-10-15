@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using BookSplice.Core.Analysis;
+using BookSplice.Core.Execution;
 using BookSplice.Core.Metadata;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Validation;
@@ -18,11 +19,12 @@ public sealed class FFmpegOutputValidator : IOutputValidator
   private readonly IProcessRunner _runner;
   private readonly MediaToolSet _tools;
   private readonly ICoverPayloadValidator _coverPayloads;
+  private readonly TimeProvider _clock;
 
-  public FFmpegOutputValidator(IMediaProbe probe, IProcessRunner runner, MediaToolSet tools, ICoverPayloadValidator coverPayloads)
-    => (_probe, _runner, _tools, _coverPayloads) = (probe, runner, tools, coverPayloads);
+  public FFmpegOutputValidator(IMediaProbe probe, IProcessRunner runner, MediaToolSet tools, ICoverPayloadValidator coverPayloads, TimeProvider? timeProvider = null)
+    => (_probe, _runner, _tools, _coverPayloads, _clock) = (probe, runner, tools, coverPayloads, timeProvider ?? TimeProvider.System);
 
-  public async Task<ValidationReport> ValidateAsync(ConversionPlan plan, string temporaryOutputPath, CancellationToken cancellationToken)
+  public async Task<ValidationReport> ValidateAsync(ConversionPlan plan, string temporaryOutputPath, CancellationToken cancellationToken, IProgress<ConversionProgress>? progress = null)
   {
     ArgumentNullException.ThrowIfNull(plan);
     ArgumentException.ThrowIfNullOrWhiteSpace(temporaryOutputPath);
@@ -32,24 +34,31 @@ public sealed class FFmpegOutputValidator : IOutputValidator
     var warnings = new List<string>();
     var errors = new List<string>();
     var toolDiagnostics = new List<string>();
+    using var checksPhase = ConversionPhaseScope.Start(progress, ConversionPhase.ValidationChecks);
     if (!File.Exists(outputPath)) return Failed(outputPath, checks, errors, ValidationCodes.FileExists, "The temporary output does not exist.", plan.PlanId);
     checks.Add(Pass(ValidationCodes.FileExists));
+    ReportCheckActivity(checksPhase);
 
     MediaProbeResult facts;
     try { facts = await _probe.ProbeAsync(outputPath, cancellationToken).ConfigureAwait(false); }
     catch (OperationCanceledException) { throw; }
     catch (Exception exception) { return Failed(outputPath, checks, errors, ValidationCodes.ContainerParse, "The temporary output could not be parsed.", plan.PlanId, exception); }
     checks.Add(Pass(ValidationCodes.ContainerParse));
+    ReportCheckActivity(checksPhase);
     toolDiagnostics.AddRange(facts.Warnings);
     warnings.AddRange(facts.Warnings.Select(Sanitize));
 
     ValidateAudio(plan, facts, checks);
     ValidateDuration(plan, facts, checks);
+    ReportCheckActivity(checksPhase);
     await ValidatePacketEndAsync(outputPath, checks, cancellationToken).ConfigureAwait(false);
+    ReportCheckActivity(checksPhase);
     ValidateChapters(plan, facts, checks);
     ValidateCover(plan, outputPath, facts, checks);
     ValidateMetadata(plan, facts, checks);
-    if (plan.ValidationLevel == Core.Settings.ValidationLevel.Full) await ValidateFullDecodeAsync(outputPath, checks, warnings, toolDiagnostics, cancellationToken).ConfigureAwait(false);
+    ReportCheckActivity(checksPhase);
+    checksPhase.Dispose();
+    if (plan.ValidationLevel == Core.Settings.ValidationLevel.Full) await ValidateFullDecodeAsync(outputPath, facts.Duration, checks, warnings, toolDiagnostics, cancellationToken, progress).ConfigureAwait(false);
     var failed = checks.Where(check => check.Required && !check.Passed).ToArray();
     errors.AddRange(failed.Select(check => check.Message));
     return new ValidationReport(outputPath, failed.Length == 0, checks, facts, warnings, errors, plan.PlanId, toolDiagnostics);
@@ -128,11 +137,14 @@ public sealed class FFmpegOutputValidator : IOutputValidator
     checks.Add(Check(ValidationCodes.MetadataRequired, valid, "Required output metadata is missing or changed."));
   }
 
-  private async Task ValidateFullDecodeAsync(string outputPath, List<ValidationCheck> checks, List<string> warnings, List<string> toolDiagnostics, CancellationToken cancellationToken)
+  private async Task ValidateFullDecodeAsync(string outputPath, decimal? outputDuration, List<ValidationCheck> checks, List<string> warnings, List<string> toolDiagnostics, CancellationToken cancellationToken, IProgress<ConversionProgress>? progress)
   {
+    var duration = ValidDurationMicroseconds(outputDuration);
+    using var phase = ConversionPhaseScope.Start(progress, ConversionPhase.FullDecode, duration is not null);
+    using var processProgress = new FullDecodeProgress(phase, duration, _clock);
     try
     {
-      var result = await _runner.RunAsync(new ProcessSpec(_tools.FFmpegPath, ["-hide_banner", "-v", "warning", "-i", outputPath, "-map", "0:a:0", "-f", "null", "-"]), null, cancellationToken).ConfigureAwait(false);
+      var result = await _runner.RunAsync(new ProcessSpec(_tools.FFmpegPath, ["-hide_banner", "-v", "warning", "-progress", "pipe:1", "-nostats", "-i", outputPath, "-map", "0:a:0", "-f", "null", "-"]), processProgress, cancellationToken).ConfigureAwait(false);
       if (!string.IsNullOrWhiteSpace(result.StandardError)) toolDiagnostics.Add(result.StandardError);
       warnings.AddRange(result.StandardError.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Select(Sanitize));
       var decodeError = result.ExitCode != 0 || Regex.IsMatch(result.StandardError, "\\b(error|invalid data)\\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -142,6 +154,54 @@ public sealed class FFmpegOutputValidator : IOutputValidator
     catch (Exception)
     {
       checks.Add(Check(ValidationCodes.FullDecode, false, "A full FFmpeg decode could not be started."));
+    }
+  }
+
+  private static void ReportCheckActivity(ConversionPhaseScope phase)
+    => phase.Report(new ConversionProgress(null, null, null, 0));
+
+  private static long? ValidDurationMicroseconds(decimal? duration)
+  {
+    if (duration is not > 0) return null;
+    try
+    {
+      var microseconds = checked((long)decimal.Round(duration.Value * 1_000_000m, 0, MidpointRounding.AwayFromZero));
+      return microseconds > 0 ? microseconds : null;
+    }
+    catch (OverflowException) { return null; }
+  }
+
+  private sealed class FullDecodeProgress(ConversionPhaseScope phase, long? duration, TimeProvider clock) : IProgress<string>, IDisposable
+  {
+    private readonly object _gate = new();
+    private readonly long _started = clock.GetTimestamp();
+    private long _processed;
+    private bool _disposed;
+
+    public void Report(string line)
+    {
+      var parsed = ConversionProgressParser.Parse(line, 0);
+      if (parsed is null) return;
+      lock (_gate)
+      {
+        if (_disposed) return;
+        if (parsed.OutTimeMicroseconds is { } time && time >= 0)
+          _processed = Math.Max(_processed, duration is { } total ? Math.Min(time, total) : time);
+        double? percent = duration is { } valid ? 100d * _processed / valid : null;
+        double? speed = null;
+        var elapsed = clock.GetElapsedTime(_started, clock.GetTimestamp()).TotalSeconds;
+        if (percent is not null && elapsed > 0 && _processed > 0)
+        {
+          var measured = _processed / 1_000_000d / elapsed;
+          if (double.IsFinite(measured) && measured > 0) speed = measured;
+        }
+        phase.Report(new ConversionProgress(null, null, null, 0, PhasePercent: percent, PhaseSpeed: speed, ExpectsMeasurableUpdates: duration is not null));
+      }
+    }
+
+    public void Dispose()
+    {
+      lock (_gate) _disposed = true;
     }
   }
 

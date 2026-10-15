@@ -49,6 +49,20 @@ public sealed class ConversionServiceTests
   }
 
   [Fact]
+  public async Task ValidationProgressUsesTheServiceEnvelopeAndClosesOnReturn()
+  {
+    var fixture = new Fixture { EmitValidationProgress = true };
+    var result = await fixture.Service.ConvertAsync(fixture.Request(), CancellationToken.None, fixture.Progress);
+
+    var validation = Assert.Single(fixture.Events, value => value.Phase == ConversionPhase.ValidationChecks);
+    Assert.Equal(result.JobId, validation.JobId);
+    Assert.True(validation.Sequence > fixture.Events.Single(value => value.State == "completed").Sequence);
+    var count = fixture.Events.Count;
+    fixture.RetainedValidationProgress!.Report(new ConversionProgress(null, null, null, 0, Phase: ConversionPhase.ValidationChecks));
+    Assert.Equal(count, fixture.Events.Count);
+  }
+
+  [Fact]
   public async Task TerminalReturnClosesAllSinks()
   {
     var fixture = new Fixture { ValidationIsValid = false };
@@ -259,6 +273,7 @@ public sealed class ConversionServiceTests
     public readonly List<string> ProgressCalls = [];
     public readonly List<ConversionProgress> Events = [];
     public IProgress<ConversionProgress>? RetainedExecutorProgress;
+    public ConversionPhaseScope? RetainedValidationProgress;
     public IProgress<ConversionProgress> Progress => new ImmediateProgress(this);
     public readonly List<string> CleanupPaths = [];
     public readonly List<CancellationToken> CleanupTokens = [];
@@ -272,6 +287,7 @@ public sealed class ConversionServiceTests
     public Exception? AuditException { get; init; }
     public bool ValidationIsValid { get; init; } = true;
     public bool EmitLateExecutorCallbackDuringValidation { get; init; }
+    public bool EmitValidationProgress { get; init; }
     public ConversionExecutionResult Execution { get; set; }
     public PublicationResult Publication { get; init; }
 
@@ -309,10 +325,16 @@ public sealed class ConversionServiceTests
       return Task.FromResult(Execution);
     }
 
-    public Task<ValidationReport> ValidateAsync(ConversionPlan plan, string temporaryOutputPath, CancellationToken cancellationToken)
+    public Task<ValidationReport> ValidateAsync(ConversionPlan plan, string temporaryOutputPath, CancellationToken cancellationToken, IProgress<ConversionProgress>? progress = null)
     {
       Calls.Add("validate");
       ProgressCalls.Add("validate");
+      if (EmitValidationProgress)
+      {
+        var phase = ConversionPhaseScope.Start(progress, ConversionPhase.ValidationChecks);
+        RetainedValidationProgress = phase;
+        phase.Dispose();
+      }
       if (EmitLateExecutorCallbackDuringValidation) RetainedExecutorProgress!.Report(new ConversionProgress(null, null, "late executor", 0));
       return Task.FromResult(new ValidationReport(temporaryOutputPath, ValidationIsValid, [], errors: ValidationIsValid ? [] : ["invalid"], planId: plan.PlanId));
     }

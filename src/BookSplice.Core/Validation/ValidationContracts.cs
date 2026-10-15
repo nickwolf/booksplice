@@ -1,4 +1,5 @@
 using BookSplice.Core.Analysis;
+using BookSplice.Core.Execution;
 using BookSplice.Core.Planning;
 
 namespace BookSplice.Core.Validation;
@@ -34,7 +35,7 @@ public sealed class ValidationReport
 
 public interface IOutputValidator
 {
-  Task<ValidationReport> ValidateAsync(ConversionPlan plan, string temporaryOutputPath, CancellationToken cancellationToken);
+  Task<ValidationReport> ValidateAsync(ConversionPlan plan, string temporaryOutputPath, CancellationToken cancellationToken, IProgress<ConversionProgress>? progress = null);
 }
 
 public enum PublicationStatus { Published, Rejected, Failed }
