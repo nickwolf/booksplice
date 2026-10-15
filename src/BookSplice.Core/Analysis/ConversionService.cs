@@ -59,6 +59,7 @@ public sealed class ConversionService : IConversionService
   {
     ArgumentNullException.ThrowIfNull(request);
     var jobId = Guid.NewGuid();
+    using var progressSession = new ConversionProgressSession(jobId, progress);
     var started = _clock();
     var timings = new List<ServiceStageTiming>();
     var diagnostics = new List<ServiceDiagnostic>();
@@ -71,77 +72,79 @@ public sealed class ConversionService : IConversionService
 
     try
     {
-      analysis = await TimedAsync(ConversionStage.Analysis, token => _analyzer.AnalyzeAsync(request.Source, request.CreateChapters, request.AnalysisOptions, token), timings, cancellationToken).ConfigureAwait(false);
+      analysis = await TimedPhaseAsync(progressSession, ConversionPhase.Analysis, ConversionStage.Analysis, token => _analyzer.AnalyzeAsync(request.Source, request.CreateChapters, request.AnalysisOptions, token), timings, cancellationToken).ConfigureAwait(false);
       AddAnalysisDiagnostics(analysis.Diagnostics, diagnostics);
       if (analysis.Status != BookAnalysisStatus.Ready)
       {
         var status = analysis.Status == BookAnalysisStatus.NeedsDecision ? ConversionTerminalStatus.DecisionRequired : ConversionTerminalStatus.InvalidInput;
-        return await FinishAsync(Result(status, ConversionStage.Analysis), request.DryRun, started).ConfigureAwait(false);
+        return await FinishAsync(Result(status, ConversionStage.Analysis), request.DryRun, started, progressSession).ConfigureAwait(false);
       }
 
       if (request.ExpectedSourcePaths is { } reviewed && !reviewed.SequenceEqual(analysis.OrderedFiles.Select(file => file.FullPath), StringComparer.OrdinalIgnoreCase))
       {
         diagnostics.Add(new("analysis.sources-changed", ServiceDiagnosticSeverity.Warning, "Source files or playback order changed after review. Analyze the book again before converting."));
-        return await FinishAsync(Result(ConversionTerminalStatus.DecisionRequired, ConversionStage.Analysis), request.DryRun, started).ConfigureAwait(false);
+        return await FinishAsync(Result(ConversionTerminalStatus.DecisionRequired, ConversionStage.Analysis), request.DryRun, started, progressSession).ConfigureAwait(false);
       }
 
       stage = ConversionStage.Planning;
-      planning = await TimedAsync(ConversionStage.Planning, token => _planner.CreateAsync(analysis, request.Options, token), timings, cancellationToken).ConfigureAwait(false);
+      planning = await TimedPhaseAsync(progressSession, ConversionPhase.Planning, ConversionStage.Planning, token => _planner.CreateAsync(analysis, request.Options, token), timings, cancellationToken).ConfigureAwait(false);
       AddAnalysisDiagnostics(planning.Diagnostics, diagnostics);
       if (planning.Plan is null || planning.Status != BookAnalysisStatus.Ready)
-        return await FinishAsync(Result(ConversionTerminalStatus.InvalidInput, ConversionStage.Planning), request.DryRun, started).ConfigureAwait(false);
+        return await FinishAsync(Result(ConversionTerminalStatus.InvalidInput, ConversionStage.Planning), request.DryRun, started, progressSession).ConfigureAwait(false);
       if (request.DryRun) return Result(ConversionTerminalStatus.DryRun, ConversionStage.Planning);
 
       stage = ConversionStage.Execution;
-      execution = await TimedAsync(ConversionStage.Execution, token => _executor.ExecuteAsync(planning.Plan, token, progress), timings, cancellationToken).ConfigureAwait(false);
+      using (var operation = progressSession.OpenOperation())
+        execution = await TimedAsync(ConversionStage.Execution, token => _executor.ExecuteAsync(planning.Plan, token, operation), timings, cancellationToken).ConfigureAwait(false);
       diagnostics.AddRange(execution.Diagnostics.Select(value => new ServiceDiagnostic(value.Code, value.Code == "execution.cancelled" ? ServiceDiagnosticSeverity.Information : ServiceDiagnosticSeverity.Error, value.Message)));
       if (execution.Status == ExecutionStatus.Cancelled)
       {
-        if (!string.IsNullOrWhiteSpace(execution.TemporaryOutputPath)) await CleanupAsync(execution.TemporaryOutputPath, diagnostics, timings).ConfigureAwait(false);
-        return await FinishAsync(Result(ConversionTerminalStatus.Cancelled, ConversionStage.Execution), false, started).ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(execution.TemporaryOutputPath)) await CleanupAsync(execution.TemporaryOutputPath, diagnostics, timings, progressSession).ConfigureAwait(false);
+        return await FinishAsync(Result(ConversionTerminalStatus.Cancelled, ConversionStage.Execution), false, started, progressSession).ConfigureAwait(false);
       }
       if (execution.Status != ExecutionStatus.Succeeded || string.IsNullOrWhiteSpace(execution.TemporaryOutputPath))
-        return await FinishAsync(Result(ConversionTerminalStatus.ExecutionFailed, ConversionStage.Execution), false, started).ConfigureAwait(false);
+        return await FinishAsync(Result(ConversionTerminalStatus.ExecutionFailed, ConversionStage.Execution), false, started, progressSession).ConfigureAwait(false);
 
       stage = ConversionStage.Validation;
-      validation = await TimedAsync(ConversionStage.Validation, token => _validator.ValidateAsync(planning.Plan, execution.TemporaryOutputPath, token), timings, cancellationToken).ConfigureAwait(false);
+      using (var operation = progressSession.OpenOperation())
+        validation = await TimedAsync(ConversionStage.Validation, token => _validator.ValidateAsync(planning.Plan, execution.TemporaryOutputPath, token), timings, cancellationToken).ConfigureAwait(false);
       diagnostics.AddRange(validation.Warnings.Select(value => new ServiceDiagnostic("validation.warning", ServiceDiagnosticSeverity.Warning, value)));
       diagnostics.AddRange(validation.Errors.Select(value => new ServiceDiagnostic("validation.failed", ServiceDiagnosticSeverity.Error, value)));
       if (!validation.IsValid)
       {
-        await CleanupAsync(execution.TemporaryOutputPath, diagnostics, timings).ConfigureAwait(false);
-        return await FinishAsync(Result(ConversionTerminalStatus.ValidationFailed, ConversionStage.Validation), false, started).ConfigureAwait(false);
+        await CleanupAsync(execution.TemporaryOutputPath, diagnostics, timings, progressSession).ConfigureAwait(false);
+        return await FinishAsync(Result(ConversionTerminalStatus.ValidationFailed, ConversionStage.Validation), false, started, progressSession).ConfigureAwait(false);
       }
 
       stage = ConversionStage.Publication;
-      publication = await TimedAsync(ConversionStage.Publication, token => _publisher.PublishAsync(planning.Plan, validation, token), timings, cancellationToken).ConfigureAwait(false);
+      publication = await TimedPhaseAsync(progressSession, ConversionPhase.Publication, ConversionStage.Publication, token => _publisher.PublishAsync(planning.Plan, validation, token), timings, cancellationToken).ConfigureAwait(false);
       diagnostics.AddRange(publication.Diagnostics.Select(value => new ServiceDiagnostic("publication.failed", ServiceDiagnosticSeverity.Error, value)));
       if (publication.Status != PublicationStatus.Published || string.IsNullOrWhiteSpace(publication.FinalPath))
       {
-        await CleanupAsync(execution.TemporaryOutputPath, diagnostics, timings).ConfigureAwait(false);
-        return await FinishAsync(Result(ConversionTerminalStatus.PublicationFailed, ConversionStage.Publication), false, started).ConfigureAwait(false);
+        await CleanupAsync(execution.TemporaryOutputPath, diagnostics, timings, progressSession).ConfigureAwait(false);
+        return await FinishAsync(Result(ConversionTerminalStatus.PublicationFailed, ConversionStage.Publication), false, started, progressSession).ConfigureAwait(false);
       }
 
-      await CleanupAsync(execution.TemporaryOutputPath, diagnostics, timings).ConfigureAwait(false);
-      return await FinishAsync(Result(ConversionTerminalStatus.Succeeded, ConversionStage.Completed), false, started).ConfigureAwait(false);
+      await CleanupAsync(execution.TemporaryOutputPath, diagnostics, timings, progressSession).ConfigureAwait(false);
+      return await FinishAsync(Result(ConversionTerminalStatus.Succeeded, ConversionStage.Completed), false, started, progressSession).ConfigureAwait(false);
     }
     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
     {
-      if (!string.IsNullOrWhiteSpace(execution?.TemporaryOutputPath)) await CleanupAsync(execution.TemporaryOutputPath, diagnostics, timings).ConfigureAwait(false);
+      if (!string.IsNullOrWhiteSpace(execution?.TemporaryOutputPath)) await CleanupAsync(execution.TemporaryOutputPath, diagnostics, timings, progressSession).ConfigureAwait(false);
       diagnostics.Add(new("conversion.cancelled", ServiceDiagnosticSeverity.Information, "The conversion was cancelled."));
-      return await FinishAsync(Result(ConversionTerminalStatus.Cancelled, stage), request.DryRun, started).ConfigureAwait(false);
+      return await FinishAsync(Result(ConversionTerminalStatus.Cancelled, stage), request.DryRun, started, progressSession).ConfigureAwait(false);
     }
     catch (Exception)
     {
-      if (!string.IsNullOrWhiteSpace(execution?.TemporaryOutputPath)) await CleanupAsync(execution.TemporaryOutputPath, diagnostics, timings).ConfigureAwait(false);
+      if (!string.IsNullOrWhiteSpace(execution?.TemporaryOutputPath)) await CleanupAsync(execution.TemporaryOutputPath, diagnostics, timings, progressSession).ConfigureAwait(false);
       diagnostics.Add(new("conversion.unexpected", ServiceDiagnosticSeverity.Error, "The conversion failed unexpectedly."));
-      return await FinishAsync(Result(ConversionTerminalStatus.UnexpectedFailure, stage), request.DryRun, started).ConfigureAwait(false);
+      return await FinishAsync(Result(ConversionTerminalStatus.UnexpectedFailure, stage), request.DryRun, started, progressSession).ConfigureAwait(false);
     }
 
     ConversionServiceResult Result(ConversionTerminalStatus status, ConversionStage resultStage) => new(jobId, status, resultStage, analysis, planning, execution, validation, publication, diagnostics.AsReadOnly(), timings.AsReadOnly(), publication?.FinalPath);
   }
 
-  private async Task<ConversionServiceResult> FinishAsync(ConversionServiceResult result, bool dryRun, DateTimeOffset started)
+  private async Task<ConversionServiceResult> FinishAsync(ConversionServiceResult result, bool dryRun, DateTimeOffset started, ConversionProgressSession progressSession)
   {
     if (dryRun) return result;
     var analysis = result.Analysis;
@@ -154,6 +157,8 @@ public sealed class ConversionService : IConversionService
       result.Timings, result.Diagnostics, result.PublishedPath);
     try
     {
+      using var operation = progressSession.OpenOperation();
+      using var phase = ConversionPhaseScope.Start(operation, ConversionPhase.AuditWriting);
       await _logs.WriteAsync(record, CancellationToken.None).ConfigureAwait(false);
       return result;
     }
@@ -164,10 +169,24 @@ public sealed class ConversionService : IConversionService
     }
   }
 
-  private async Task CleanupAsync(string path, List<ServiceDiagnostic> diagnostics, List<ServiceStageTiming> timings)
+  private async Task CleanupAsync(string path, List<ServiceDiagnostic> diagnostics, List<ServiceStageTiming> timings, ConversionProgressSession progressSession)
   {
-    try { await TimedAsync(ConversionStage.Cleanup, token => _cleaner.CleanupAsync(path, token), timings, CancellationToken.None).ConfigureAwait(false); }
+    try { await TimedPhaseAsync(progressSession, ConversionPhase.Cleanup, ConversionStage.Cleanup, token => _cleaner.CleanupAsync(path, token), timings, CancellationToken.None).ConfigureAwait(false); }
     catch (Exception) { diagnostics.Add(new("cleanup.failed", ServiceDiagnosticSeverity.Warning, "The temporary conversion artifacts could not be removed.")); }
+  }
+
+  private async Task<T> TimedPhaseAsync<T>(ConversionProgressSession session, ConversionPhase phase, ConversionStage stage, Func<CancellationToken, Task<T>> action, List<ServiceStageTiming> timings, CancellationToken cancellationToken)
+  {
+    using var operation = session.OpenOperation();
+    using var phaseScope = ConversionPhaseScope.Start(operation, phase);
+    return await TimedAsync(stage, action, timings, cancellationToken).ConfigureAwait(false);
+  }
+
+  private async Task TimedPhaseAsync(ConversionProgressSession session, ConversionPhase phase, ConversionStage stage, Func<CancellationToken, Task> action, List<ServiceStageTiming> timings, CancellationToken cancellationToken)
+  {
+    using var operation = session.OpenOperation();
+    using var phaseScope = ConversionPhaseScope.Start(operation, phase);
+    await TimedAsync(stage, action, timings, cancellationToken).ConfigureAwait(false);
   }
 
   private async Task<T> TimedAsync<T>(ConversionStage stage, Func<CancellationToken, Task<T>> action, List<ServiceStageTiming> timings, CancellationToken cancellationToken)
