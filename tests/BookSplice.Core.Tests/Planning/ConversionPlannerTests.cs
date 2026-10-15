@@ -123,6 +123,56 @@ public sealed class ConversionPlannerTests
     Assert.Contains(result.Diagnostics, d => d.Code == "planning.metadata-profile-unknown");
   }
 
+  [Fact]
+  public async Task ChapterDisabledPlanRetainsOrderedDurations()
+  {
+    var result = await Planner().CreateAsync(AnalysisWithDurations(3m, 1.5m, 7m), Options(), CancellationToken.None);
+
+    Assert.Equal(BookAnalysisStatus.Ready, result.Status);
+    Assert.Empty(result.Plan!.Chapters);
+    Assert.Equal(new long?[] { 3_000_000, 1_500_000, 7_000_000 }, result.Plan.SourceDurationsMicroseconds);
+    Assert.Equal(11_500_000, SourceDurationEvidence.TotalMicroseconds(result.Plan.SourceDurationsMicroseconds));
+  }
+
+  [Fact]
+  public async Task PlanCopiesDurationEvidence()
+  {
+    var template = (await Planner().CreateAsync(Analysis(BookAnalysisStatus.Ready), Options(), CancellationToken.None)).Plan!;
+    var durations = new long?[] { 2_000_000 };
+    var plan = new ConversionPlan(template.SourcePaths, template.Metadata, template.Cover, template.Chapters, template.QualityProfile, template.ValidationLevel, template.CollisionPolicy, template.OutputPath, template.Strategy, template.StrategyReasonCodes, template.Space, template.ConversionJobs, template.JobsReason, template.MetadataProfile, template.SampleRate, template.Channels, template.PlanId, durations);
+    durations[0] = 9_000_000;
+
+    Assert.Equal(new long?[] { 2_000_000 }, plan.SourceDurationsMicroseconds);
+    Assert.Equal(new long?[] { null }, new ConversionPlan(template.SourcePaths, template.Metadata, template.Cover, template.Chapters, template.QualityProfile, template.ValidationLevel, template.CollisionPolicy, template.OutputPath, template.Strategy, template.StrategyReasonCodes, template.Space, template.ConversionJobs, template.JobsReason, template.MetadataProfile).SourceDurationsMicroseconds);
+    Assert.Equal(new long?[] { null }, new ConversionPlan(template.SourcePaths, template.Metadata, template.Cover, template.Chapters, template.QualityProfile, template.ValidationLevel, template.CollisionPolicy, template.OutputPath, template.Strategy, template.StrategyReasonCodes, template.Space, template.ConversionJobs, template.JobsReason, template.MetadataProfile, sourceDurationsMicroseconds: [1, 2]).SourceDurationsMicroseconds);
+  }
+
+  [Fact]
+  public async Task InvalidDurationDoesNotRejectSupportedPlan()
+  {
+    var result = await Planner().CreateAsync(AnalysisWithDurations(0m, null, decimal.MaxValue, 0.0000004m, 5_000_000_000_000m, 5_000_000_000_000m), Options(), CancellationToken.None);
+
+    Assert.Equal(BookAnalysisStatus.Ready, result.Status);
+    Assert.NotNull(result.Plan);
+    Assert.Equal(new long?[] { null, null, null, null, 5_000_000_000_000_000_000, 5_000_000_000_000_000_000 }, result.Plan.SourceDurationsMicroseconds);
+    Assert.Null(SourceDurationEvidence.TotalMicroseconds(result.Plan.SourceDurationsMicroseconds));
+    Assert.Null(SourceDurationEvidence.TotalMicroseconds([5_000_000_000_000_000_000, 5_000_000_000_000_000_000]));
+  }
+
+  [Fact]
+  public void SourceDurationEvidenceUsesOnlyUnambiguousAudioFallback()
+  {
+    var file = File("01.mp3", false);
+    var stream = file.ProbeResult.AudioStreams[0] with { Duration = 2.5m };
+    var missingContainer = file with { ProbeResult = file.ProbeResult with { Duration = null, AudioStreams = [stream] } };
+    var zeroContainer = file with { ProbeResult = file.ProbeResult with { Duration = 0m, AudioStreams = [stream] } };
+    var ambiguous = file with { ProbeResult = file.ProbeResult with { Duration = null, AudioStreams = [stream, stream with { Index = 1 }] } };
+
+    Assert.Equal(2_500_000, SourceDurationEvidence.ReadMicroseconds(missingContainer));
+    Assert.Equal(2_500_000, SourceDurationEvidence.ReadMicroseconds(zeroContainer));
+    Assert.Null(SourceDurationEvidence.ReadMicroseconds(ambiguous));
+  }
+
   private static ConversionPlanner Planner(long? available = long.MaxValue) => new(new OutputNamePlanner(), new Storage(available));
   private static ConversionOptions Options(IReadOnlyDictionary<SemanticField, MetadataEdit>? edits = null, int? jobs = null, string? cover = null) => new(AppSettings.Defaults with { OutputDirectory = Path.GetTempPath(), ConversionJobs = jobs }, QualityProfileCatalog.Version1[0], edits, selectedCoverHash: cover);
   private static BookAnalysis Analysis(BookAnalysisStatus status, int count = 1, bool copy = false, CoverCandidate? cover = null)
@@ -138,6 +188,16 @@ public sealed class ConversionPlannerTests
     var files = formats.Select((format, index) => File($"{index:D2}.mp3", false, format.SampleRate, format.Channels)).ToArray();
     var fields = new Dictionary<SemanticField, AggregatedValue> { [SemanticField.BookTitle] = new(SemanticField.BookTitle, AggregationState.Consistent, "Title", []) };
     return new BookAnalysis(BookAnalysisStatus.Ready, "book", files, null, new BookMetadata(fields, new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>()), new CoverDiscoveryResult([], [], null), ChapterPlan.Valid([new ChapterEntry(0, formats.Length * 1_000_000L, "One", "One", files[0].RelativePath)], formats.Length * 1_000_000L), []);
+  }
+  private static BookAnalysis AnalysisWithDurations(params decimal?[] durations)
+  {
+    var baseAnalysis = Analysis(BookAnalysisStatus.Ready);
+    var files = durations.Select((duration, index) =>
+    {
+      var file = File($"{index:D2}.mp3", false);
+      return file with { ProbeResult = file.ProbeResult with { Duration = duration, AudioStreams = [file.ProbeResult.AudioStreams[0] with { Duration = duration }] } };
+    }).ToArray();
+    return new BookAnalysis(BookAnalysisStatus.Ready, "book", files, null, baseAnalysis.BookMetadata, baseAnalysis.Cover, ChapterPlan.Valid([], 0), []);
   }
   private sealed class Storage(long? available) : IStorageSpaceProvider { public long? GetAvailableBytes(string directory) => available; }
   private sealed class TempProfiles : IDisposable
