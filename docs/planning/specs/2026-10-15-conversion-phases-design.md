@@ -2,7 +2,7 @@
 
 Issue: [#57](https://github.com/nickwolf/booksplice/issues/57). Milestone: v0.2.0, clear status and results.
 
-Status: design direction approved; written spec awaiting review. No implementation is included in this document.
+Status: written spec approved on 2026-10-15; implementation plan awaiting review. No implementation is included in this document.
 
 ## Purpose and scope
 
