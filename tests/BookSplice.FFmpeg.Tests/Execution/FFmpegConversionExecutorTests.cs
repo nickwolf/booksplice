@@ -47,6 +47,112 @@ public sealed class FFmpegConversionExecutorTests
     Assert.Contains(runner.Specs[0].Arguments, value => value.EndsWith(@"source-00.mp3", StringComparison.OrdinalIgnoreCase));
   }
 
+  [Theory]
+  [InlineData(AudioStrategy.DirectTranscode, ConversionPhase.Encoding)]
+  [InlineData(AudioStrategy.FilterConcatTranscode, ConversionPhase.Encoding)]
+  [InlineData(AudioStrategy.SegmentedTranscode, ConversionPhase.Encoding)]
+  [InlineData(AudioStrategy.AacStreamCopy, ConversionPhase.StreamCopy)]
+  public async Task PhaseOrderMatchesActualOperations(AudioStrategy strategy, ConversionPhase audioPhase)
+  {
+    using var root = new TemporaryDirectory();
+    var events = new List<ConversionProgress>();
+    var result = await Executor(new FakeRunner(), root.Path).ExecuteAsync(Plan(strategy, 2, 2), CancellationToken.None, new InlineProgress<ConversionProgress>(events.Add));
+
+    Assert.Equal(ExecutionStatus.Succeeded, result.Status);
+    var expected = strategy == AudioStrategy.SegmentedTranscode
+      ? new[] { ConversionPhase.Preparation, audioPhase, ConversionPhase.Assembly, ConversionPhase.MetadataWriting }
+      : new[] { ConversionPhase.Preparation, audioPhase, ConversionPhase.MetadataWriting };
+    Assert.Equal(expected.Select(phase => (ConversionPhase?)phase), events.Where(item => item.IsPhaseEntry).Select(item => item.Phase));
+    Assert.Equal("completed", events[^1].State);
+    Assert.Equal(ConversionPhase.MetadataWriting, events[^1].Phase);
+    Assert.NotNull(events[^1].PhaseOccurrenceId);
+  }
+
+  [Fact]
+  public async Task FailedEndDoesNotCompleteSegmentOrAnnounceLaterWork()
+  {
+    using var root = new TemporaryDirectory();
+    var events = new List<ConversionProgress>();
+    var runner = new FakeRunner { ExitCode = 7, OnRun = (_, sink) => sink?.Report("progress=end") };
+    var result = await Executor(runner, root.Path).ExecuteAsync(Plan(AudioStrategy.SegmentedTranscode, 1, 1, durations: [10_000_000]), CancellationToken.None, new InlineProgress<ConversionProgress>(events.Add));
+
+    Assert.Equal(ExecutionStatus.Failed, result.Status);
+    Assert.DoesNotContain(events, item => item.CompletedSources > 0);
+    Assert.DoesNotContain(events, item => item.Phase is ConversionPhase.Assembly or ConversionPhase.MetadataWriting);
+    Assert.DoesNotContain(events, item => item.State == "completed");
+    Assert.Contains(events, item => item.IsPhaseEntry && item.Phase == ConversionPhase.Cleanup);
+  }
+
+  [Fact]
+  public async Task ParallelSegmentCallbacksUseDurationWeightedBookProgress()
+  {
+    using var root = new TemporaryDirectory();
+    var events = new List<ConversionProgress>();
+    var runner = new FakeRunner
+    {
+      Delay = TimeSpan.FromMilliseconds(30),
+      OnRun = (spec, sink) =>
+      {
+        var output = spec.Arguments[^1];
+        if (output.EndsWith("segment-0000.m4a", StringComparison.Ordinal)) sink?.Report("out_time_us=5000000");
+        if (output.EndsWith("segment-0001.m4a", StringComparison.Ordinal)) sink?.Report("out_time_us=15000000");
+      }
+    };
+    var result = await Executor(runner, root.Path).ExecuteAsync(Plan(AudioStrategy.SegmentedTranscode, 2, 2, durations: [10_000_000, 30_000_000]), CancellationToken.None, new InlineProgress<ConversionProgress>(events.Add));
+
+    Assert.Equal(ExecutionStatus.Succeeded, result.Status);
+    Assert.Equal(2, runner.MaximumActive);
+    Assert.Contains(events, item => item.Phase == ConversionPhase.Encoding && item.PhasePercent == 50 && item.CompletedSources == 0);
+    Assert.DoesNotContain(events.Where(item => item.Phase == ConversionPhase.Encoding), item => item.State == "completed");
+  }
+
+  [Fact]
+  public async Task ChapterDisabledSourcesWithoutDurationsKeepCountsAndNoNumericEstimate()
+  {
+    using var root = new TemporaryDirectory();
+    var events = new List<ConversionProgress>();
+    var runner = new FakeRunner { Delay = TimeSpan.FromMilliseconds(20) };
+    var plan = Plan(AudioStrategy.SegmentedTranscode, 33, 3, chaptersEnabled: false);
+    var result = await Executor(runner, root.Path).ExecuteAsync(plan, CancellationToken.None, new InlineProgress<ConversionProgress>(events.Add));
+
+    Assert.Equal(ExecutionStatus.Succeeded, result.Status);
+    Assert.Equal(3, runner.MaximumActive);
+    var encoding = events.Where(item => item.Phase == ConversionPhase.Encoding).ToArray();
+    Assert.All(encoding, item => { Assert.Null(item.PhasePercent); Assert.False(item.ExpectsMeasurableUpdates); });
+    Assert.Equal(33, encoding[^1].CompletedSources);
+    Assert.Equal(33, encoding[^1].TotalSources);
+  }
+
+  [Fact]
+  public async Task RetiredSegmentCallbackCannotUpdateAssembly()
+  {
+    using var root = new TemporaryDirectory();
+    var events = new List<ConversionProgress>();
+    IProgress<string>? oldCallback = null;
+    var countBeforeLate = -1;
+    var countAfterLate = -1;
+    var runner = new FakeRunner
+    {
+      OnRun = (spec, sink) =>
+      {
+        if (spec.Arguments[^1].EndsWith("segment-0000.m4a", StringComparison.Ordinal)) oldCallback = sink;
+        if (spec.Arguments[^1].EndsWith("output.m4b", StringComparison.Ordinal))
+        {
+          countBeforeLate = events.Count;
+          oldCallback?.Report("out_time_us=99999999");
+          countAfterLate = events.Count;
+        }
+      }
+    };
+    var result = await Executor(runner, root.Path).ExecuteAsync(Plan(AudioStrategy.SegmentedTranscode, 1, 1, durations: [10_000_000]), CancellationToken.None, new InlineProgress<ConversionProgress>(events.Add));
+
+    Assert.Equal(ExecutionStatus.Succeeded, result.Status);
+    Assert.NotNull(oldCallback);
+    Assert.True(countBeforeLate >= 0);
+    Assert.Equal(countBeforeLate, countAfterLate);
+    Assert.DoesNotContain(events, item => item.Phase == ConversionPhase.Assembly && item.OutTimeMicroseconds == 99_999_999);
+  }
+
   [Fact]
   public void RelativeTemporaryRootIsRejectedBeforeNormalization()
   {
@@ -223,12 +329,12 @@ public sealed class FFmpegConversionExecutorTests
 
   private static FFmpegConversionExecutor Executor(FakeRunner runner, string root, FakeMetadataWriter? writer = null) => new(runner, new FFmpegCommandFactory(new MediaToolSet("ffmpeg.exe", "ffprobe.exe", "pinned", "pinned")), writer ?? new FakeMetadataWriter(), root);
 
-  private static ConversionPlan Plan(AudioStrategy strategy, int count, int jobs, string? destination = null, string? sourceOverride = null, BookMetadata? metadata = null, MetadataProfile? metadataProfile = null)
+  internal static ConversionPlan Plan(AudioStrategy strategy, int count, int jobs, string? destination = null, string? sourceOverride = null, BookMetadata? metadata = null, MetadataProfile? metadataProfile = null, IReadOnlyList<long?>? durations = null, bool chaptersEnabled = true)
   {
     var sources = Enumerable.Range(0, count).Select(index => index == 0 && sourceOverride is not null ? sourceOverride : Path.Combine(Path.GetTempPath(), $"source-{index:D2}.mp3")).ToArray();
-    var chapters = sources.Select((_, index) => new ChapterEntry(index * 10_000_000L, (index + 1) * 10_000_000L, $"Chapter {index + 1}", string.Empty, sources[index])).ToArray();
+    var chapters = chaptersEnabled ? sources.Select((_, index) => new ChapterEntry(index * 10_000_000L, (index + 1) * 10_000_000L, $"Chapter {index + 1}", string.Empty, sources[index])).ToArray() : [];
     metadata ??= new BookMetadata(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>());
-    return new ConversionPlan(sources, metadata, null, chapters, QualityProfileCatalog.Version1[2], ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, destination ?? Path.Combine(Path.GetTempPath(), $"planned-{Guid.NewGuid():N}.m4b"), strategy, [], new SpaceEstimate(1, 1, 1, 1, 0), jobs, "test", metadataProfile ?? MetadataProfiles.GenericMp4);
+    return new ConversionPlan(sources, metadata, null, chapters, QualityProfileCatalog.Version1[2], ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, destination ?? Path.Combine(Path.GetTempPath(), $"planned-{Guid.NewGuid():N}.m4b"), strategy, [], new SpaceEstimate(1, 1, 1, 1, 0), jobs, "test", metadataProfile ?? MetadataProfiles.GenericMp4, sourceDurationsMicroseconds: durations);
   }
 
   private sealed class FakeRunner : IProcessRunner
