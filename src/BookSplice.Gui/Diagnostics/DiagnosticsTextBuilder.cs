@@ -17,7 +17,8 @@ public static class DiagnosticsTextBuilder
     text.Append("Order: ").AppendLine(item.Analysis?.OrderResolution?.Status.ToString() ?? "Unavailable");
     text.Append("Quality: ").AppendLine(item.Settings.QualityProfileId);
     text.Append("Channels: ").AppendLine(item.Settings.ChannelPolicy.ToString());
-    text.Append("Validation: ").AppendLine(item.Settings.ValidationLevel.ToString());
+    text.Append("Validation: ").AppendLine(item.Result?.ValidationText ?? item.Settings.ValidationLevel.ToString());
+    if (item.Result is { } result) text.AppendLine(result.DecodeText);
     text.Append("Metadata profile: ").AppendLine(item.Settings.MetadataProfileId);
     text.Append("Create chapters: ").AppendLine(item.Settings.CreateChapters.ToString(CultureInfo.InvariantCulture));
 
@@ -26,6 +27,7 @@ public static class DiagnosticsTextBuilder
       var paths = item.Analysis?.OrderedFiles.Select(file => file.FullPath).ToList() ?? [];
       paths.AddRange([item.Source, item.PublishedPath ?? "", item.Settings.OutputDirectory]);
       text.AppendLine("Details:").AppendLine(PublicTextRedactor.Sanitize(item.Details, paths));
+      if (item.Result is { } completed) text.AppendLine("Diagnostics:").AppendLine(PublicTextRedactor.Sanitize(completed.DiagnosticsText, paths));
     }
 
     return text.ToString().TrimEnd();

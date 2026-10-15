@@ -61,7 +61,7 @@ Compatible AAC input can use stream copy when channel handling preserves the sou
 3. If BookSplice finds more than one credible order, inspect each complete track list and choose one. Conversion remains disabled until an order is selected.
 4. Edit metadata or chapter titles, select different artwork, or choose not to embed artwork.
 5. Open **Output** to review or change that book's conversion settings, then use **Preview output** to check the planned output filename and selected audio strategy. Stream-copy previews do not present the unused transcode bitrate.
-6. Convert the selected book or all ready books. A completed item exposes its published output folder. Use **Copy diagnostics** to copy a support summary with recognized local paths redacted.
+6. Convert the selected book or all ready books. The result card shows whether conversion completed, completed with warnings, was cancelled, or failed, along with the published output path and elapsed time. It names the lightweight checks and full audio decode separately. Warnings remain visible; expand **Validation checks** or **Diagnostics** for details. **Open output folder** is available when the published file exists. Use **Copy diagnostics** to copy a support summary and tool output with recognized local paths redacted.
 
 Changing source membership or playback order after review stops conversion and requires analysis again. Closing the application while work is active is blocked until cancellation and cleanup finish.
 

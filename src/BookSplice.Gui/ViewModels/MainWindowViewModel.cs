@@ -54,6 +54,8 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
 
   private async Task AnalyzeAsync(BookQueueItemViewModel item)
   {
+    item.Result = null;
+    item.PublishedPath = null;
     item.IsBusy = true;
     item.Status = "Analyzing";
     using var cancellation = new CancellationTokenSource();
@@ -74,12 +76,14 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     if (!item.CanConvert) return;
     item.IsBusy = true;
     item.Status = "Converting";
+    item.Result = null;
     item.PublishedPath = null;
     item.Percent = 0;
     using var cancellation = new CancellationTokenSource();
     item.Cancellation = cancellation;
     var acquired = false;
     var elapsed = new Stopwatch();
+    var requestedValidation = item.Settings.ValidationLevel;
     var display = new ConversionProgressDisplay();
     var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
     timer.Tick += (_, _) =>
@@ -107,19 +111,32 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
         AnalysisOptions: new BookAnalysisOptions(item.SelectedOrder), ExpectedSourcePaths: item.Analysis!.OrderedFiles.Select(file => file.FullPath).ToArray()), cancellation.Token, progress);
       elapsed.Stop();
       timer.Stop();
+      item.Result = ConversionResultDisplay.Create(result, elapsed.Elapsed, requestedValidation);
       item.Status = result.Status == ConversionTerminalStatus.Succeeded ? "Complete" : result.Status.ToString();
-      item.PublishedPath = result.Status == ConversionTerminalStatus.Succeeded ? result.PublishedPath : null;
-      item.Details = ConversionProgressDisplay.ElapsedText(elapsed.Elapsed) + Environment.NewLine + string.Join(Environment.NewLine, result.Diagnostics.Select(diagnostic => diagnostic.Message));
+      item.PublishedPath = item.Result.PublishedPath;
+      item.Details = item.Result.Details;
       if (result.Status == ConversionTerminalStatus.Succeeded) item.Percent = 100;
     }
-    catch (OperationCanceledException) { item.Status = "Cancelled"; item.Details = ConversionProgressDisplay.ElapsedText(elapsed.Elapsed); }
-    catch (Exception exception) { item.Status = "Conversion failed"; item.Details = ConversionProgressDisplay.ElapsedText(elapsed.Elapsed) + Environment.NewLine + exception.Message; }
+    catch (OperationCanceledException) { ShowExceptionResult(ConversionTerminalStatus.Cancelled, null); }
+    catch (Exception exception) { ShowExceptionResult(ConversionTerminalStatus.UnexpectedFailure, exception.Message); }
     finally { timer.Stop(); elapsed.Stop(); if (acquired) _slots.Release(); item.Cancellation = null; item.IsBusy = false; }
+
+    void ShowExceptionResult(ConversionTerminalStatus status, string? message)
+    {
+      elapsed.Stop();
+      timer.Stop();
+      var result = new ConversionServiceResult(Guid.NewGuid(), status, acquired ? ConversionStage.Execution : ConversionStage.Planning,
+        null, null, null, null, null, message is null ? [] : [new("conversion.unexpected", ServiceDiagnosticSeverity.Error, message)], [], null);
+      item.Result = ConversionResultDisplay.Create(result, elapsed.Elapsed, requestedValidation);
+      item.Status = status == ConversionTerminalStatus.Cancelled ? "Cancelled" : "Conversion failed";
+      item.Details = item.Result.Details;
+    }
   }
 
   public async Task PreviewAsync(BookQueueItemViewModel item)
   {
     if (planner is null || !item.CanConvert || item.Analysis is null) return;
+    item.Result = null;
     item.IsBusy = true;
     try
     {

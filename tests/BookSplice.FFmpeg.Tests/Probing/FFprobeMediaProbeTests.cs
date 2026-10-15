@@ -140,6 +140,14 @@ public sealed class FFprobeMediaProbeTests
   }
 
   private static string FixturePath => Path.Combine(AppContext.BaseDirectory, "Fixtures", "ffprobe-complete.json");
+  [Fact]
+  public async Task ProbeAsyncRetainsDataStreamFactsForWarningAttribution()
+  {
+    var runner = new FixtureRunner("""{"streams":[{"index":0,"codec_name":"aac","codec_type":"audio"},{"index":1,"codec_name":"bin_data","codec_type":"data","codec_tag_string":"text"}],"format":{}}""");
+    var result = await new FFprobeMediaProbe(runner, new MediaToolSet("", "ffprobe", "", "")).ProbeAsync("generated.wav");
+    Assert.Equal(new MediaStreamInfo(1, "data", "bin_data", "text"), Assert.Single(result.OtherStreams!));
+    Assert.Single(result.AudioStreams);
+  }
   private static byte[] Box(string type, byte[] payload)
   {
     var bytes = new byte[8 + payload.Length];
