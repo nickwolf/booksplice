@@ -8,7 +8,7 @@
 
 **Tech Stack:** .NET 10, C#, WPF, xUnit, System.Text.Json, System.Security.Cryptography, HttpClient, System.IO.Compression, Windows file handles/locking, named pipes, PowerShell 7, GitHub Actions. Use existing central package versions; no new third-party runtime dependency is planned.
 
-**Spec:** [Approved updater design](../specs/2026-10-15-booksplice-updater-design.md). Read both artifacts before executing. This plan is awaiting review and execution-method selection; no implementation has started.
+**Spec:** [Approved updater design](../specs/2026-10-15-booksplice-updater-design.md). Read both artifacts before executing. This plan is approved for lower-cost subagent implementation with controller review. Tasks 1 and 2 are complete; tasks 3 through 14 remain.
 
 ## Global Constraints
 
@@ -63,7 +63,7 @@ For each task's red/green cycle, `dotnet test <project> --configuration Release 
 
 **Interfaces:** Produce `SemanticVersion.ParseTag(string tag)` (throws FormatException for invalid tag), `CompareTo(SemanticVersion other)`, and `IsPrerelease`; `ReleaseAsset(long Id, string Name, Uri DownloadUri, long Length)`; `ReleaseCandidate(long Id, string Tag, SemanticVersion Version, Uri PageUri, string Notes, bool Draft, bool Prerelease, IReadOnlyList<ReleaseAsset> Assets)`; `UpdatePhase` with Preparing/Prepared/Starting/Ready/Committing/Committed/RollingBack/Failed; `ProcessIdentity(int Pid, long StartTimeUtcTicks, string ExecutablePath)` and `ProtocolVersion = 1`.
 
-- [ ] Add `VersionPolicyTests` with real SemVer rules and exact resource constants:
+- [x] Add `VersionPolicyTests` with real SemVer rules and exact resource constants:
 
 ```csharp
 [Fact]
@@ -76,10 +76,10 @@ public void NumericPrecedenceIgnoresBuildMetadata()
 }
 ```
 
-- [ ] Run Updates.Tests filtered to `VersionPolicyTests`; observe contract failure. Add all exact spec limit assertions to the same class, including long arithmetic and numeric component overflow rejection without culture dependence.
-- [ ] Implement named types, limits and parser. Use ordinal ASCII grammar and numeric comparison; reject invalid/oversized components explicitly rather than overflow or lexicographic ordering.
-- [ ] Rerun `VersionPolicyTests`; require pass. Add project references only in later consuming tasks.
-- [ ] Apply commit convention, message `Define updater version and protocol contracts`.
+- [x] Run Updates.Tests filtered to `VersionPolicyTests`; observe contract failure. Add all exact spec limit assertions to the same class, including long arithmetic and numeric component overflow rejection without culture dependence.
+- [x] Implement named types, limits and parser. Use ordinal ASCII grammar and numeric comparison; reject invalid/oversized components explicitly rather than overflow or lexicographic ordering.
+- [x] Rerun `VersionPolicyTests`; require pass. Add project references only in later consuming tasks.
+- [x] Apply commit convention, message `Define updater version and protocol contracts`.
 
 ### Task 2: GitHub release checks and scheduling
 
@@ -87,11 +87,11 @@ public void NumericPrecedenceIgnoresBuildMetadata()
 
 **Interfaces:** Consume task 1. Produce `IReleaseClient.FetchAsync(CancellationToken) -> Task<IReadOnlyList<ReleaseCandidate>>`, `ReleaseSelector.Select(IReadOnlyList<ReleaseCandidate>) -> SelectionResult`, `CheckSchedule.NextDue(DateTimeOffset now, DateTimeOffset? lastSuccess, DateTimeOffset? retryAfter) -> DateTimeOffset`, and `UpdateCheckService.CheckAsync(bool manual, CancellationToken) -> Task<CheckResult>`. `SelectionResult` carries None/Available/Ambiguous, candidate, and error; `CheckResult` distinguishes success, unavailable asset, transport failure, and rate limit. Inject `HttpMessageHandler` and `TimeProvider`; do not add production endpoint overrides.
 
-- [ ] Write selection tests that assert v1.10.0 wins over v1.9.0 despite order; drafts, prerelease tags/flags are excluded; tied highest precedence fails as ambiguous; highest missing assets stays visible without selecting an older release. Build tests through fake HTTP responses, not private GitHub calls.
-- [ ] Run red `ReleaseSelectionTests`; implement selector and page parser. Add `ReleaseClientTests.MetadataChangesPreserveDistinctAssetIdentity` asserting asset ID/name/length/URL changes are observable in the confirmation identity, and redirect/pagination tests: page 11 required -> explicit failure; cross-host Link/API redirect -> reject; duplicated assets -> reject; oversized bodies -> reject before parsing.
-- [ ] Run red transport/schedule cases; implement bounded manual redirects with auto-redirect disabled, fixed hosts, query/path checks, timeouts/cancellation, HTTP status classification and retry headers. Sanitize notes as bounded plain text. Add exact assertions: null or future last success -> now+60s; success -> +24h; failure -> +1h; later server reset wins; simultaneous manual/scheduled requests share one fetch.
-- [ ] Run Updates.Tests filters for `ReleaseClientTests`, `ReleaseSelectionTests`, `CheckScheduleTests`; require all pass.
-- [ ] Apply commit convention, message `Check stable GitHub releases with bounded scheduling`.
+- [x] Write selection tests that assert v1.10.0 wins over v1.9.0 despite order; drafts, prerelease tags/flags are excluded; tied highest precedence fails as ambiguous; highest missing assets stays visible without selecting an older release. Build tests through fake HTTP responses, not private GitHub calls.
+- [x] Run red `ReleaseSelectionTests`; implement selector and page parser. Add `ReleaseClientTests.MetadataChangesPreserveDistinctAssetIdentity` asserting asset ID/name/length/URL changes are observable in the confirmation identity, and redirect/pagination tests: page 11 required -> explicit failure; cross-host Link/API redirect -> reject; duplicated assets -> reject; oversized bodies -> reject before parsing.
+- [x] Run red transport/schedule cases; implement bounded manual redirects with auto-redirect disabled, fixed hosts, query/path checks, timeouts/cancellation, HTTP status classification and retry headers. Sanitize notes as bounded plain text. Add exact assertions: null or future last success -> now+60s; success -> +24h; failure -> +1h; later server reset wins; simultaneous manual/scheduled requests share one fetch.
+- [x] Run Updates.Tests filters for `ReleaseClientTests`, `ReleaseSelectionTests`, `CheckScheduleTests`; require all pass.
+- [x] Apply commit convention, message `Check stable GitHub releases with bounded scheduling`.
 
 ### Task 3: Signed manifest verification and package download
 
@@ -265,4 +265,4 @@ Each command must exit zero with the expected test/package/scenario results. Cap
 
 Coverage mapping: spec purpose/UI/checks -> tasks 1/2/10; authentication -> 3/12; layout/ownership -> 4/6/7/11; archive/self-check -> 4/8; queue/jobs/settings -> 5/8/9/10; handover/recovery -> 6/7/9; diagnostics -> 9/10/13; packaged validation and delivery gates -> 12/13/14/final review. All five Review Focus cases have named owning tests. Shared contract definitions precede consumers; public/private/data-root boundaries are explicit.
 
-Recommended execution is subagent-driven, sequentially with a fresh review after each task: this plan crosses signature verification, Windows destructive file operations, process handover, and WPF state. Those boundaries merit review before subsequent tasks depend on them. Native execution is available if preferred. The user must review this plan and select the method before code changes start.
+Recommended execution is subagent-driven, sequentially with a fresh review after each task: this plan crosses signature verification, Windows destructive file operations, process handover, and WPF state. Those boundaries merit review before subsequent tasks depend on them. Native execution is available if preferred. The user selected lower-cost subagents implementing with the controller acting as reviewer.
