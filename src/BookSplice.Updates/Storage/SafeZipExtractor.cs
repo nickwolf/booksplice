@@ -21,7 +21,8 @@ public sealed class SafeZipExtractor
   private readonly Action<string>? _duringBridge;
 
   public SafeZipExtractor(OwnedDirectoryStore store) : this(store, UpdateLimits.MaxArchiveEntries,
-    UpdateLimits.MaxExtractedFileBytes, UpdateLimits.MaxExtractedTotalBytes) { }
+    UpdateLimits.MaxExtractedFileBytes, UpdateLimits.MaxExtractedTotalBytes)
+  { }
 
   internal SafeZipExtractor(OwnedDirectoryStore store, int entryLimit, long fileLimit, long totalLimit)
     : this(store, entryLimit, fileLimit, totalLimit, null) { }
@@ -51,7 +52,7 @@ public sealed class SafeZipExtractor
       throw new PackageException("The update ZIP must be a readable, seekable verified stream.");
     if (archive.Length > UpdateLimits.ZipMaxBytes)
       throw new PackageException("The update ZIP exceeds the archive limit.");
-    try { CheckDeclaredEntryCount(archive); }
+    try { CheckArchiveMetadata(archive); }
     catch (Exception error) when (error is IOException and not PackageException or
       NotSupportedException or ArgumentException)
     { throw new PackageException("The ZIP end record could not be read.", error); }
@@ -189,10 +190,11 @@ public sealed class SafeZipExtractor
           components.Any(part => !IsSafeComponent(part)))
         throw new PackageException("The ZIP contains an unsafe path.");
       var mode = (entry.ExternalAttributes >> 16) & 0xF000;
-      var attributes = (entry.ExternalAttributes >> 16) & 0xffff;
+      var unixAttributes = (entry.ExternalAttributes >> 16) & 0xffff;
+      var dosAttributes = entry.ExternalAttributes & 0xffff;
       if (mode != 0 && mode != (isDirectory ? 0x4000 : 0x8000) ||
-          (attributes & 0x400) != 0 ||
-          (!isDirectory && (attributes & 0x10) != 0))
+          (unixAttributes & 0x400) != 0 || (dosAttributes & 0x400) != 0 ||
+          (!isDirectory && (dosAttributes & 0x10) != 0))
         throw new PackageException("The ZIP contains a link or special entry.");
       if (isDirectory && (entry.Length != 0 || entry.CompressedLength != 0))
         throw new PackageException("A ZIP directory contains payload bytes.");
@@ -237,7 +239,7 @@ public sealed class SafeZipExtractor
   private static string Parent(string path) => path.Contains('/') ? path[..path.LastIndexOf('/')] : "";
   private static string Leaf(string path) => path[(path.LastIndexOf('/') + 1)..];
 
-  internal void CheckDeclaredEntryCount(Stream archive)
+  internal void CheckArchiveMetadata(Stream archive)
   {
     const int eocdLength = 22;
     var tailLength = (int)Math.Min(archive.Length, eocdLength + ushort.MaxValue);
@@ -261,10 +263,54 @@ public sealed class SafeZipExtractor
           totalCount > _entryLimit ||
           (long)centralOffset + centralSize > archive.Length - tailLength + offset)
         throw new PackageException("The ZIP central directory exceeds its supported bounds.");
+      CheckEntryHeaders(archive, centralOffset, centralSize, totalCount);
       archive.Position = 0;
       return;
     }
     throw new PackageException("The ZIP end record is missing or malformed.");
+  }
+
+  private static void CheckEntryHeaders(Stream archive, uint centralOffset, uint centralSize, ushort count)
+  {
+    var centralEnd = (long)centralOffset + centralSize;
+    long next = centralOffset;
+    Span<byte> centralHeader = stackalloc byte[46];
+    Span<byte> localHeader = stackalloc byte[30];
+    for (var index = 0; index < count; index++)
+    {
+      if (next > centralEnd - centralHeader.Length)
+        throw new PackageException("A ZIP central entry exceeds its directory.");
+      archive.Position = next;
+      archive.ReadExactly(centralHeader);
+      if (BinaryPrimitives.ReadUInt32LittleEndian(centralHeader) != 0x02014b50)
+        throw new PackageException("A ZIP central entry is malformed.");
+      var nameLength = BinaryPrimitives.ReadUInt16LittleEndian(centralHeader[28..]);
+      var extraLength = BinaryPrimitives.ReadUInt16LittleEndian(centralHeader[30..]);
+      var commentLength = BinaryPrimitives.ReadUInt16LittleEndian(centralHeader[32..]);
+      if (extraLength != 0) throw new PackageException("ZIP extra fields are unsupported.");
+      next += centralHeader.Length + nameLength + extraLength + commentLength;
+      if (next > centralEnd) throw new PackageException("A ZIP central entry exceeds its directory.");
+      var centralName = new byte[nameLength];
+      archive.ReadExactly(centralName);
+
+      var localOffset = BinaryPrimitives.ReadUInt32LittleEndian(centralHeader[42..]);
+      if ((long)localOffset > (long)centralOffset - localHeader.Length)
+        throw new PackageException("A ZIP local entry is outside the payload.");
+      archive.Position = localOffset;
+      archive.ReadExactly(localHeader);
+      if (BinaryPrimitives.ReadUInt32LittleEndian(localHeader) != 0x04034b50)
+        throw new PackageException("A ZIP local entry is malformed.");
+      var localNameLength = BinaryPrimitives.ReadUInt16LittleEndian(localHeader[26..]);
+      var localExtraLength = BinaryPrimitives.ReadUInt16LittleEndian(localHeader[28..]);
+      if (localExtraLength != 0 || localNameLength != nameLength ||
+          (long)localOffset + localHeader.Length + localNameLength > centralOffset)
+        throw new PackageException("ZIP local metadata differs from the central entry.");
+      var localName = new byte[localNameLength];
+      archive.ReadExactly(localName);
+      if (!localName.AsSpan().SequenceEqual(centralName))
+        throw new PackageException("ZIP local and central names differ.");
+    }
+    if (next != centralEnd) throw new PackageException("The ZIP central directory has trailing metadata.");
   }
 
   private static uint[] BuildCrcTable()

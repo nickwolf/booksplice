@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
@@ -213,6 +214,106 @@ public sealed class SafeZipTests
       archive.Dispose();
     }
     finally { Directory.Delete(fixture.Root, true); }
+  }
+
+  [Theory]
+  [InlineData(0x400)]
+  [InlineData(0x10)]
+  public async Task DosSpecialAttributesAreRejectedBeforeWriting(int attributes)
+  {
+    var fixture = CreateDestination();
+    try
+    {
+      using var archive = new MemoryStream();
+      using (var zip = new ZipArchive(archive, ZipArchiveMode.Create, true))
+      {
+        using (var writer = new StreamWriter(zip.CreateEntry("first.txt").Open())) writer.Write("first");
+        var invalid = zip.CreateEntry("invalid.txt");
+        invalid.ExternalAttributes = attributes;
+      }
+      archive.Position = 0;
+      var error = await Record.ExceptionAsync(async () =>
+      {
+        using var inventory = await new SafeZipExtractor(fixture.Store).ExtractAsync(archive,
+          fixture.Destination, CancellationToken.None);
+      });
+      Assert.IsType<PackageException>(error);
+      Assert.Empty(Directory.EnumerateFileSystemEntries(fixture.Destination.Path));
+    }
+    finally { Directory.Delete(fixture.Root, true); }
+  }
+
+  [Fact]
+  public async Task UnixRegularFileModeWithGroupWriteIsAccepted()
+  {
+    var fixture = CreateDestination();
+    try
+    {
+      using var archive = new MemoryStream();
+      using (var zip = new ZipArchive(archive, ZipArchiveMode.Create, true))
+      {
+        var regular = zip.CreateEntry("regular.txt");
+        regular.ExternalAttributes = unchecked((int)0x81B40000);
+        using var writer = new StreamWriter(regular.Open());
+        writer.Write("regular");
+      }
+      archive.Position = 0;
+      using var inventory = await new SafeZipExtractor(fixture.Store).ExtractAsync(archive,
+        fixture.Destination, CancellationToken.None);
+      inventory.Revalidate();
+      Assert.Single(inventory.Files);
+    }
+    finally { Directory.Delete(fixture.Root, true); }
+  }
+
+  [Theory]
+  [InlineData(false)]
+  [InlineData(true)]
+  public async Task RegularModeHardLinkExtraIsRejectedBeforeWriting(bool localExtra)
+  {
+    var fixture = CreateDestination();
+    try
+    {
+      using var original = Archive(("first.txt", "first"), ("linked.txt", "linked"));
+      var bytes = AddHardLinkExtra(original.ToArray(), localExtra);
+      using var archive = new MemoryStream(bytes);
+      await Assert.ThrowsAsync<PackageException>(() => new SafeZipExtractor(fixture.Store)
+        .ExtractAsync(archive, fixture.Destination, CancellationToken.None));
+      Assert.Empty(Directory.EnumerateFileSystemEntries(fixture.Destination.Path));
+    }
+    finally { Directory.Delete(fixture.Root, true); }
+  }
+
+  private static byte[] AddHardLinkExtra(byte[] bytes, bool localExtra)
+  {
+    var central = FindSignature(bytes, 0x50, 0x4b, 0x01, 0x02);
+    var end = FindSignature(bytes, 0x50, 0x4b, 0x05, 0x06);
+    BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(central + 38), 0x81B40000);
+    var nameLength = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(central + 28));
+    var local = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(central + 42)));
+    var localNameLength = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(local + 26));
+    var extra = new byte[20];
+    BinaryPrimitives.WriteUInt16LittleEndian(extra, 0x000d);
+    BinaryPrimitives.WriteUInt16LittleEndian(extra.AsSpan(2), 16);
+    Encoding.ASCII.GetBytes("first.txt").CopyTo(extra, 4);
+    var insertAt = localExtra ? local + 30 + localNameLength : central + 46 + nameLength;
+    if (localExtra) BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(local + 28), 20);
+    else BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(central + 30), 20);
+    var modified = bytes.ToList();
+    modified.InsertRange(insertAt, extra);
+    bytes = modified.ToArray();
+    end += extra.Length;
+    if (localExtra)
+    {
+      var centralOffset = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(end + 16));
+      BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(end + 16), centralOffset + 20);
+    }
+    else
+    {
+      var centralSize = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(end + 12));
+      BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(end + 12), centralSize + 20);
+    }
+    return bytes;
   }
 
   [Fact]
@@ -486,9 +587,13 @@ public sealed class SafeZipTests
       var licenseHash = Hash("license");
       var sourceManifest = JsonSerializer.Serialize(new
       {
-        schemaVersion = 2, provider = "BookSplice source build", release = "fixture",
-        builderBase = "debian:fixture", ffmpegSha256 = Hash("ffmpeg"),
-        ffprobeSha256 = Hash("ffprobe"), licenseSha256 = licenseHash,
+        schemaVersion = 2,
+        provider = "BookSplice source build",
+        release = "fixture",
+        builderBase = "debian:fixture",
+        ffmpegSha256 = Hash("ffmpeg"),
+        ffprobeSha256 = Hash("ffprobe"),
+        licenseSha256 = licenseHash,
         zlibLicenseSha256 = Hash("zlib"),
         sourceArchives = new[] { new { fileName = "source.tar.gz", url = "https://example.test/source", sha256 = Hash("source") } }
       });
