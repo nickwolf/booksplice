@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
 using BookSplice.Updates.Policy;
@@ -110,6 +111,20 @@ public sealed class ManifestVerifierTests
     Assert.Equal(fixture.Release.Assets[0].Id, verified.ReleaseIdentity.Assets[0].Id);
   }
 
+  [Fact]
+  public void ParsedManifestMustBeTheAuthenticatedByteSnapshot()
+  {
+    using var fixture = new Fixture();
+    var signed = Encoding.UTF8.GetBytes(ValidJson);
+    var altered = Encoding.UTF8.GetBytes(ValidJson.Replace(
+      "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+      new string('0', 64), StringComparison.Ordinal));
+    using var changing = new ChangingMemoryManager(signed, altered);
+    var verified = fixture.Verifier.Verify(changing.Memory, fixture.Envelope(signed), fixture.Release, 1);
+    Assert.Equal("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+      verified.ArchiveSha256);
+  }
+
   private sealed class Fixture : IDisposable
   {
     private readonly RSA _key = RSA.Create(3072);
@@ -133,5 +148,18 @@ public sealed class ManifestVerifierTests
     }
 
     public void Dispose() => _key.Dispose();
+  }
+
+  private sealed class ChangingMemoryManager(byte[] first, byte[] later) : MemoryManager<byte>
+  {
+    private int _reads;
+
+    public override Span<byte> GetSpan() => Interlocked.Increment(ref _reads) <= 2 ? first : later;
+
+    public override MemoryHandle Pin(int elementIndex = 0) => throw new NotSupportedException();
+
+    public override void Unpin() { }
+
+    protected override void Dispose(bool disposing) { }
   }
 }

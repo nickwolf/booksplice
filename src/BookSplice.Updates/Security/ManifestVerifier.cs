@@ -25,9 +25,11 @@ public sealed class ManifestVerifier
       throw new ManifestVerificationException("Signed metadata exceeds its size limit.");
     }
 
+    var manifestBytes = manifest.ToArray();
+    var envelopeBytes = envelope.ToArray();
     try
     {
-      using var signed = ParseObject(envelope.Span, ["schemaVersion", "keyId", "algorithm", "signature"]);
+      using var signed = ParseObject(envelopeBytes, ["schemaVersion", "keyId", "algorithm", "signature"]);
       var fields = signed.RootElement;
       if (fields.GetProperty("schemaVersion").GetInt32() != 1 ||
           fields.GetProperty("algorithm").GetString() != "RSA-PSS-SHA256")
@@ -50,15 +52,15 @@ public sealed class ManifestVerifier
         throw new ManifestVerificationException("Signature key or length is invalid.");
       }
 
-      var message = new byte[Domain.Length + manifest.Length];
+      var message = new byte[Domain.Length + manifestBytes.Length];
       Domain.CopyTo(message, 0);
-      manifest.Span.CopyTo(message.AsSpan(Domain.Length));
+      manifestBytes.CopyTo(message, Domain.Length);
       if (!rsa.VerifyData(message, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pss))
       {
         throw new ManifestVerificationException("Manifest signature did not verify.");
       }
 
-      using var parsed = ParseObject(manifest.Span,
+      using var parsed = ParseObject(manifestBytes,
         ["schemaVersion", "product", "repository", "tag", "version", "target", "archiveName",
          "archiveLength", "archiveSha256", "packageProtocol", "settingsSchemaMin", "settingsSchemaMax"]);
       var value = parsed.RootElement;
