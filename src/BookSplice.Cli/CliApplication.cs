@@ -14,11 +14,12 @@ public sealed class CliApplication
   private readonly ISettingsStore _settings;
   private readonly IConversionService _service;
   private readonly IJobLogWriter? _logs;
+  private readonly TimeProvider _timeProvider;
 
   private readonly MetadataProfileCatalog? _profiles;
 
-  public CliApplication(ISettingsStore settings, IConversionService service, IJobLogWriter? logs = null, MetadataProfileCatalog? profiles = null)
-    => (_settings, _service, _logs, _profiles) = (settings, service, logs, profiles);
+  public CliApplication(ISettingsStore settings, IConversionService service, IJobLogWriter? logs = null, MetadataProfileCatalog? profiles = null, TimeProvider? timeProvider = null)
+    => (_settings, _service, _logs, _profiles, _timeProvider) = (settings, service, logs, profiles, timeProvider ?? TimeProvider.System);
 
   public async Task<CliExitCode> RunAsync(IReadOnlyList<string> arguments, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken, TextReader? standardInput = null)
   {
@@ -86,18 +87,10 @@ public sealed class CliApplication
     if (options.Json) WriteJson(standardOutput, new { SchemaVersion = 1, Event = "started" }, sync);
     else standardOutput.WriteLine("Analyzing audiobook");
 
-    var progress = new InlineProgress<ConversionProgress>(value =>
-    {
-      if (options.Json)
-        WriteJson(standardOutput, new { SchemaVersion = 1, Event = "progress", value.DisplayPercent, value.Speed, value.StageIndex, value.SourceIndex, value.State }, sync);
-      else if (value.DisplayPercent is { } percent)
-        standardOutput.WriteLine($"Progress {percent:0.#}%");
-    });
-
     ConversionServiceResult result;
     try
     {
-      result = await _service.ConvertAsync(request, cancellationToken, progress).ConfigureAwait(false);
+      result = await RunAttemptAsync(request, standardOutput, options.Json, cancellationToken).ConfigureAwait(false);
       if (result.Status == ConversionTerminalStatus.DecisionRequired && !options.Json && standardInput is not null && result.Analysis?.OrderResolution is { } resolution)
       {
         var candidates = resolution.Candidates.Where(candidate => candidate.IsCredible).ToArray();
@@ -116,7 +109,7 @@ public sealed class CliApplication
             AnalysisOptions = new BookAnalysisOptions(candidate.Id),
             ExpectedSourcePaths = candidate.FileIds.Select(file => Path.Combine(result.Analysis.SourceRootPath, file)).ToArray()
           };
-          result = await _service.ConvertAsync(request, cancellationToken, progress).ConfigureAwait(false);
+          result = await RunAttemptAsync(request, standardOutput, options.Json, cancellationToken).ConfigureAwait(false);
         }
       }
     }
@@ -169,6 +162,14 @@ public sealed class CliApplication
       else if (result.Status == ConversionTerminalStatus.Succeeded) standardOutput.WriteLine($"Published {result.PublishedPath}");
     }
     return exitCode;
+  }
+
+  private async Task<ConversionServiceResult> RunAttemptAsync(ConversionRequest request, TextWriter output, bool json, CancellationToken cancellationToken)
+  {
+    await using var progress = new CliProgressDisplay(output, json, _timeProvider);
+    progress.StartAttempt();
+    try { return await _service.ConvertAsync(request, cancellationToken, progress).ConfigureAwait(false); }
+    finally { await progress.StopAttemptAsync().ConfigureAwait(false); }
   }
 
   private async Task<CliExitCode> CompletePreServiceAsync(
@@ -228,8 +229,4 @@ public sealed class CliApplication
   private static Task<string?> ReadLineWithCancellationAsync(TextReader reader, CancellationToken cancellationToken)
     => Task.Run(reader.ReadLine, CancellationToken.None).WaitAsync(cancellationToken);
 
-  private sealed class InlineProgress<T>(Action<T> action) : IProgress<T>
-  {
-    public void Report(T value) => action(value);
-  }
 }
