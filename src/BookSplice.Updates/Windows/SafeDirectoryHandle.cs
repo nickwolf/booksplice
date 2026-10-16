@@ -11,12 +11,16 @@ public sealed class SafeDirectoryHandle : IDisposable
   private const uint FileReadAttributes = 0x80;
   private const uint FileTraverse = 0x20;
   private const uint FileAddSubdirectory = 0x4;
+  private const uint FileReadData = 0x1;
+  private const uint FileWriteData = 0x2;
   private const uint FileAttributeReparsePoint = 0x400;
   private const uint FileFlagBackupSemantics = 0x02000000;
   private const uint FileFlagOpenReparsePoint = 0x00200000;
   private const uint FileDirectoryFile = 0x1;
+  private const uint FileNonDirectoryFile = 0x40;
   private const uint FileOpenReparsePoint = 0x00200000;
   private const uint FileCreate = 2;
+  private const uint FileOpen = 1;
   private const uint ObjCaseInsensitive = 0x40;
   private readonly List<SafeFileHandle> _ancestry;
   private readonly SafeDirectoryHandle? _parent;
@@ -171,8 +175,49 @@ public sealed class SafeDirectoryHandle : IDisposable
     }
   }
 
+  internal static SafeDirectoryHandle CreateBorrowedChild(SafeDirectoryHandle parent, string name)
+  {
+    var handle = OpenChild(parent.Handle, name, FileReadAttributes | FileTraverse | FileAddSubdirectory,
+      FileCreate);
+    try
+    {
+      return new SafeDirectoryHandle(System.IO.Path.Combine(parent.Path, name), handle,
+        new List<SafeFileHandle>());
+    }
+    catch
+    {
+      handle.Dispose();
+      throw;
+    }
+  }
+
+  internal static SafeDirectoryHandle OpenBorrowedChild(SafeDirectoryHandle parent, string name)
+  {
+    var handle = OpenChild(parent.Handle, name, FileReadAttributes | FileTraverse,
+      FileOpen, FileDirectoryFile, 3);
+    try
+    {
+      return new SafeDirectoryHandle(System.IO.Path.Combine(parent.Path, name), handle,
+        new List<SafeFileHandle>());
+    }
+    catch
+    {
+      handle.Dispose();
+      throw;
+    }
+  }
+
+  internal SafeFileHandle CreateNewFile(string name) => OpenChild(Handle, name,
+    FileReadData | FileWriteData | FileReadAttributes, FileCreate, FileNonDirectoryFile);
+
+  internal SafeFileHandle OpenFile(string name) => OpenChild(Handle, name,
+    FileReadData | FileReadAttributes, FileOpen, FileNonDirectoryFile);
+
+  internal SafeFileHandle OpenBridgeFile(string name) => OpenChild(Handle, name,
+    FileReadData | FileReadAttributes, FileOpen, FileNonDirectoryFile, 3);
+
   private static SafeFileHandle OpenChild(SafeFileHandle parent, string name,
-    uint access, uint disposition)
+    uint access, uint disposition, uint type = FileDirectoryFile, uint share = 1)
   {
     if (name.Length == 0 || name.Contains('\\') || name.Contains('/') || name is "." or "..")
     {
@@ -198,7 +243,7 @@ public sealed class SafeDirectoryHandle : IDisposable
         Attributes = ObjCaseInsensitive
       };
       var status = NtCreateFile(out var rawHandle, access, ref attributes, out _, 0, 0,
-        1, disposition, FileDirectoryFile | FileOpenReparsePoint, 0, 0);
+        share, disposition, type | FileOpenReparsePoint, 0, 0);
       if (status < 0)
       {
         var error = (int)RtlNtStatusToDosError(status);
@@ -232,6 +277,8 @@ public sealed class SafeDirectoryHandle : IDisposable
       throw new NotSupportedException("Reparse-point directories are not allowed.");
     }
   }
+
+  internal static void RejectReparseFile(SafeFileHandle handle) => RejectReparse(handle);
 
   [StructLayout(LayoutKind.Sequential)]
   private struct FileBasicInfo

@@ -5,6 +5,7 @@ using Microsoft.Win32.SafeHandles;
 
 namespace BookSplice.Updates.Tests.Storage;
 
+[Collection("WindowsOwnedStorage")]
 public sealed class OwnedDirectoryTests
 {
   [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
