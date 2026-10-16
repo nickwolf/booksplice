@@ -76,14 +76,18 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
   {
     item.Result = null;
     item.PublishedPath = null;
+    item.IsCancellationRequested = false;
     item.IsBusy = true;
     item.Status = "Analyzing";
     using var cancellation = new CancellationTokenSource();
     item.Cancellation = cancellation;
+    var source = item.Source;
+    var createChapters = item.Settings.CreateChapters;
+    var analysisOptions = new BookAnalysisOptions(item.SelectedOrder);
     try
     {
-      var result = await Task.Run(() => analyzer.AnalyzeAsync(item.Source, item.Settings.CreateChapters,
-        new BookAnalysisOptions(item.SelectedOrder), cancellation.Token));
+      var result = await Task.Run(() => analyzer.AnalyzeAsync(source, createChapters,
+        analysisOptions, cancellation.Token));
       item.SetAnalysis(result);
     }
     catch (OperationCanceledException) { item.Status = "Cancelled"; }
@@ -101,23 +105,24 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     item.Result = null;
     item.PublishedPath = null;
     item.Percent = 0;
+    item.IsProgressIndeterminate = true;
+    item.IsCancellationRequested = false;
     using var cancellation = new CancellationTokenSource();
     item.Cancellation = cancellation;
     var acquired = false;
     var elapsed = new Stopwatch();
     var requestedValidation = item.Settings.ValidationLevel;
     var display = new ConversionProgressDisplay();
+    var dispatcher = Dispatcher.CurrentDispatcher;
     var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
     timer.Tick += (_, _) =>
     {
-      if (elapsed.IsRunning && ReferenceEquals(item.Cancellation, cancellation)) item.Details = display.Describe(elapsed.Elapsed);
+      if (elapsed.IsRunning && ReferenceEquals(item.Cancellation, cancellation)) ApplySnapshot();
     };
     var progress = new Progress<ConversionProgress>(value =>
     {
-      if (!elapsed.IsRunning || !ReferenceEquals(item.Cancellation, cancellation)) return;
-      display.Report(value, elapsed.Elapsed);
-      item.Percent = Math.Min(99, value.DisplayPercent ?? item.Percent);
-      item.Details = display.Describe(elapsed.Elapsed);
+      if (dispatcher.CheckAccess()) ApplyProgress(value);
+      else dispatcher.BeginInvoke(() => ApplyProgress(value));
     });
     try
     {
@@ -127,16 +132,18 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
       acquired = true;
       item.Status = "Converting";
       elapsed.Start();
-      item.Details = display.Describe(elapsed.Elapsed);
+      ApplySnapshot();
       timer.Start();
-      var result = await conversion.ConvertAsync(new ConversionRequest(item.Source, item.Settings.CreateChapters, item.CreateOptions(singleConversionJob: true),
-        AnalysisOptions: new BookAnalysisOptions(item.SelectedOrder), ExpectedSourcePaths: item.Analysis!.OrderedFiles.Select(file => file.FullPath).ToArray()), cancellation.Token, progress);
+      var request = new ConversionRequest(item.Source, item.Settings.CreateChapters, item.CreateOptions(singleConversionJob: true),
+        AnalysisOptions: new BookAnalysisOptions(item.SelectedOrder), ExpectedSourcePaths: item.Analysis!.OrderedFiles.Select(file => file.FullPath).ToArray());
+      var result = await Task.Run(() => conversion.ConvertAsync(request, cancellation.Token, progress));
       elapsed.Stop();
       timer.Stop();
       item.Result = ConversionResultDisplay.Create(result, elapsed.Elapsed, requestedValidation);
       item.Status = result.Status == ConversionTerminalStatus.Succeeded ? "Complete" : result.Status.ToString();
       item.PublishedPath = item.Result.PublishedPath;
       item.Details = item.Result.Details;
+      item.IsProgressIndeterminate = false;
       if (result.Status == ConversionTerminalStatus.Succeeded) item.Percent = 100;
     }
     catch (OperationCanceledException) { ShowExceptionResult(ConversionTerminalStatus.Cancelled, null); }
@@ -152,6 +159,23 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
       item.Result = ConversionResultDisplay.Create(result, elapsed.Elapsed, requestedValidation);
       item.Status = status == ConversionTerminalStatus.Cancelled ? "Cancelled" : "Conversion failed";
       item.Details = item.Result.Details;
+      item.IsProgressIndeterminate = false;
+    }
+
+    void ApplyProgress(ConversionProgress value)
+    {
+      if (!elapsed.IsRunning || !ReferenceEquals(item.Cancellation, cancellation) || item.Result is not null) return;
+      if (!display.Report(value, elapsed.Elapsed)) return;
+      item.Status = display.PhaseLabel;
+      ApplySnapshot();
+    }
+
+    void ApplySnapshot()
+    {
+      var snapshot = display.Snapshot(elapsed.Elapsed);
+      item.IsProgressIndeterminate = snapshot.Percent is null;
+      item.Percent = snapshot.Percent ?? 0;
+      item.Details = display.Describe(elapsed.Elapsed);
     }
   }
 

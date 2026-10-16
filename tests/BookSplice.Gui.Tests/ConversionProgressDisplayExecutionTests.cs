@@ -13,7 +13,7 @@ namespace BookSplice.Gui.Tests;
 public sealed class ConversionProgressDisplayExecutionTests
 {
   [Fact]
-  public async Task SegmentedJobWithoutChaptersWaitsForExecutionCompletionToShowFinalizing()
+  public async Task SegmentedJobWithoutChaptersKeepsEncodingUntilAssemblyAndMetadata()
   {
     var root = Directory.CreateTempSubdirectory("booksplice-progress-").FullName;
     try
@@ -23,7 +23,8 @@ public sealed class ConversionProgressDisplayExecutionTests
         new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>());
       var plan = new ConversionPlan(sources, metadata, null, [], QualityProfileCatalog.Version1[2],
         ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, Path.Combine(root, "finished.m4b"),
-        AudioStrategy.SegmentedTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "test", MetadataProfiles.GenericMp4);
+        AudioStrategy.SegmentedTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "test", MetadataProfiles.GenericMp4,
+        sourceDurationsMicroseconds: Enumerable.Repeat<long?>(5_000_000, 33).ToArray());
       var executor = new FFmpegConversionExecutor(new ReportingRunner(),
         new FFmpegCommandFactory(new MediaToolSet("ffmpeg.exe", "ffprobe.exe", "pinned", "pinned")),
         new MetadataWriter(), Path.Combine(root, "jobs"));
@@ -36,16 +37,17 @@ public sealed class ConversionProgressDisplayExecutionTests
         if (value.SourceIndex == 32 && value.OutTimeMicroseconds is > 0 && value.State is null)
         {
           whileLastSegmentEncodes = display.Describe(TimeSpan.FromSeconds(30));
-          whileLastSegmentPercent = value.DisplayPercent;
+          whileLastSegmentPercent = display.Snapshot(TimeSpan.FromSeconds(30)).Percent;
         }
       }));
 
       Assert.Equal(ExecutionStatus.Succeeded, result.Status);
-      Assert.Equal(99, whileLastSegmentPercent);
+      Assert.Equal(100, whileLastSegmentPercent);
       Assert.NotNull(whileLastSegmentEncodes);
-      Assert.DoesNotContain("Finalizing", whileLastSegmentEncodes, StringComparison.Ordinal);
-      Assert.Contains("Speed:", whileLastSegmentEncodes, StringComparison.Ordinal);
-      Assert.Equal("Elapsed: 30s · Finalizing…", display.Describe(TimeSpan.FromSeconds(30)));
+      Assert.Contains("Encoding audio", whileLastSegmentEncodes, StringComparison.Ordinal);
+      Assert.DoesNotContain("Conversion complete", whileLastSegmentEncodes, StringComparison.Ordinal);
+      Assert.Equal("Writing metadata", display.PhaseLabel);
+      Assert.Null(display.Snapshot(TimeSpan.FromSeconds(30)).Percent);
     }
     finally { Directory.Delete(root, true); }
   }

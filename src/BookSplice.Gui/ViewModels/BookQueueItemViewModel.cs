@@ -15,6 +15,8 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings, 
   private string _details = "";
   private bool _busy;
   private double _percent;
+  private bool _progressIndeterminate;
+  private bool _cancellationRequested;
   private string? _publishedPath;
   private ConversionResultDisplay? _result;
   private AppSettings _settings = settings;
@@ -47,19 +49,26 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings, 
   public IReadOnlyList<string> OrderedFiles => Analysis?.OrderedFiles.Select(file => file.RelativePath).ToArray() ?? [];
   public string Summary => Analysis is null ? "" : $"{Analysis.OrderedFiles.Count} files | {TimeSpan.FromMicroseconds(Analysis.Chapters.TotalDurationMicroseconds):g} | {string.Join(", ", Analysis.OrderedFiles.SelectMany(file => file.ProbeResult.AudioStreams).Select(stream => stream.CodecName).Distinct())}";
   public string Status { get => _status; internal set { _status = value; Changed(); Changed(nameof(QueueStatus)); Changed(nameof(CanConvert)); } }
-  public string QueueStatus => Result?.Title ?? Status;
+  public string QueueStatus => Result?.Title ?? (IsBusy && IsCancellationRequested ? $"{Status} · Cancellation requested" : Status);
   public ConversionResultDisplay? Result { get => _result; internal set { _result = value; Changed(); Changed(nameof(HasResult)); Changed(nameof(QueueStatus)); } }
   public bool HasResult => Result is not null;
   public string Details { get => _details; internal set { _details = value; Changed(); } }
   public double Percent { get => _percent; internal set { _percent = value; Changed(); } }
+  public bool IsProgressIndeterminate { get => _progressIndeterminate; internal set { _progressIndeterminate = value; Changed(); } }
+  public bool IsCancellationRequested { get => _cancellationRequested; internal set { _cancellationRequested = value; Changed(); Changed(nameof(QueueStatus)); } }
   public string? PublishedPath { get => _publishedPath; internal set { _publishedPath = value; Changed(); Changed(nameof(CanOpenOutput)); } }
   public bool CanOpenOutput => !IsBusy && PublishedPath is { } path && File.Exists(path);
-  public bool IsBusy { get => _busy; internal set { _busy = value; Changed(); Changed(nameof(CanEdit)); Changed(nameof(CanRemove)); Changed(nameof(CanConvert)); Changed(nameof(CanOpenOutput)); } }
+  public bool IsBusy { get => _busy; internal set { _busy = value; Changed(); Changed(nameof(QueueStatus)); Changed(nameof(CanEdit)); Changed(nameof(CanRemove)); Changed(nameof(CanConvert)); Changed(nameof(CanOpenOutput)); } }
   public bool CanRemove => !IsBusy;
   public bool CanEdit => !IsBusy && Status != "Complete";
   public bool CanConvert => !IsBusy && Analysis?.Status == BookAnalysisStatus.Ready && Status != "Complete";
   internal CancellationTokenSource? Cancellation { get; set; }
-  public void Cancel() => Cancellation?.Cancel();
+  public void Cancel()
+  {
+    if (Cancellation is not { } cancellation || Result is not null) return;
+    IsCancellationRequested = true;
+    cancellation.Cancel();
+  }
 
   public ConversionOptions CreateOptions(bool singleConversionJob = false)
   {

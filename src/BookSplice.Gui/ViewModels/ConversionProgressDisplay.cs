@@ -5,54 +5,57 @@ namespace BookSplice.Gui.ViewModels;
 
 public sealed class ConversionProgressDisplay
 {
-  private readonly List<(TimeSpan Elapsed, double Percent)> _samples = [(TimeSpan.Zero, 0)];
-  private double? _speed;
-  private int? _stage;
-  private double _percent;
-  private bool _finalizing;
+  private readonly ConversionProgressObserver _observer = new();
 
-  public void Report(ConversionProgress progress, TimeSpan elapsed)
-  {
-    ArgumentNullException.ThrowIfNull(progress);
-    if (_stage != progress.StageIndex)
-    {
-      _stage = progress.StageIndex;
-      _speed = null;
-    }
-    if (progress.Speed is { } speed && double.IsFinite(speed) && speed >= 0) _speed = speed;
-    if (progress.DisplayPercent is { } percent && double.IsFinite(percent) && percent > _percent)
-    {
-      _percent = Math.Clamp(percent, 0, 100);
-      _samples.Add((elapsed, _percent));
-      while (_samples.Count > 2 && _samples[1].Elapsed <= elapsed - TimeSpan.FromSeconds(30)) _samples.RemoveAt(0);
-    }
-    _finalizing |= progress.State == "completed";
-  }
+  public string PhaseLabel => Label(_observer.Snapshot(TimeSpan.Zero).Phase);
+
+  public bool Report(ConversionProgress progress, TimeSpan elapsed) => _observer.Report(progress, elapsed);
+
+  public ConversionProgressSnapshot Snapshot(TimeSpan elapsed) => _observer.Snapshot(elapsed);
 
   public string Describe(TimeSpan elapsed)
   {
-    var prefix = ElapsedText(elapsed);
-    if (_finalizing) return $"{prefix} · Finalizing…";
-    var speed = _speed is { } value ? value.ToString("0.0", CultureInfo.InvariantCulture) + "×" : "Calculating…";
-    var remaining = EstimateRemaining(elapsed);
-    return $"{prefix} · Speed: {speed} · Est. remaining: {(remaining is { } estimate ? FormatDuration(estimate) : "Calculating…")}";
+    var snapshot = Snapshot(elapsed);
+    var parts = new List<string> { ElapsedText(elapsed), Label(snapshot.Phase) };
+    if (snapshot.Percent is { } percent)
+    {
+      parts.Add(percent.ToString("0.#", CultureInfo.InvariantCulture) + "%");
+      if (snapshot.Speed is { } speed)
+        parts.Add("Speed: " + speed.ToString("0.0", CultureInfo.InvariantCulture) + "×");
+      parts.Add("Phase remaining: " + (snapshot.Remaining is { } remaining ? FormatDuration(remaining) : "Unavailable"));
+    }
+    else
+      parts.Add("Numeric progress unavailable");
+
+    if (snapshot.CompletedSources is { } completed && snapshot.TotalSources is { } total)
+      parts.Add(FormattableString.Invariant($"Sources: {completed}/{total}"));
+
+    if (snapshot.Advisory == ProgressAdvisory.NoUpdate && snapshot.LastReportAge is { } reportAge)
+      parts.Add($"No update received for {FormatDuration(reportAge)}; operation has not returned");
+    else if (snapshot.Advisory == ProgressAdvisory.NoAdvance && snapshot.LastAdvanceAge is { } advanceAge)
+      parts.Add($"Updates received, but progress has not advanced for {FormatDuration(advanceAge)}");
+
+    return string.Join(" · ", parts);
   }
 
   public static string ElapsedText(TimeSpan elapsed) => $"Elapsed: {FormatDuration(elapsed)}";
 
-  private TimeSpan? EstimateRemaining(TimeSpan elapsed)
+  private static string Label(ConversionPhase? phase) => phase switch
   {
-    if (elapsed.TotalSeconds < 3 || _samples.Count < 2 || _speed == 0) return null;
-    var first = _samples[0];
-    var last = _samples[^1];
-    var age = (elapsed - last.Elapsed).TotalSeconds;
-    var seconds = (last.Elapsed - first.Elapsed).TotalSeconds;
-    var processed = last.Percent - first.Percent;
-    if (age > 10 || seconds <= 0 || processed <= 0) return null;
-    var remaining = (99 - last.Percent) * seconds / processed - age;
-    return double.IsFinite(remaining) && remaining > 0 && remaining < TimeSpan.MaxValue.TotalSeconds
-      ? TimeSpan.FromSeconds(remaining) : null;
-  }
+    ConversionPhase.Analysis => "Reanalyzing sources",
+    ConversionPhase.Planning => "Planning conversion",
+    ConversionPhase.Preparation => "Preparing conversion",
+    ConversionPhase.Encoding => "Encoding audio",
+    ConversionPhase.StreamCopy => "Copying audio",
+    ConversionPhase.Assembly => "Assembling audio",
+    ConversionPhase.MetadataWriting => "Writing metadata",
+    ConversionPhase.ValidationChecks => "Checking output",
+    ConversionPhase.FullDecode => "Validating full audio",
+    ConversionPhase.Publication => "Publishing output",
+    ConversionPhase.Cleanup => "Cleaning up",
+    ConversionPhase.AuditWriting => "Writing audit",
+    _ => "Starting conversion"
+  };
 
   private static string FormatDuration(TimeSpan duration)
   {

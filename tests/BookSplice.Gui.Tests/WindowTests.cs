@@ -34,8 +34,13 @@ public sealed class WindowTests
           row.Arrange(new Rect(0, 0, 280, 100));
           var progress = Assert.Single(row.Children.OfType<System.Windows.Controls.ProgressBar>());
           Assert.Equal(0, progress.Value);
+          Assert.False(progress.IsIndeterminate);
+          typeof(BookQueueItemViewModel).GetProperty(nameof(BookQueueItemViewModel.IsProgressIndeterminate))!.SetValue(item, true);
+          Assert.True(progress.IsIndeterminate);
           typeof(BookQueueItemViewModel).GetProperty(nameof(BookQueueItemViewModel.Percent))!.SetValue(item, 37.5);
           Assert.Equal(37.5, progress.Value);
+          typeof(BookQueueItemViewModel).GetProperty(nameof(BookQueueItemViewModel.IsProgressIndeterminate))!.SetValue(item, false);
+          Assert.False(progress.IsIndeterminate);
         }
         finally { window.Close(); }
       }
