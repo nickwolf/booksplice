@@ -2,11 +2,13 @@ using BookSplice.Core.Analysis;
 using BookSplice.Core.Chapters;
 using BookSplice.Core.Covers;
 using BookSplice.Core.Discovery;
+using BookSplice.Core.Execution;
 using BookSplice.Core.Metadata;
 using BookSplice.Core.Naming;
 using BookSplice.Core.Ordering;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Settings;
+using BookSplice.Core.Validation;
 using BookSplice.FFmpeg.Commands;
 using BookSplice.FFmpeg.Covers;
 using BookSplice.FFmpeg.Execution;
@@ -18,6 +20,61 @@ namespace BookSplice.FFmpeg.Tests.Execution;
 
 public sealed class FFmpegRealMediaIntegrationTests
 {
+  [PinnedMediaFact]
+  public async Task ChapterDisabledSegmentedFullDecodeReportsActualPhases()
+  {
+    var tools = ResolveTools();
+    using var root = new TemporaryDirectory();
+    var sourceRoot = Directory.CreateDirectory(Path.Combine(root.Path, "sources")).FullName;
+    var seed = await GenerateAudioAsync(tools, Path.Combine(sourceRoot, "01.mp3"), "libmp3lame", "1", "44100", "440", "0.1");
+    for (var index = 2; index <= 33; index++) File.Copy(seed, Path.Combine(sourceRoot, $"{index:D2}.mp3"));
+    var destination = Directory.CreateDirectory(Path.Combine(root.Path, "published")).FullName;
+    var progress = new CollectedProgress();
+
+    var result = await CreateService(tools, root.Path).ConvertAsync(CreateRequest(sourceRoot, destination, ValidationLevel.Full), CancellationToken.None, progress);
+
+    Assert.Equal(ConversionTerminalStatus.Succeeded, result.Status);
+    Assert.Equal(AudioStrategy.SegmentedTranscode, result.Planning?.Plan?.Strategy);
+    Assert.Empty(result.Planning!.Plan!.Chapters);
+    Assert.Equal(33, result.Planning.Plan.SourcePaths.Count);
+    Assert.NotNull(result.PublishedPath);
+    Assert.True(File.Exists(result.PublishedPath));
+    Assert.Contains(result.Validation!.Checks, check => check.Code == ValidationCodes.FullDecode && check.Passed);
+    Assert.Equal([
+      ConversionPhase.Analysis, ConversionPhase.Planning, ConversionPhase.Preparation,
+      ConversionPhase.Encoding, ConversionPhase.Assembly, ConversionPhase.MetadataWriting,
+      ConversionPhase.ValidationChecks, ConversionPhase.FullDecode, ConversionPhase.Publication,
+      ConversionPhase.Cleanup, ConversionPhase.AuditWriting
+    ], progress.Events.Where(value => value.IsPhaseEntry).Select(value => value.Phase!.Value));
+    Assert.All(progress.Events, value => Assert.Equal(result.JobId, value.JobId));
+    Assert.Equal(Enumerable.Range(1, progress.Events.Length).Select(value => (long?)value), progress.Events.Select(value => value.Sequence));
+    Assert.All(progress.Events.Where(value => value.IsPhaseEntry), value => Assert.NotNull(value.PhaseOccurrenceId));
+  }
+
+  [PinnedMediaFact]
+  public async Task ValidationFailureNeverReportsPublication()
+  {
+    var tools = ResolveTools();
+    using var root = new TemporaryDirectory();
+    var sourceRoot = Directory.CreateDirectory(Path.Combine(root.Path, "sources")).FullName;
+    await GenerateAudioAsync(tools, Path.Combine(sourceRoot, "01.mp3"), "libmp3lame", "1", "44100", "440", "0.1");
+    var destination = Directory.CreateDirectory(Path.Combine(root.Path, "published")).FullName;
+    var progress = new CollectedProgress();
+    var executor = new CorruptingExecutor(new FFmpegConversionExecutor(new ProcessRunner(), new FFmpegCommandFactory(tools), new Mp4MetadataWriter(), Path.Combine(root.Path, "jobs")));
+
+    var result = await CreateService(tools, root.Path, executor).ConvertAsync(CreateRequest(sourceRoot, destination, ValidationLevel.Lightweight), CancellationToken.None, progress);
+
+    Assert.Equal(ConversionTerminalStatus.ValidationFailed, result.Status);
+    Assert.Equal(ExecutionStatus.Succeeded, result.Execution?.Status);
+    Assert.Contains(result.Validation!.Checks, check => check.Code == ValidationCodes.ContainerParse && !check.Passed);
+    Assert.Null(result.Publication);
+    Assert.Null(result.PublishedPath);
+    Assert.Empty(Directory.EnumerateFiles(destination));
+    Assert.DoesNotContain(progress.Events, value => value.Phase == ConversionPhase.Publication);
+    Assert.Contains(progress.Events, value => value.IsPhaseEntry && value.Phase == ConversionPhase.Cleanup);
+    Assert.All(progress.Events, value => Assert.Equal(result.JobId, value.JobId));
+  }
+
   [PinnedMediaFact]
   public async Task EveryStrategyProducesOneParseableAudioStreamAndLeavesDestinationUntouched()
   {
@@ -496,6 +553,50 @@ public sealed class FFmpegRealMediaIntegrationTests
   }
 
   private static AggregatedValue Value(SemanticField field, string value) => new(field, AggregationState.Consistent, value, []);
+
+  private static ConversionService CreateService(MediaToolSet tools, string root, IConversionExecutor? executor = null)
+  {
+    var runner = new ProcessRunner();
+    var probe = new FFprobeMediaProbe(runner, tools);
+    var analyzer = new BookAnalyzer(new SourceDiscoverer(probe, 4), new OrderResolver(), new MetadataAggregator(), new CoverDiscoverer(new MediaCoverPayloadOpener(tools)), new ChapterPlanner());
+    return new ConversionService(
+      analyzer,
+      new ConversionPlanner(new OutputNamePlanner(), new TestStorageSpaceProvider()),
+      executor ?? new FFmpegConversionExecutor(runner, new FFmpegCommandFactory(tools), new Mp4MetadataWriter(), Path.Combine(root, "jobs")),
+      new FFmpegOutputValidator(probe, runner, tools, new CoverPayloadValidator()),
+      new AtomicPublisher(),
+      new TemporaryArtifactCleaner(Path.Combine(root, "jobs")),
+      new JsonJobLogWriter(Path.Combine(root, "logs")));
+  }
+
+  private static ConversionRequest CreateRequest(string sourceRoot, string destination, ValidationLevel validationLevel)
+  {
+    var settings = AppSettings.Defaults with { OutputDirectory = destination, CreateChapters = false, ValidationLevel = validationLevel, ConversionJobs = 4 };
+    return new ConversionRequest(sourceRoot, false, new ConversionOptions(settings, QualityProfileCatalog.Version1[2], omitCover: true));
+  }
+
+  private sealed class TestStorageSpaceProvider : IStorageSpaceProvider
+  {
+    public long? GetAvailableBytes(string destinationDirectory) => new DriveInfo(Path.GetPathRoot(destinationDirectory)!).AvailableFreeSpace;
+  }
+
+  private sealed class CollectedProgress : IProgress<ConversionProgress>
+  {
+    private readonly List<ConversionProgress> _events = [];
+    public ConversionProgress[] Events { get { lock (_events) return _events.ToArray(); } }
+    public void Report(ConversionProgress value) { lock (_events) _events.Add(value); }
+  }
+
+  private sealed class CorruptingExecutor(IConversionExecutor inner) : IConversionExecutor
+  {
+    public async Task<ConversionExecutionResult> ExecuteAsync(ConversionPlan plan, CancellationToken cancellationToken, IProgress<ConversionProgress>? progress = null)
+    {
+      var result = await inner.ExecuteAsync(plan, cancellationToken, progress);
+      if (result.Status == ExecutionStatus.Succeeded && result.TemporaryOutputPath is { } path)
+        await File.WriteAllTextAsync(path, "invalid generated output", cancellationToken);
+      return result;
+    }
+  }
 
   private static string ValueAfter(ProcessSpec spec, string argument)
   {
