@@ -1,6 +1,6 @@
 # BookSplice Windows updater
 
-Date: 2026-10-15. Issue: [#77](https://github.com/nickwolf/booksplice/issues/77). Target: v0.2.0. Status: specification and implementation plan approved. Implementation is underway; version/protocol contracts and release checks are complete. Installation and handover remain unfinished.
+Date: 2026-10-15. Issue: [#77](https://github.com/nickwolf/booksplice/issues/77). Target: v0.2.0. Status: specification and implementation plan approved. Implementation is underway; version/protocol contracts, release checks, manifest/download authentication, and native directory ownership are complete. Installation and handover remain unfinished.
 
 ## Purpose and scope
 
