@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\BookSplice.Core\BookSplice.Core.csproj" />
     <ProjectReference Include="..\BookSplice.FFmpeg\BookSplice.FFmpeg.csproj" />
+    <ProjectReference Include="..\BookSplice.Updates\BookSplice.Updates.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

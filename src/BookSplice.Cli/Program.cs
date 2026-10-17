@@ -1,5 +1,6 @@
 using BookSplice.Cli;
 using BookSplice.FFmpeg.Tools;
+using BookSplice.Updates.Windows;
 using System.Text;
 using System.Text.Json;
 
@@ -47,8 +48,12 @@ try
   if (string.IsNullOrWhiteSpace(localAppData)) localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
   var mediaTools = Environment.GetEnvironmentVariable("BOOKSPLICE_FFMPEG_DIR");
   if (string.IsNullOrWhiteSpace(mediaTools)) mediaTools = Path.Combine(AppContext.BaseDirectory, "tools", "ffmpeg");
-  var application = CliComposition.Create(localAppData, mediaTools);
-  return (int)await application.RunAsync(args, Console.Out, Console.Error, cancellation.Token, Console.IsInputRedirected ? null : Console.In).ConfigureAwait(false);
+  var dataRoot = Path.Combine(Path.GetFullPath(localAppData), "BookSplice");
+  IActivityLeaseStore leases = OperatingSystem.IsWindows() ? new ActivityLeaseStore(dataRoot) : new NoOpActivityLeaseStore();
+  return (int)await CliExecutionHost.RunAsync(
+    () => CliComposition.Create(localAppData, mediaTools),
+    leases, args, Console.Out, Console.Error, cancellation.Token,
+    Console.IsInputRedirected ? null : Console.In).ConfigureAwait(false);
 }
 catch (MediaToolException exception)
 {

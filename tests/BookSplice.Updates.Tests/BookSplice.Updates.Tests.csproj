@@ -15,5 +15,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\BookSplice.Updates\BookSplice.Updates.csproj" />
+    <ProjectReference Include="..\BookSplice.LeaseHost\BookSplice.LeaseHost.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>

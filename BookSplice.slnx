@@ -12,6 +12,7 @@
     <Project Path="tests/BookSplice.Core.Tests/BookSplice.Core.Tests.csproj" />
     <Project Path="tests/BookSplice.FFmpeg.Tests/BookSplice.FFmpeg.Tests.csproj" />
     <Project Path="tests/BookSplice.Gui.Tests/BookSplice.Gui.Tests.csproj" />
+    <Project Path="tests/BookSplice.LeaseHost/BookSplice.LeaseHost.csproj" />
     <Project Path="tests/BookSplice.Updates.Tests/BookSplice.Updates.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
