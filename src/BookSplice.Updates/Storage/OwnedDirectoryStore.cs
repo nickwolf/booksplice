@@ -75,7 +75,69 @@ public sealed class OwnedDirectoryStore
     }
   }
 
+  public OwnedDirectory CreateNamedExclusive(OwnedDirectory parent, string leafName, string kind,
+    Guid installationId, Guid operationId)
+  {
+    ArgumentNullException.ThrowIfNull(parent);
+    ValidateIds(installationId, operationId);
+    ValidateKind(kind);
+    if (parent.InstallationId != installationId || !SafeZipExtractor.IsSafeComponent(leafName))
+    {
+      throw new OwnedDirectoryException("The named child does not match its owned parent.");
+    }
+
+    using var parentHandle = OpenValidated(parent);
+    SafeDirectoryHandle? child = null;
+    try
+    {
+      child = SafeDirectoryHandle.CreateBorrowedChild(parentHandle, leafName);
+      var owned = new OwnedDirectory(child.Path, child.Identity, installationId, operationId, kind);
+      _record(owned);
+      return owned;
+    }
+    catch (Exception error) when (error is not OwnedDirectoryException)
+    {
+      throw new OwnedDirectoryException("The named child could not be created or recorded.", error);
+    }
+    finally { child?.Dispose(); }
+  }
+
+  public OwnedDirectory CreateNamedExclusive(string parent, string leafName, string kind,
+    Guid installationId, Guid operationId)
+  {
+    ValidateIds(installationId, operationId);
+    ValidateKind(kind);
+    if (!SafeZipExtractor.IsSafeComponent(leafName))
+      throw new OwnedDirectoryException("The named child is invalid.");
+    using var parentHandle = SafeDirectoryHandle.OpenPath(ValidatePath(parent), true,
+      _allowedRoot, _rootIdentity);
+    using var child = SafeDirectoryHandle.CreateBorrowedChild(parentHandle, leafName);
+    var owned = new OwnedDirectory(child.Path, child.Identity, installationId, operationId, kind);
+    _record(owned);
+    return owned;
+  }
+
   public SafeDirectoryHandle OpenValidated(OwnedDirectory recorded)
+    => OpenValidatedCore(recorded, true, false);
+
+  internal SafeDirectoryHandle OpenValidatedReadOnly(OwnedDirectory recorded)
+    => OpenValidatedCore(recorded, false, false);
+
+  internal SafeDirectoryHandle OpenValidatedForRename(OwnedDirectory recorded, OwnedDirectory parent)
+  {
+    ArgumentNullException.ThrowIfNull(parent);
+    if (recorded.InstallationId != parent.InstallationId ||
+        !string.Equals(System.IO.Path.GetDirectoryName(recorded.Path), parent.Path,
+          StringComparison.OrdinalIgnoreCase))
+      throw new OwnedDirectoryException("The promotion source parent is not the recorded stage.");
+    return OpenValidatedCore(recorded, false, true, false, parent);
+  }
+
+  internal SafeDirectoryHandle OpenValidatedForDestination(OwnedDirectory recorded)
+    => OpenValidatedCore(recorded, false, false, true);
+
+  private SafeDirectoryHandle OpenValidatedCore(OwnedDirectory recorded, bool permitChildren,
+    bool permitRename, bool destinationForRename = false, OwnedDirectory? expectedParent = null)
   {
     ArgumentNullException.ThrowIfNull(recorded);
     ValidateIds(recorded.InstallationId, recorded.OperationId);
@@ -94,7 +156,8 @@ public sealed class OwnedDirectoryStore
     SafeDirectoryHandle? current = null;
     try
     {
-      current = SafeDirectoryHandle.OpenPath(path, true, _allowedRoot, _rootIdentity);
+      current = SafeDirectoryHandle.OpenPath(path, permitChildren, _allowedRoot, _rootIdentity,
+        permitRename, destinationForRename, expectedParent?.Path, expectedParent?.Identity);
       if (current.Identity != recorded.Identity)
       {
         throw new OwnedDirectoryException("The directory at the recorded path has changed.");

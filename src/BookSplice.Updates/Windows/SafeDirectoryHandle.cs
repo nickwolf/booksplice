@@ -13,6 +13,7 @@ public sealed class SafeDirectoryHandle : IDisposable
   private const uint FileAddSubdirectory = 0x4;
   private const uint FileReadData = 0x1;
   private const uint FileWriteData = 0x2;
+  private const uint Delete = 0x10000;
   private const uint FileAttributeReparsePoint = 0x400;
   private const uint FileFlagBackupSemantics = 0x02000000;
   private const uint FileFlagOpenReparsePoint = 0x00200000;
@@ -56,6 +57,10 @@ public sealed class SafeDirectoryHandle : IDisposable
   [DllImport("ntdll.dll")]
   private static extern uint RtlNtStatusToDosError(int status);
 
+  [DllImport("ntdll.dll")]
+  private static extern int NtSetInformationFile(SafeFileHandle handle, out IoStatusBlock statusBlock,
+    nint information, uint size, int infoClass);
+
   [StructLayout(LayoutKind.Sequential)]
   private struct UnicodeString
   {
@@ -83,7 +88,9 @@ public sealed class SafeDirectoryHandle : IDisposable
   }
 
   internal static SafeDirectoryHandle OpenPath(string path, bool permitChildren,
-    string? anchorPath = null, FileIdentity? anchorIdentity = null)
+    string? anchorPath = null, FileIdentity? anchorIdentity = null, bool permitRename = false,
+    bool destinationForRename = false, string? parentAnchorPath = null,
+    FileIdentity? parentAnchorIdentity = null)
   {
     var full = System.IO.Path.GetFullPath(path);
     var root = System.IO.Path.GetPathRoot(full)!;
@@ -117,10 +124,13 @@ public sealed class SafeDirectoryHandle : IDisposable
       for (var index = 0; index < components.Length; index++)
       {
         var access = FileReadAttributes | FileTraverse |
-          (permitChildren && index == components.Length - 1 ? FileAddSubdirectory : 0);
+          (permitChildren && index == components.Length - 1 ? FileAddSubdirectory : 0) |
+          (permitRename && index == components.Length - 1 ? Delete : 0);
         walkedPath = System.IO.Path.Combine(walkedPath, components[index]);
-        current = CreateFileW(walkedPath, access, 1, 0, 3,
-          FileFlagBackupSemantics | FileFlagOpenReparsePoint, 0);
+        current = destinationForRename && index == components.Length - 1 ?
+          OpenChild(handles[^1], components[index], access, FileOpen, FileDirectoryFile, 3) :
+          CreateFileW(walkedPath, access, 1, 0, 3,
+            FileFlagBackupSemantics | FileFlagOpenReparsePoint, 0);
         if (current.IsInvalid)
         {
           var error = Marshal.GetLastWin32Error();
@@ -133,6 +143,11 @@ public sealed class SafeDirectoryHandle : IDisposable
             NativeFileIdentity.Read(current) != anchorIdentity)
         {
           throw new InvalidOperationException("The allowed root has changed.");
+        }
+        if (string.Equals(walkedPath, parentAnchorPath, StringComparison.OrdinalIgnoreCase) &&
+            NativeFileIdentity.Read(current) != parentAnchorIdentity)
+        {
+          throw new InvalidOperationException("The recorded parent has changed.");
         }
       }
 
@@ -205,6 +220,47 @@ public sealed class SafeDirectoryHandle : IDisposable
       handle.Dispose();
       throw;
     }
+  }
+
+  internal static SafeDirectoryHandle OpenGuardedChild(SafeDirectoryHandle parent, string name)
+  {
+    var handle = OpenChild(parent.Handle, name, FileReadAttributes | FileTraverse,
+      FileOpen, FileDirectoryFile);
+    try
+    {
+      return new SafeDirectoryHandle(System.IO.Path.Combine(parent.Path, name), handle,
+        new List<SafeFileHandle>());
+    }
+    catch
+    {
+      handle.Dispose();
+      throw;
+    }
+  }
+
+  internal void RenameChildTo(SafeDirectoryHandle destinationParent, string leafName)
+  {
+    if (!BookSplice.Updates.Storage.SafeZipExtractor.IsSafeComponent(leafName))
+      throw new ArgumentException("Destination leaf name is invalid.", nameof(leafName));
+    if (Identity.VolumeSerial != destinationParent.Identity.VolumeSerial)
+      throw new IOException("Cross-volume promotion is not supported.");
+    var filename = System.Text.Encoding.Unicode.GetBytes(leafName);
+    var size = checked(24 + filename.Length);
+    var buffer = Marshal.AllocHGlobal(size);
+    try
+    {
+      Marshal.Copy(new byte[size], 0, buffer, size);
+      Marshal.WriteIntPtr(buffer, 8, destinationParent.Handle.DangerousGetHandle());
+      Marshal.WriteInt32(buffer, 16, filename.Length);
+      Marshal.Copy(filename, 0, buffer + 20, filename.Length);
+      var status = NtSetInformationFile(Handle, out _, buffer, (uint)size, 10);
+      if (status < 0)
+      {
+        var error = (int)RtlNtStatusToDosError(status);
+        throw new Win32Exception(error, $"The destination was occupied or promotion failed ({error}, NT 0x{status:X8}).");
+      }
+    }
+    finally { Marshal.FreeHGlobal(buffer); }
   }
 
   internal SafeFileHandle CreateNewFile(string name) => OpenChild(Handle, name,
