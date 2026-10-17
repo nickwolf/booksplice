@@ -139,11 +139,11 @@ Define `OwnedOrOriginalTarget` as executable path, directory identity, package i
 
 Produce `SettingsSnapshot.CaptureAsync(string settingsPath, CancellationToken) -> Task<SettingsSnapshot>` with exact bytes/hash/schema or verified absence. Read without modifying the source and bound input to the existing settings-store contract. Candidate performs full settings validation through Core in task 8. Test unchanged bytes, missing file, concurrent replacement and unsupported schema; a snapshot that cannot be read consistently fails, rather than mixing bytes from different files.
 
-- [ ] Add fault-injection tests for every temp write/flush/replace boundary and assert either whole prior or whole new record is readable. Assert invalid schemas, duplicate fields, malformed paths and future journal versions produce Invalid and no delete/execute action.
-- [ ] Run red; implement bounded strict records, versioned schemas, write-through temp+flush+same-volume replacement and cross-process record serialization. Retain old/current pointers together in one atomic record. The registry binds exact executable identity to installation rather than selecting an arbitrary newest folder.
-- [ ] Write `RecoveryDecisionTests.PointerChangedBeforeCommitRecordRollsBack`: phase Committing with new pointer and vanished coordinator yields old target, candidate-stop requirement, unchanged settings and no cleanup. Cover every phase; a stale timestamp never yields promotion.
-- [ ] Implement transition validation and pure recovery decision table; add conflict test where an obsolete transaction cannot clear or commit another transaction.
-- [ ] Run both classes; apply commit convention, message `Persist recoverable updater transactions and launch targets`.
+- [x] Add fault-injection tests for every temp write/flush/replace boundary and assert either whole prior or whole new record is readable. Assert invalid schemas, duplicate fields, malformed paths and future journal versions produce Invalid and no delete/execute action.
+- [x] Run red; implement bounded strict records, versioned schemas, write-through temp+flush+same-volume replacement and cross-process record serialization. Retain old/current pointers together in one atomic record. The registry binds exact executable identity to installation rather than selecting an arbitrary newest folder.
+- [x] Write `RecoveryDecisionTests.PointerChangedBeforeCommitRecordRollsBack`: phase Committing with new pointer and vanished coordinator yields old target, candidate-stop requirement, unchanged settings and no cleanup. Cover every phase; a stale timestamp never yields promotion.
+- [x] Implement transition validation and pure recovery decision table; add conflict test where an obsolete transaction cannot clear or commit another transaction.
+- [x] Run both classes; apply commit convention, message `Persist recoverable updater transactions and launch targets`.
 
 ### Task 7: Stable launcher, process binding and managed shortcuts
 
