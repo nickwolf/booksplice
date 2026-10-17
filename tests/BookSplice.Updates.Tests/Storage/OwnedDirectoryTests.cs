@@ -196,8 +196,8 @@ public sealed class OwnedDirectoryTests
         middleWriteError = TryOpenForDataWrite(middle);
       });
       owned = store.CreateExclusive(middle, "staging", Guid.NewGuid(), Guid.NewGuid());
-      Assert.Equal(32, rootWriteError);
-      Assert.Equal(32, middleWriteError);
+      Assert.Equal(0, rootWriteError);
+      Assert.Equal(0, middleWriteError);
       using (var validated = store.OpenValidated(owned))
       {
         Assert.Equal(32, TryOpenForDataWrite(root));
@@ -212,6 +212,49 @@ public sealed class OwnedDirectoryTests
       if (Directory.Exists(middle)) Directory.Delete(middle);
       Directory.Delete(root);
     }
+  }
+
+  [Fact]
+  public void CallbackReplacementRecordsCreatedIdentityButFailsPostcheck()
+  {
+    var root = NewRoot();
+    OwnedDirectory? recorded = null;
+    try
+    {
+      var store = new OwnedDirectoryStore(root, item =>
+      {
+        recorded = item;
+        Directory.Move(item.Path, item.Path + "-created");
+        Directory.CreateDirectory(item.Path);
+      });
+      Assert.Throws<OwnedDirectoryException>(() => store.CreateNamedExclusive(root, "version", "version",
+        Guid.NewGuid(), Guid.NewGuid()));
+      Assert.NotNull(recorded);
+      Assert.True(Directory.Exists(recorded.Path + "-created"));
+      using (var replacement = BookSplice.Updates.Windows.SafeDirectoryHandle.OpenPath(recorded.Path, false))
+        Assert.NotEqual(recorded.Identity, replacement.Identity);
+    }
+    finally { Directory.Delete(root, true); }
+  }
+
+  [Fact]
+  public void CallbackParentReplacementFailsPostcheck()
+  {
+    var root = NewRoot();
+    var parent = Path.Combine(root, "parent");
+    Directory.CreateDirectory(parent);
+    try
+    {
+      var store = new OwnedDirectoryStore(root, item =>
+      {
+        Directory.Move(parent, parent + "-created");
+        Directory.CreateDirectory(parent);
+        Directory.CreateDirectory(item.Path);
+      });
+      Assert.Throws<OwnedDirectoryException>(() => store.CreateNamedExclusive(parent, "version", "version",
+        Guid.NewGuid(), Guid.NewGuid()));
+    }
+    finally { Directory.Delete(root, true); }
   }
 
   [Fact]

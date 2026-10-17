@@ -59,10 +59,12 @@ public sealed class OwnedDirectoryStore
       }
 
       child = SafeDirectoryHandle.CreateChild(parentHandle, kind + "-" + suffix);
+      var parentIdentity = parentHandle.Identity;
       parentHandle = null;
       var owned = new OwnedDirectory(child.Path, child.Identity, installationId, operationId, kind);
-      _record(owned);
-      return owned;
+      child.Dispose();
+      child = null;
+      return RecordAndRevalidate(owned, parentPath, parentIdentity);
     }
     catch (Exception error) when (error is not OwnedDirectoryException)
     {
@@ -86,20 +88,20 @@ public sealed class OwnedDirectoryStore
       throw new OwnedDirectoryException("The named child does not match its owned parent.");
     }
 
-    using var parentHandle = OpenValidated(parent);
-    SafeDirectoryHandle? child = null;
+    var parentHandle = OpenValidated(parent);
     try
     {
-      child = SafeDirectoryHandle.CreateBorrowedChild(parentHandle, leafName);
+      using var child = SafeDirectoryHandle.CreateBorrowedChild(parentHandle, leafName);
       var owned = new OwnedDirectory(child.Path, child.Identity, installationId, operationId, kind);
-      _record(owned);
-      return owned;
+      child.Dispose();
+      parentHandle.Dispose();
+      return RecordAndRevalidate(owned, parent.Path, parent.Identity);
     }
     catch (Exception error) when (error is not OwnedDirectoryException)
     {
       throw new OwnedDirectoryException("The named child could not be created or recorded.", error);
     }
-    finally { child?.Dispose(); }
+    finally { parentHandle.Dispose(); }
   }
 
   public OwnedDirectory CreateNamedExclusive(string parent, string leafName, string kind,
@@ -109,12 +111,33 @@ public sealed class OwnedDirectoryStore
     ValidateKind(kind);
     if (!SafeZipExtractor.IsSafeComponent(leafName))
       throw new OwnedDirectoryException("The named child is invalid.");
-    using var parentHandle = SafeDirectoryHandle.OpenPath(ValidatePath(parent), true,
+    var parentPath = ValidatePath(parent);
+    using var parentHandle = SafeDirectoryHandle.OpenPath(parentPath, true,
       _allowedRoot, _rootIdentity);
     using var child = SafeDirectoryHandle.CreateBorrowedChild(parentHandle, leafName);
     var owned = new OwnedDirectory(child.Path, child.Identity, installationId, operationId, kind);
-    _record(owned);
-    return owned;
+    var parentIdentity = parentHandle.Identity;
+    child.Dispose();
+    parentHandle.Dispose();
+    return RecordAndRevalidate(owned, parentPath, parentIdentity);
+  }
+
+  private OwnedDirectory RecordAndRevalidate(OwnedDirectory created, string parentPath,
+    FileIdentity parentIdentity)
+  {
+    _record(created);
+    try
+    {
+      using var reopened = SafeDirectoryHandle.OpenPath(created.Path, false, _allowedRoot,
+        _rootIdentity, parentAnchorPath: parentPath, parentAnchorIdentity: parentIdentity);
+      if (reopened.Identity != created.Identity)
+        throw new OwnedDirectoryException("The created directory changed during recording.");
+      return created;
+    }
+    catch (Exception error) when (error is not OwnedDirectoryException)
+    {
+      throw new OwnedDirectoryException("The created directory changed during recording.", error);
+    }
   }
 
   public SafeDirectoryHandle OpenValidated(OwnedDirectory recorded)

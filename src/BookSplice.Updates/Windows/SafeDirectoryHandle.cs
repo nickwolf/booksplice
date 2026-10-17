@@ -25,6 +25,7 @@ public sealed class SafeDirectoryHandle : IDisposable
   private const uint FileCreate = 2;
   private const uint FileOpen = 1;
   private const uint FileOpenIf = 3;
+  private const uint FileWriteThrough = 0x2;
   private const uint ObjCaseInsensitive = 0x40;
   private readonly List<SafeFileHandle> _ancestry;
   private readonly SafeDirectoryHandle? _parent;
@@ -93,7 +94,8 @@ public sealed class SafeDirectoryHandle : IDisposable
   internal static SafeDirectoryHandle OpenPath(string path, bool permitChildren,
     string? anchorPath = null, FileIdentity? anchorIdentity = null, bool permitRename = false,
     bool destinationForRename = false, string? parentAnchorPath = null,
-    FileIdentity? parentAnchorIdentity = null, bool createMissing = false)
+    FileIdentity? parentAnchorIdentity = null, bool createMissing = false,
+    bool allowEntryMutation = false)
   {
     var full = System.IO.Path.GetFullPath(path);
     var root = System.IO.Path.GetPathRoot(full)!;
@@ -134,7 +136,8 @@ public sealed class SafeDirectoryHandle : IDisposable
           OpenChild(handles[^1], components[index], access, FileOpenIf, FileDirectoryFile) :
           destinationForRename && index == components.Length - 1 ?
           OpenChild(handles[^1], components[index], access, FileOpen, FileDirectoryFile, 3) :
-          CreateFileW(walkedPath, access, 1, 0, 3,
+          CreateFileW(walkedPath, access,
+            allowEntryMutation && index == components.Length - 1 ? 3u : 1u, 0, 3,
             FileFlagBackupSemantics | FileFlagOpenReparsePoint, 0);
         if (current.IsInvalid)
         {
@@ -271,6 +274,38 @@ public sealed class SafeDirectoryHandle : IDisposable
   internal SafeFileHandle CreateNewFile(string name) => OpenChild(Handle, name,
     FileReadData | FileWriteData | FileReadAttributes, FileCreate, FileNonDirectoryFile);
 
+  internal SafeFileHandle CreateStateTemp(string name) => OpenChild(Handle, name,
+    FileReadData | FileWriteData | FileReadAttributes | Delete | Synchronize,
+    FileCreate, FileNonDirectoryFile, 1, synchronous: true, writeThrough: true);
+
+  internal SafeFileHandle OpenStateFile(string name) => OpenChild(Handle, name,
+    FileReadData | FileReadAttributes, FileOpen, FileNonDirectoryFile, 5);
+
+  internal static void RenameStateTemp(SafeFileHandle temp, SafeDirectoryHandle parent,
+    string name)
+  {
+    if (!BookSplice.Updates.Storage.SafeZipExtractor.IsSafeComponent(name))
+      throw new ArgumentException("State filename is invalid.", nameof(name));
+    var filename = System.Text.Encoding.Unicode.GetBytes(name);
+    var size = checked(24 + filename.Length);
+    var buffer = Marshal.AllocHGlobal(size);
+    try
+    {
+      Marshal.Copy(new byte[size], 0, buffer, size);
+      Marshal.WriteByte(buffer, 0, 1);
+      Marshal.WriteIntPtr(buffer, 8, parent.Handle.DangerousGetHandle());
+      Marshal.WriteInt32(buffer, 16, filename.Length);
+      Marshal.Copy(filename, 0, buffer + 20, filename.Length);
+      var status = NtSetInformationFile(temp, out _, buffer, (uint)size, 10);
+      if (status < 0)
+      {
+        var error = (int)RtlNtStatusToDosError(status);
+        throw new Win32Exception(error, $"Atomic state replacement failed ({error}, NT 0x{status:X8}).");
+      }
+    }
+    finally { Marshal.FreeHGlobal(buffer); }
+  }
+
   internal SafeFileHandle OpenFile(string name) => OpenChild(Handle, name,
     FileReadData | FileReadAttributes, FileOpen, FileNonDirectoryFile);
 
@@ -294,7 +329,8 @@ public sealed class SafeDirectoryHandle : IDisposable
   }
 
   private static SafeFileHandle OpenChild(SafeFileHandle parent, string name,
-    uint access, uint disposition, uint type = FileDirectoryFile, uint share = 1, bool synchronous = false)
+    uint access, uint disposition, uint type = FileDirectoryFile, uint share = 1,
+    bool synchronous = false, bool writeThrough = false)
   {
     if (name.Length == 0 || name.Contains('\\') || name.Contains('/') || name is "." or "..")
     {
@@ -320,7 +356,9 @@ public sealed class SafeDirectoryHandle : IDisposable
         Attributes = ObjCaseInsensitive
       };
       var status = NtCreateFile(out var rawHandle, access, ref attributes, out _, 0, 0,
-        share, disposition, type | FileOpenReparsePoint | (synchronous ? FileSynchronousIoNonAlert : 0), 0, 0);
+        share, disposition, type | FileOpenReparsePoint |
+        (synchronous ? FileSynchronousIoNonAlert : 0) |
+        (writeThrough ? FileWriteThrough : 0), 0, 0);
       if (status < 0)
       {
         var error = (int)RtlNtStatusToDosError(status);
