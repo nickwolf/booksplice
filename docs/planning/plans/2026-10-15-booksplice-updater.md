@@ -113,9 +113,9 @@ public void NumericPrecedenceIgnoresBuildMetadata()
 
 - [x] Write red `OwnedDirectoryTests.CollisionIsNeverRecordedOrRemoved`: pre-create sentinel dir, force name collision, assert create fails and sentinel/ownership unchanged. Add `ReplacementAtRecordedPathIsRefused` and identity-survives-rename assertions using real Windows file IDs.
 - [x] Implement exclusive native creation with collision-resistant names and record only successful creates. Use directory handles/reparse refusal and native identity queries. An unrecorded creation orphan is retained after crash.
-- [ ] Add a parameterized malicious ZIP fixture table for traversal/absolute/UNC/drive/ADS/device/trailing-dot-space/case-equivalent duplicate/file-dir collision/links; assert no output escapes, no candidate launches, and limits apply to actual streamed output. Use injectable small limits to test 1 GiB/4 GiB boundaries without allocating gigabytes; separately assert production constants.
-- [ ] Run red; implement entry preflight then bounded extraction into owned directories, full flat payload/inventory validation, same-volume no-replacement promotion support, and disk-full/cancel cleanup through recorded ownership only.
-- [ ] Run the three storage classes on Windows; apply commit convention, message `Stage update packages with Windows ownership checks`.
+- [x] Add a parameterized malicious ZIP fixture table for traversal/absolute/UNC/drive/ADS/device/trailing-dot-space/case-equivalent duplicate/file-dir collision/links; assert no output escapes, no candidate launches, and limits apply to actual streamed output. Use injectable small limits to test 1 GiB/4 GiB boundaries without allocating gigabytes; separately assert production constants.
+- [x] Run red; implement entry preflight then bounded extraction into owned directories, full flat payload/inventory validation, same-volume no-replacement promotion support, and disk-full/cancel cleanup through recorded ownership only.
+- [x] Run the three storage classes on Windows; apply commit convention, message `Stage update packages with Windows ownership checks`.
 
 ### Task 5: Cross-process activity and GUI operation gates
 
