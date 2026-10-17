@@ -89,6 +89,7 @@ public sealed class PackageStager
   private readonly Func<Guid> _operationId;
   private readonly Action<string>? _beforeExtraction;
   private readonly Action<string>? _afterRelease;
+  private readonly Action<string>? _afterPromotedRecord;
 
   public PackageStager(PackageDownloader downloader, OwnedDirectoryStore store,
     IPromotionJournal journal)
@@ -100,7 +101,7 @@ public sealed class PackageStager
   internal PackageStager(PackageDownloader downloader, OwnedDirectoryStore store,
     IPromotionJournal journal, SafeZipExtractor extractor, Func<string, long> availableBytes,
     long extractionReserve, Func<Guid> operationId, Action<string>? beforeExtraction = null,
-    Action<string>? afterRelease = null)
+    Action<string>? afterRelease = null, Action<string>? afterPromotedRecord = null)
   {
     _downloader = downloader ?? throw new ArgumentNullException(nameof(downloader));
     _store = store ?? throw new ArgumentNullException(nameof(store));
@@ -112,6 +113,7 @@ public sealed class PackageStager
     _operationId = operationId ?? throw new ArgumentNullException(nameof(operationId));
     _beforeExtraction = beforeExtraction;
     _afterRelease = afterRelease;
+    _afterPromotedRecord = afterPromotedRecord;
   }
 
   public async Task<StagedPackage> StageAsync(ReleaseCandidate release, VerifiedManifest manifest,
@@ -180,29 +182,33 @@ public sealed class PackageStager
     var destination = Path.Combine(layout.Versions.Path, leaf);
     var intent = new PromotionIntent(layout.InstallationId, staged.OperationId, staged.Payload,
       layout.Versions, leaf, destination, snapshot);
+    _journal.RecordPromotionIntent(intent);
     using (var source = PackageInventory.ReopenSnapshot(staged.Payload, snapshot, _store, true,
       staged.Stage))
     using (var destinationParent = _store.OpenValidatedForDestination(layout.Versions))
     {
       cancellationToken.ThrowIfCancellationRequested();
-      _journal.RecordPromotionIntent(intent);
       SafeDirectoryHandle.RejectReparseFile(destinationParent.Handle);
       source.ReleaseContentsForRename();
       source.RootHandle.RenameChildTo(destinationParent, leaf);
     }
     var promoted = new OwnedDirectory(destination, staged.Payload.Identity, layout.InstallationId,
       staged.OperationId, "version");
-    PackageInventory? confirmed = null;
+    using (var confirmed = PackageInventory.ReopenSnapshot(promoted, snapshot, _store, false))
+    {
+      confirmed.ValidatePackage(staged.Manifest);
+    }
+    _journal.RecordPromotedDirectory(intent, promoted);
+    _afterPromotedRecord?.Invoke(promoted.Path);
+    var reopened = PackageInventory.ReopenSnapshot(promoted, snapshot, _store, false);
     try
     {
-      confirmed = PackageInventory.ReopenSnapshot(promoted, snapshot, _store, false);
-      confirmed.ValidatePackage(staged.Manifest);
-      _journal.RecordPromotedDirectory(intent, promoted);
-      var result = new PromotedPackage(promoted, confirmed, staged.Manifest, staged.OperationId);
-      confirmed = null;
-      return Task.FromResult(result);
+      layout.Validate(_store);
+      reopened.ValidatePackage(staged.Manifest);
+      return Task.FromResult(new PromotedPackage(promoted, reopened, staged.Manifest,
+        staged.OperationId));
     }
-    finally { confirmed?.Dispose(); }
+    catch { reopened.Dispose(); throw; }
   }
 
   private void CheckSpace(string path, long needed)

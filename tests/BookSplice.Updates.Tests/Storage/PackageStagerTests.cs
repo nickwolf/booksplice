@@ -51,6 +51,49 @@ public sealed class PackageStagerTests
   }
 
   [Fact]
+  public async Task RealJournalAndOwnershipRecorderPersistPromotionOutsideNativeGuards()
+  {
+    using var fixture = new Fixture();
+    var (stager, journal, state, ownershipPath) = fixture.CreateDurableStager();
+    using var staged = await stager.StageAsync(fixture.Release, fixture.Manifest,
+      fixture.Layout, CancellationToken.None);
+    using var promoted = await stager.PromoteAsync(staged, fixture.Layout, CancellationToken.None);
+    Assert.Equal(promoted.Owned, journal.Read().Value!.Promotion!.Promoted);
+    Assert.Contains(state.Read<OwnershipState>(ownershipPath).Value!.Entries,
+      entry => entry.Path == promoted.Owned.Path && entry.Identity == promoted.Owned.Identity);
+    var originalOwnership = File.ReadAllBytes(ownershipPath);
+    var persisted = journal.Read().Value!.Promotion!;
+    var intent = new PromotionIntent(fixture.Layout.InstallationId, fixture.Operation,
+      persisted.Source, persisted.DestinationParent, persisted.DestinationLeaf,
+      persisted.DestinationPath, persisted.Snapshot.Restore());
+    Assert.Throws<InvalidDataException>(() => journal.RecordPromotedDirectory(intent,
+      promoted.Owned with { Path = promoted.Owned.Path + "-wrong" }));
+    Assert.Equal(originalOwnership, File.ReadAllBytes(ownershipPath));
+    promoted.Inventory.Revalidate();
+  }
+
+  [Fact]
+  public async Task ParentReplacementAfterPromotedRecordIsRefusedDespiteSamePayloadIdentity()
+  {
+    using var fixture = new Fixture();
+    var (stager, journal, state, ownershipPath) = fixture.CreateDurableStager(promotedPath =>
+    {
+      var versions = fixture.Layout.Versions.Path;
+      Directory.Move(versions, versions + "-old");
+      Directory.CreateDirectory(versions);
+      Directory.Move(Path.Combine(versions + "-old", Path.GetFileName(promotedPath)),
+        promotedPath);
+    });
+    using var staged = await stager.StageAsync(fixture.Release, fixture.Manifest,
+      fixture.Layout, CancellationToken.None);
+    await Assert.ThrowsAnyAsync<Exception>(() => stager.PromoteAsync(staged,
+      fixture.Layout, CancellationToken.None));
+    Assert.NotNull(journal.Read().Value!.Promotion!.Promoted);
+    Assert.Contains(state.Read<OwnershipState>(ownershipPath).Value!.Entries,
+      entry => entry.Path == journal.Read().Value!.Promotion!.Promoted!.Path);
+  }
+
+  [Fact]
   public async Task DisposedStageAllowsPlainDirectoryRename()
   {
     using var fixture = new Fixture();
@@ -208,7 +251,7 @@ public sealed class PackageStagerTests
       File.WriteAllText(Path.Combine(path, "BookSplice.Gui.exe"), "tampered"));
     await Assert.ThrowsAsync<PackageException>(() => stager.PromoteAsync(staged,
       fixture.Layout, CancellationToken.None));
-    Assert.Empty(fixture.Journal.Intents);
+    Assert.Single(fixture.Journal.Intents);
     Assert.True(Directory.Exists(staged.Payload.Path));
   }
 
@@ -227,7 +270,7 @@ public sealed class PackageStagerTests
     });
     await Assert.ThrowsAsync<OwnedDirectoryException>(() => stager.PromoteAsync(staged,
       fixture.Layout, CancellationToken.None));
-    Assert.Empty(fixture.Journal.Intents);
+    Assert.Single(fixture.Journal.Intents);
   }
 
   [Fact]
@@ -244,8 +287,6 @@ public sealed class PackageStagerTests
     {
       fixture.Journal.OnIntent = _ =>
       {
-        Assert.ThrowsAny<IOException>(() => Directory.Move(fixture.Layout.Versions.Path,
-          fixture.Layout.Versions.Path + "-moved"));
         CreateJunction(destination, outside);
       };
       await Assert.ThrowsAnyAsync<Exception>(() => fixture.Stager.PromoteAsync(staged,
@@ -278,7 +319,7 @@ public sealed class PackageStagerTests
       var error = await Record.ExceptionAsync(async () => promoted =
         await fixture.Stager.PromoteAsync(staged, fixture.Layout, CancellationToken.None));
       Assert.True(set, "The test must mutate the existing destination directory in place.");
-      Assert.IsType<NotSupportedException>(error);
+      Assert.IsType<OwnedDirectoryException>(error);
       Assert.Null(promoted);
       Assert.Empty(Directory.EnumerateFileSystemEntries(outside));
       Assert.Empty(fixture.Journal.Promoted);
@@ -482,6 +523,34 @@ public sealed class PackageStagerTests
       new(new PackageDownloader(new FixedClient(Release), _transport), _store, Journal,
         new SafeZipExtractor(_store), available, 1024, () => Operation,
         beforeExtraction, afterRelease);
+
+    public (PackageStager Stager, UpdateJournal Journal, AtomicStateStore State,
+      string OwnershipPath) CreateDurableStager(Action<string>? afterPromotedRecord = null)
+    {
+      var managed = Layout.ManagedRoot;
+      var ownershipPath = Path.Combine(managed.Path, "ownership.json");
+      var journalPath = Path.Combine(managed.Path, "journal.json");
+      var state = new AtomicStateStore(managed,
+        [OwnershipState.Definition("ownership.json", managed),
+         UpdateTransaction.Definition("journal.json", Layout.InstallationId)]);
+      state.Write(ownershipPath, new OwnershipState(1, Layout.InstallationId,
+        managed.Identity,
+        new[] { managed, Layout.Versions, Layout.Staging, Layout.Trash }
+          .Select(OwnershipEntry.FromCreated).ToArray()));
+      var recorder = new DurableOwnershipRecorder(state, ownershipPath, managed);
+      var creator = new OwnedDirectoryStore(_root, recorder.Record);
+      var journal = new UpdateJournal(state, journalPath, Layout.InstallationId, recorder);
+      var old = new OwnedOrOriginalTarget(TargetKind.Original,
+        Path.Combine(Layout.OriginalApplicationPath, "BookSplice.Gui.exe"),
+        Layout.OriginalIdentity, Layout.OriginalIdentity, null, "0.1.0", 1, null);
+      journal.Begin(new UpdateTransaction(1, Layout.InstallationId, Operation,
+        BookSplice.Updates.Handover.UpdatePhase.Preparing, old, null, null, true, 1,
+        new string('A', 64), [], null, null, null, null));
+      var stager = new PackageStager(new PackageDownloader(new FixedClient(Release), _transport),
+        creator, journal, new SafeZipExtractor(creator), _ => long.MaxValue, 1024,
+        () => Operation, afterPromotedRecord: afterPromotedRecord);
+      return (stager, journal, state, ownershipPath);
+    }
 
     private static ReleaseAsset Asset(long id, string name, long length) =>
       new(id, name, new Uri("https://github.com/nickwolf/booksplice/releases/download/v0.2.0/" + name), length);

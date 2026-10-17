@@ -8,6 +8,11 @@ public sealed class InstallationLayout
 {
   public InstallationLayout(string originalApplicationPath, string dataRoot, OwnedDirectory managedRoot,
     OwnedDirectory versions, OwnedDirectory staging, OwnedDirectory trash, OwnedDirectoryStore store)
+    : this(originalApplicationPath, dataRoot, managedRoot, versions, staging, trash, store, null, null) { }
+
+  private InstallationLayout(string originalApplicationPath, string dataRoot, OwnedDirectory managedRoot,
+    OwnedDirectory versions, OwnedDirectory staging, OwnedDirectory trash, OwnedDirectoryStore store,
+    FileIdentity? expectedOriginal, FileIdentity? expectedData)
   {
     ArgumentNullException.ThrowIfNull(store);
     OriginalApplicationPath = Canonical(originalApplicationPath);
@@ -17,10 +22,28 @@ public sealed class InstallationLayout
     Staging = staging ?? throw new ArgumentNullException(nameof(staging));
     Trash = trash ?? throw new ArgumentNullException(nameof(trash));
     using (var original = SafeDirectoryHandle.OpenPath(OriginalApplicationPath, false))
+    {
+      if (expectedOriginal is { } identity && original.Identity != identity)
+        throw new OwnedDirectoryException("The original application directory was replaced.");
       OriginalIdentity = original.Identity;
+    }
     using (var data = SafeDirectoryHandle.OpenPath(DataRoot, false))
+    {
+      if (expectedData is { } identity && data.Identity != identity)
+        throw new OwnedDirectoryException("The data root was replaced.");
       DataIdentity = data.Identity;
+    }
     Validate(store);
+  }
+
+  public static InstallationLayout Restore(string originalApplicationPath, string dataRoot,
+    FileIdentity originalIdentity, FileIdentity dataIdentity, OwnedDirectory managedRoot,
+    OwnedDirectory versions, OwnedDirectory staging, OwnedDirectory trash, OwnedDirectoryStore store)
+  {
+    if (!originalIdentity.IsValid || !dataIdentity.IsValid)
+      throw new OwnedDirectoryException("Persisted installation identities are invalid.");
+    return new InstallationLayout(originalApplicationPath, dataRoot, managedRoot, versions, staging,
+      trash, store, originalIdentity, dataIdentity);
   }
 
   public string OriginalApplicationPath { get; }
