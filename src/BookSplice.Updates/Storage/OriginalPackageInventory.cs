@@ -61,6 +61,7 @@ public sealed class OriginalPackageInventory : IDisposable
   }
 
   public FileIdentity ParentIdentity { get; }
+  public string RootPath => _root.Path;
   public PackageSnapshot Snapshot => _snapshot;
 
   public static string BindingDigest(FileIdentity parentIdentity, PackageSnapshot snapshot)

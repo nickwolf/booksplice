@@ -180,6 +180,12 @@ public sealed class PackageInventory : IDisposable
     PackagePayloadValidator.Validate(Files, ReadText, manifest.Version);
   }
 
+  internal void ValidatePackage(string expectedVersion)
+  {
+    Revalidate();
+    PackagePayloadValidator.Validate(Files, ReadText, expectedVersion);
+  }
+
   private string ReadText(string path, long limit)
   {
     if (!_files.TryGetValue(path, out var file))

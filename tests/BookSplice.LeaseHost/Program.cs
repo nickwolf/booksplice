@@ -1,6 +1,36 @@
 using BookSplice.Updates.Windows;
 using BookSplice.Updates.Storage;
 using System.Globalization;
+using BookSplice.Updates.Handover;
+using System.IO.Pipes;
+
+if (args.Length > 0 && args[0] == "pipe-ready")
+{
+  using var coordinator = SupervisedProcess.CaptureExpected(new ProcessIdentity(
+    int.Parse(args[3], CultureInfo.InvariantCulture),
+    long.Parse(args[4], CultureInfo.InvariantCulture), args[5]));
+  using var self = SupervisedProcess.CaptureCurrent();
+  using var session = await UpdatePipe.ConnectAsync(args[1], coordinator, Guid.Parse(args[2]),
+    Convert.FromHexString(args[6]), self, CancellationToken.None);
+  await session.SendAsync(UpdateMessageKind.Ready);
+  Console.WriteLine("sent");
+  Console.Out.Flush();
+  await Task.Delay(TimeSpan.FromSeconds(30));
+  return 0;
+}
+
+if (args.Length > 0 && args[0] == "pipe-oversize")
+{
+  using var pipe = new NamedPipeClientStream(".", args[1], PipeDirection.InOut,
+    PipeOptions.Asynchronous);
+  await pipe.ConnectAsync();
+  await pipe.WriteAsync(BitConverter.GetBytes(4097));
+  await pipe.FlushAsync();
+  Console.WriteLine("sent");
+  Console.Out.Flush();
+  await Task.Delay(TimeSpan.FromSeconds(30));
+  return 0;
+}
 
 if (args.Length > 1 && args[1] == "state-increment")
 {
