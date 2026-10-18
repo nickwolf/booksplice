@@ -1,14 +1,21 @@
 using BookSplice.Updates.Windows;
 using BookSplice.Updates.Storage;
-using System.Globalization;
 using BookSplice.Updates.Handover;
 using System.IO.Pipes;
+using System.Globalization;
+
+if (args.Length > 0 && args[0] == "hold")
+{
+  await Task.Delay(TimeSpan.FromSeconds(30));
+  return 0;
+}
 
 if (args.Length > 0 && args[0] == "pipe-ready")
 {
   using var coordinator = SupervisedProcess.CaptureExpected(new ProcessIdentity(
     int.Parse(args[3], CultureInfo.InvariantCulture),
-    long.Parse(args[4], CultureInfo.InvariantCulture), args[5]));
+    long.Parse(args[4], CultureInfo.InvariantCulture), args[5]),
+    new FileIdentity(ulong.Parse(args[7], CultureInfo.InvariantCulture), args[8]), args[9]);
   using var self = SupervisedProcess.CaptureCurrent();
   using var session = await UpdatePipe.ConnectAsync(args[1], coordinator, Guid.Parse(args[2]),
     Convert.FromHexString(args[6]), self, CancellationToken.None);

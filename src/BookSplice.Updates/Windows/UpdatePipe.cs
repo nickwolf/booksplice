@@ -29,6 +29,8 @@ public sealed class UpdateSession : IDisposable
   private readonly Guid _transaction;
   private readonly byte[] _nonce;
   private readonly ProcessIdentity _local;
+  private readonly object _state = new();
+  private readonly SemaphoreSlim _sendGate = new(1, 1);
   private bool _aborted;
   private bool _disposed;
 
@@ -44,13 +46,32 @@ public sealed class UpdateSession : IDisposable
 
   public async Task SendAsync(UpdateMessageKind kind, CancellationToken cancellationToken = default)
   {
-    EnsureActive();
-    VerifyPeer();
-    var message = new WireMessage(1, kind.ToString(), _transaction,
-      UpdateProtocol.ProtocolVersion, _local, _peer.Identity, Convert.ToBase64String(_nonce));
-    await WriteAsync(_pipe, JsonSerializer.SerializeToUtf8Bytes(message), cancellationToken)
-      .ConfigureAwait(false);
-    if (kind == UpdateMessageKind.Abort) _aborted = true;
+    if (!Enum.IsDefined(kind)) throw new ArgumentOutOfRangeException(nameof(kind));
+    lock (_state)
+    {
+      EnsureActiveLocked();
+      if (kind == UpdateMessageKind.Abort) _aborted = true;
+    }
+    await _sendGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+    try
+    {
+      lock (_state)
+      {
+        if (kind != UpdateMessageKind.Abort) EnsureActiveLocked();
+        else ObjectDisposedException.ThrowIf(_disposed, this);
+      }
+      VerifyPeer();
+      var message = new WireMessage(1, kind.ToString(), _transaction,
+        UpdateProtocol.ProtocolVersion, _local, _peer.Identity, Convert.ToBase64String(_nonce));
+      await WriteAsync(_pipe, JsonSerializer.SerializeToUtf8Bytes(message), cancellationToken)
+        .ConfigureAwait(false);
+    }
+    catch
+    {
+      lock (_state) _aborted = true;
+      throw;
+    }
+    finally { _sendGate.Release(); }
   }
 
   public async Task<UpdateMessage> ReceiveAsync(CancellationToken cancellationToken = default)
@@ -76,8 +97,7 @@ public sealed class UpdateSession : IDisposable
       if (message.SchemaVersion != 1 || message.ProtocolVersion != UpdateProtocol.ProtocolVersion ||
           message.TransactionId != _transaction || message.Sender != _peer.Identity ||
           message.Recipient != _local ||
-          !Enum.TryParse<UpdateMessageKind>(message.Kind, false, out var kind) ||
-          !Enum.IsDefined(kind))
+          !TryNamedKind(message.Kind, out var kind))
         throw new InvalidDataException("The update message identity is invalid.");
       byte[] supplied;
       try { supplied = Convert.FromBase64String(message.Nonce); }
@@ -85,15 +105,33 @@ public sealed class UpdateSession : IDisposable
       if (supplied.Length != 32 || !CryptographicOperations.FixedTimeEquals(supplied, _nonce))
         throw new InvalidDataException("The update nonce is invalid.");
       VerifyPeer();
-      if (kind == UpdateMessageKind.Abort) _aborted = true;
-      return new UpdateMessage(kind, _transaction, message.ProtocolVersion, message.Sender,
-        message.Recipient);
+      lock (_state)
+      {
+        cancellationToken.ThrowIfCancellationRequested();
+        EnsureActiveLocked();
+        if (kind == UpdateMessageKind.Abort) _aborted = true;
+        return new UpdateMessage(kind, _transaction, message.ProtocolVersion, message.Sender,
+          message.Recipient);
+      }
     }
     catch
     {
-      _aborted = true;
+      lock (_state) _aborted = true;
       throw;
     }
+  }
+
+  private static bool TryNamedKind(string? name, out UpdateMessageKind kind)
+  {
+    kind = name switch
+    {
+      "Ready" => UpdateMessageKind.Ready,
+      "Commit" => UpdateMessageKind.Commit,
+      "Abort" => UpdateMessageKind.Abort,
+      "OldExited" => UpdateMessageKind.OldExited,
+      _ => default
+    };
+    return name is "Ready" or "Commit" or "Abort" or "OldExited";
   }
 
   private static void ValidateUniqueProperties(JsonElement element)
@@ -124,6 +162,11 @@ public sealed class UpdateSession : IDisposable
 
   private void EnsureActive()
   {
+    lock (_state) EnsureActiveLocked();
+  }
+
+  private void EnsureActiveLocked()
+  {
     ObjectDisposedException.ThrowIf(_disposed, this);
     if (_aborted || !_pipe.IsConnected) throw new IOException("The update session is closed.");
   }
@@ -151,9 +194,13 @@ public sealed class UpdateSession : IDisposable
 
   public void Dispose()
   {
-    if (_disposed) return;
-    _disposed = true;
-    CryptographicOperations.ZeroMemory(_nonce);
+    lock (_state)
+    {
+      if (_disposed) return;
+      _disposed = true;
+      _aborted = true;
+      CryptographicOperations.ZeroMemory(_nonce);
+    }
     _pipe.Dispose();
   }
 
@@ -204,14 +251,20 @@ public static class UpdatePipe
     SupervisedProcess local, CancellationToken cancellationToken)
   {
     ValidateArguments(expectedClient, local, transactionId, nonce);
-    await server.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
+    var snapshot = nonce.ToArray();
     try
     {
+      await server.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
       expectedClient.VerifyPeer(ClientPid(server.SafePipeHandle));
-      return new UpdateSession(server, expectedClient, transactionId, nonce.ToArray(),
+      return new UpdateSession(server, expectedClient, transactionId, snapshot,
         local.Identity);
     }
-    catch { server.Dispose(); throw; }
+    catch
+    {
+      CryptographicOperations.ZeroMemory(snapshot);
+      server.Dispose();
+      throw;
+    }
   }
 
   public static async Task<UpdateSession> ConnectAsync(string pipeName,
@@ -220,16 +273,23 @@ public static class UpdatePipe
   {
     if (!ValidPipeName(pipeName)) throw new ArgumentException("Invalid update pipe name.");
     ValidateArguments(expectedServer, local, transactionId, nonce);
-    var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut,
-      PipeOptions.Asynchronous);
+    var snapshot = nonce.ToArray();
+    NamedPipeClientStream? client = null;
     try
     {
+      client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut,
+        PipeOptions.Asynchronous);
       await client.ConnectAsync(cancellationToken).ConfigureAwait(false);
       expectedServer.VerifyPeer(ServerPid(client.SafePipeHandle));
-      return new UpdateSession(client, expectedServer, transactionId, nonce.ToArray(),
+      return new UpdateSession(client, expectedServer, transactionId, snapshot,
         local.Identity);
     }
-    catch { client.Dispose(); throw; }
+    catch
+    {
+      CryptographicOperations.ZeroMemory(snapshot);
+      client?.Dispose();
+      throw;
+    }
   }
 
   private static bool ValidPipeName(string name) => name.StartsWith("booksplice-update-",

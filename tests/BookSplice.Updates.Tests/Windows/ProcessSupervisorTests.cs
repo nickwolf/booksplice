@@ -1,5 +1,6 @@
 using BookSplice.Updates.Handover;
 using BookSplice.Updates.Windows;
+using System.Diagnostics;
 
 namespace BookSplice.Updates.Tests.Windows;
 
@@ -40,10 +41,73 @@ public sealed class ProcessSupervisorTests
     Assert.Throws<IOException>(() => SupervisedProcess.CaptureExpected(actual with
     {
       StartTimeUtcTicks = actual.StartTimeUtcTicks + 1
-    }));
+    }, current.ImageIdentity, current.ImageSha256));
     Assert.Throws<IOException>(() => SupervisedProcess.CaptureExpected(actual with
     {
       ExecutablePath = HelperPath()
-    }));
+    }, current.ImageIdentity, current.ImageSha256));
+    Assert.Throws<IOException>(() => SupervisedProcess.CaptureExpected(actual,
+      current.ImageIdentity with { FileIdHex = new string('F', 32) }, current.ImageSha256));
+    Assert.Throws<IOException>(() => SupervisedProcess.CaptureExpected(actual,
+      current.ImageIdentity, new string('F', 64)));
+  }
+
+  [Fact]
+  public async Task AcquisitionBoundaryRejectsAHandleFromAnotherProcess()
+  {
+    if (!OperatingSystem.IsWindows()) return;
+    using var expected = SupervisedProcess.CaptureCurrent();
+    using var child = Process.Start(new ProcessStartInfo(HelperPath())
+    {
+      ArgumentList = { "hold" },
+      UseShellExecute = false,
+      CreateNoWindow = true
+    })!;
+    try
+    {
+      Assert.Throws<IOException>(() => ProcessSupervisor.ValidateExpectedHandle(child.SafeHandle,
+        expected.Identity, expected.ImageIdentity, expected.ImageSha256));
+    }
+    finally
+    {
+      if (!child.HasExited) child.Kill();
+      await child.WaitForExitAsync();
+    }
+  }
+
+  [Fact]
+  public async Task FailedTerminationRetainsTheExactUnverifiedChildHandle()
+  {
+    if (!OperatingSystem.IsWindows()) return;
+    var process = Process.Start(new ProcessStartInfo(HelperPath())
+    {
+      ArgumentList = { "hold" },
+      UseShellExecute = false,
+      CreateNoWindow = true
+    })!;
+    var error = new IOException("Injected image verification failure.");
+    var failure = Assert.Throws<UnverifiedChildException>(() =>
+      ProcessSupervisor.ResolveFailedStart(process, error, _ => false));
+    using var retained = failure.Child;
+    Assert.Same(error, failure.InnerException);
+    Assert.Equal(process.Id, retained.Pid);
+    Assert.False(retained.HasExited);
+    await retained.StopAndWaitAsync();
+    Assert.True(retained.HasExited);
+  }
+
+  [Fact]
+  public async Task CancelledStopDoesNotInitiateTermination()
+  {
+    if (!OperatingSystem.IsWindows()) return;
+    using var capability = VerifiedExecutable.PinFile(HelperPath());
+    using var child = ProcessSupervisor.Start(capability, ["hold"],
+      new Dictionary<string, string>());
+    using var cancellation = new CancellationTokenSource();
+    cancellation.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+      child.StopAsync(cancellation.Token));
+    Assert.False(child.HasExited);
+    await child.StopAsync();
   }
 }
