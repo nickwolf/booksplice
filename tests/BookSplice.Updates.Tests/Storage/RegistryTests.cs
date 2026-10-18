@@ -18,7 +18,7 @@ public sealed class RegistryTests
       var data = Path.Combine(root, "data");
       Directory.CreateDirectory(original);
       Directory.CreateDirectory(data);
-      File.WriteAllText(Path.Combine(original, "BookSplice.Gui.exe"), "fixture");
+      OriginalPackageFixture.Write(original);
       var creator = new OwnedDirectoryStore(root, _ => { });
       var owned = creator.CreateNamedExclusive(root,
         ".booksplice-managed-" + installationId.ToString("D"), "managed-root",

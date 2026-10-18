@@ -64,7 +64,14 @@ public sealed record OwnedOrOriginalTarget(TargetKind Kind, string ExecutablePat
     try
     {
       if (Kind == TargetKind.Original)
-        return Package is null && OwnedDirectory is null;
+      {
+        if (OwnedDirectory is not null) return false;
+        if (Package is null) return true;
+        Package.Restore();
+        return Package.RootIdentity == DirectoryIdentity && Package.Files.Any(file =>
+          string.Equals(file.RelativePath, "BookSplice.Gui.exe", StringComparison.OrdinalIgnoreCase) &&
+          file.Identity == ExecutableIdentity);
+      }
       if (Kind != TargetKind.Managed || Package is null || OwnedDirectory is null ||
           OwnedDirectory.Identity != DirectoryIdentity ||
           !RecoveryRecordValidation.Absolute(OwnedDirectory.Path) ||
@@ -101,21 +108,24 @@ public sealed record InstallationRecord(int SchemaVersion, Guid InstallationId,
   OwnedDirectory Staging, OwnedDirectory Trash, string StableLauncherPath,
   FileIdentity? StableLauncherIdentity, string OriginalExecutablePath,
   FileIdentity OriginalExecutableIdentity, string OriginalExecutableSha256,
-  string OriginalVersion, int OriginalProtocolVersion)
+  string OriginalVersion, int OriginalProtocolVersion,
+  FileIdentity? OriginalParentIdentity = null, PersistedPackage? OriginalPackage = null,
+  string? OriginalPackageBindingSha256 = null)
 {
   public static InstallationRecord FromLayout(InstallationLayout layout, string originalVersion)
   {
-    using var original = SafeDirectoryHandle.OpenPath(layout.OriginalApplicationPath, false);
-    if (original.Identity != layout.OriginalIdentity)
-      throw new OwnedDirectoryException("The original application changed before registration.");
-    using var executable = original.OpenFile("BookSplice.Gui.exe");
-    SafeDirectoryHandle.RejectReparseFile(executable);
+    using var original = OriginalPackageInventory.Capture(layout.OriginalApplicationPath,
+      layout.OriginalIdentity, originalVersion);
+    var executable = original.Snapshot.Files.Single(file =>
+      string.Equals(file.RelativePath, "BookSplice.Gui.exe", StringComparison.OrdinalIgnoreCase));
     return new(1, layout.InstallationId, layout.OriginalApplicationPath, layout.OriginalIdentity,
       layout.DataRoot, layout.DataIdentity, layout.ManagedRoot, layout.Versions,
       layout.Staging, layout.Trash, layout.StableLauncherPath, null,
       Path.Combine(layout.OriginalApplicationPath, "BookSplice.Gui.exe"),
-      NativeFileIdentity.Read(executable), PackageInventory.HashHandle(executable),
-      originalVersion, UpdateProtocol.ProtocolVersion);
+      executable.Identity, executable.Sha256,
+      originalVersion, UpdateProtocol.ProtocolVersion, original.ParentIdentity,
+      PersistedPackage.FromSnapshot(original.Snapshot),
+      OriginalPackageInventory.BindingDigest(original.ParentIdentity, original.Snapshot));
   }
 
   public bool IsValid() => SchemaVersion == 1 && InstallationId != Guid.Empty &&
@@ -124,6 +134,7 @@ public sealed record InstallationRecord(int SchemaVersion, Guid InstallationId,
     RecoveryRecordValidation.Hash(OriginalExecutableSha256) &&
     !string.IsNullOrWhiteSpace(OriginalVersion) && OriginalVersion.Length <= 128 &&
     OriginalProtocolVersion == UpdateProtocol.ProtocolVersion &&
+    ValidOriginalPackage() &&
     string.Equals(OriginalExecutablePath,
       Path.Combine(OriginalApplicationPath, "BookSplice.Gui.exe"), StringComparison.OrdinalIgnoreCase) &&
     RecoveryRecordValidation.Absolute(OriginalApplicationPath) &&
@@ -140,6 +151,28 @@ public sealed record InstallationRecord(int SchemaVersion, Guid InstallationId,
     string.Equals(Trash.Path, Path.Combine(ManagedRoot.Path, "trash"), StringComparison.OrdinalIgnoreCase) &&
     string.Equals(StableLauncherPath, Path.Combine(ManagedRoot.Path, "BookSplice.Launcher.exe"),
       StringComparison.OrdinalIgnoreCase);
+
+  private bool ValidOriginalPackage()
+  {
+    if (OriginalPackage is null)
+      return OriginalParentIdentity is null && OriginalPackageBindingSha256 is null;
+    if (OriginalParentIdentity is not { IsValid: true } ||
+        OriginalPackage.RootIdentity != OriginalIdentity ||
+        !RecoveryRecordValidation.Hash(OriginalPackageBindingSha256)) return false;
+    try
+    {
+      var snapshot = OriginalPackage.Restore();
+      if (!string.Equals(OriginalPackageInventory.BindingDigest(
+            OriginalParentIdentity.Value, snapshot), OriginalPackageBindingSha256,
+          StringComparison.OrdinalIgnoreCase)) return false;
+      return OriginalPackage.Files.Any(file =>
+        string.Equals(file.RelativePath, "BookSplice.Gui.exe", StringComparison.OrdinalIgnoreCase) &&
+        file.Identity == OriginalExecutableIdentity &&
+        string.Equals(file.Sha256, OriginalExecutableSha256, StringComparison.OrdinalIgnoreCase));
+    }
+    catch (Exception error) when (error is InvalidDataException or ArgumentException or OverflowException)
+    { return false; }
+  }
 
   public InstallationLayout Restore(OwnedDirectoryStore store)
   {

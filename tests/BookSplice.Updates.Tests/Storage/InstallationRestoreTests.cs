@@ -18,7 +18,7 @@ public sealed class InstallationRestoreTests
       var data = Path.Combine(root, "data");
       Directory.CreateDirectory(original);
       Directory.CreateDirectory(data);
-      File.WriteAllText(Path.Combine(original, "BookSplice.Gui.exe"), "fixture");
+      OriginalPackageFixture.Write(original);
       var installationId = Guid.NewGuid();
       var store = new OwnedDirectoryStore(root, _ => { });
       var managed = store.CreateNamedExclusive(root,
@@ -32,6 +32,9 @@ public sealed class InstallationRestoreTests
         installationId, Guid.NewGuid());
       var layout = new InstallationLayout(original, data, managed, versions, staging, trash, store);
       var record = InstallationRecord.FromLayout(layout, "1.0.0");
+      Assert.True(record.IsValid());
+      Assert.NotNull(record.OriginalPackage);
+      Assert.False((record with { OriginalPackageBindingSha256 = new string('0', 64) }).IsValid());
       var replaced = replaceOriginal ? original : data;
       Directory.Move(replaced, replaced + "-old");
       Directory.CreateDirectory(replaced);

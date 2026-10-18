@@ -67,12 +67,13 @@ public static class RecoveryPolicy
         return RecoveryDecision.Refuse("The current mapping is corrupt during a recorded transaction.");
       var original = new OwnedOrOriginalTarget(TargetKind.Original,
         installation.OriginalExecutablePath, installation.OriginalIdentity,
-        installation.OriginalExecutableIdentity, null, installation.OriginalVersion,
+        installation.OriginalExecutableIdentity, installation.OriginalPackage,
+        installation.OriginalVersion,
         installation.OriginalProtocolVersion, null);
       if (!TargetBelongs(original, installation, ownership))
         return RecoveryDecision.Refuse("The recorded original target is invalid.");
       return new RecoveryDecision(false, null, original, PointerAction.Keep,
-        RecoveryStop.None, null, false, OldAction.ManualRecoveryOnly, false);
+        RecoveryStop.None, null, false, FreshAction(original), false);
     }
     if (snapshot.Transaction.Kind == StateReadKind.Missing)
     {
@@ -178,6 +179,11 @@ public static class RecoveryPolicy
     if (target.Kind == TargetKind.Original)
       return target.DirectoryIdentity == installation.OriginalIdentity &&
         target.ExecutableIdentity == installation.OriginalExecutableIdentity &&
+        ((target.Package is null && installation.OriginalPackage is null) ||
+         (target.Package is not null && installation.OriginalPackage is not null &&
+          target.Package.RootIdentity == installation.OriginalPackage.RootIdentity &&
+          string.Equals(target.Package.Sha256, installation.OriginalPackage.Sha256,
+            StringComparison.OrdinalIgnoreCase))) &&
         target.Version == installation.OriginalVersion &&
         target.ProtocolVersion == installation.OriginalProtocolVersion &&
         string.Equals(target.ExecutablePath, installation.OriginalExecutablePath,
