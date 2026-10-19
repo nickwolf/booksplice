@@ -57,7 +57,7 @@ public sealed class FFmpegCommandFactory(MediaToolSet tools)
     var args = BaseArguments();
     args.AddRange(["-i", source, "-map", "0:a:0"]);
     AddEncode(args, plan);
-    args.AddRange(["-f", "adts", "-y", output]);
+    args.AddRange(["-f", "ipod", "-y", output]);
     return new ProcessSpec(tools.FFmpegPath, args);
   }
   private static List<string> BaseArguments() =>

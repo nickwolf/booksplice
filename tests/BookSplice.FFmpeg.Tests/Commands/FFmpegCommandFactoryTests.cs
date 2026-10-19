@@ -90,9 +90,10 @@ public sealed class FFmpegCommandFactoryTests
   [Fact]
   public void CreateSegmentUsesFrozenSampleRateAndChannels()
   {
-    var spec = Factory().CreateSegment(Plan(AudioStrategy.SegmentedTranscode, sampleRate: 48000, channels: 1), @"C:\input\one.mp3", @"C:\temp\segment.aac");
+    var spec = Factory().CreateSegment(Plan(AudioStrategy.SegmentedTranscode, sampleRate: 48000, channels: 1), @"C:\input\one.mp3", @"C:\temp\segment.m4a");
     Assert.Equal("48000", spec.Arguments[spec.Arguments.ToList().IndexOf("-ar") + 1]);
     Assert.Equal("1", spec.Arguments[spec.Arguments.ToList().IndexOf("-ac") + 1]);
+    Assert.Equal("ipod", spec.Arguments[spec.Arguments.ToList().IndexOf("-f") + 1]);
   }
 
   [Fact]
