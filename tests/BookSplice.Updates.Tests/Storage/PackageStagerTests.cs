@@ -195,6 +195,84 @@ public sealed class PackageStagerTests
   }
 
   [Fact]
+  public async Task IsolatedRecordsChildAllowsJournalCreationAndReplacementWithStrictPackageGuards()
+  {
+    using var fixture = new Fixture(runnableSelfCheck: true);
+    var records = fixture.CreateRecords();
+    var journalPath = Path.Combine(records.Path, "journal.json");
+    var outside = Path.Combine(Path.GetTempPath(), "booksplice-records-outside-" + Guid.NewGuid().ToString("N"));
+    var control = Path.Combine(Path.GetTempPath(), "booksplice-records-control-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(outside);
+    Directory.CreateDirectory(control);
+    File.WriteAllText(Path.Combine(outside, "sentinel"), "unchanged");
+    var mutationAttempts = 0;
+    var state = new AtomicStateStore(records,
+      [UpdateTransaction.Definition("journal.json", fixture.Layout.InstallationId)], point =>
+      {
+        if (point != StateWritePoint.BeforeReplace) return;
+        mutationAttempts++;
+        Assert.False(TrySetMountPoint(records.Path, outside));
+        Assert.False(TrySetMountPoint(fixture.Layout.ManagedRoot.Path, outside));
+        Assert.ThrowsAny<IOException>(() => Directory.Move(records.Path, records.Path + "-moved"));
+        Assert.ThrowsAny<IOException>(() => Directory.Move(fixture.Layout.ManagedRoot.Path,
+          fixture.Layout.ManagedRoot.Path + "-moved"));
+        Assert.Equal("unchanged", File.ReadAllText(Path.Combine(outside, "sentinel")));
+      });
+    var journal = new UpdateJournal(state, journalPath, fixture.Layout.InstallationId);
+    var settingsRoot = Path.Combine(fixture.Layout.DataRoot, "BookSplice");
+    Directory.CreateDirectory(settingsRoot);
+    var settingsPath = Path.Combine(settingsRoot, "settings.json");
+    File.WriteAllText(settingsPath, "{\"schemaVersion\":1}");
+    var snapshot = await SettingsSnapshot.CaptureAsync(settingsPath);
+    try
+    {
+      Assert.True(TrySetMountPoint(control, outside));
+      ClearMountPoint(control);
+      using var staged = await fixture.Stager.StageAsync(fixture.Release, fixture.Manifest,
+        fixture.Layout, CancellationToken.None);
+      var helper = SelfCheckRunner.RunAsync(staged, snapshot, CancellationToken.None);
+      var original = fixture.Layout.OriginalApplicationPath;
+      var old = new OwnedOrOriginalTarget(TargetKind.Original,
+        Path.Combine(original, "BookSplice.Gui.exe"), fixture.Layout.OriginalIdentity,
+        fixture.Layout.OriginalIdentity, null, "0.1.0", 1, null);
+      try
+      {
+        journal.Begin(new UpdateTransaction(1, fixture.Layout.InstallationId, fixture.Operation,
+          UpdatePhase.Preparing, old, null, null, true, 1, new string('A', 64), [],
+          null, null, null, null));
+        journal.Change(fixture.Operation, UpdatePhase.Preparing, current => current);
+        Assert.False(TrySetMountPoint(staged.Payload.Path, outside));
+        Assert.ThrowsAny<IOException>(() => Directory.Move(staged.Payload.Path,
+          staged.Payload.Path + "-moved"));
+        staged.Inventory.Revalidate();
+      }
+      finally { Assert.Equal("0.2.0", (await helper).Version); }
+      Assert.Equal(2, mutationAttempts);
+      Assert.Equal(UpdatePhase.Preparing, journal.Read().Value!.Phase);
+      Assert.Equal("unchanged", File.ReadAllText(Path.Combine(outside, "sentinel")));
+    }
+    finally
+    {
+      Directory.Delete(control);
+      Directory.Delete(outside, true);
+    }
+  }
+
+  [Fact]
+  public async Task ManagedRootJournalReplacementSucceedsAfterFullInventoryRelease()
+  {
+    using var fixture = new Fixture();
+    var (stager, journal, _, _) = fixture.CreateDurableStager();
+    var staged = await stager.StageAsync(fixture.Release, fixture.Manifest,
+      fixture.Layout, CancellationToken.None);
+    Assert.ThrowsAny<Exception>(() => journal.Change(fixture.Operation,
+      UpdatePhase.Preparing, current => current));
+    staged.Dispose();
+    journal.Change(fixture.Operation, UpdatePhase.Preparing, current => current);
+    Assert.Equal(UpdatePhase.Preparing, journal.Read().Value!.Phase);
+  }
+
+  [Fact]
   public async Task ParentReplacementAfterPromotedRecordIsRefusedDespiteSamePayloadIdentity()
   {
     using var fixture = new Fixture();
@@ -639,6 +717,8 @@ public sealed class PackageStagerTests
 
     public OwnedDirectory CreateEmptyPayload() => _store.CreateNamedExclusive(Layout.Staging,
       "empty", "payload", Layout.InstallationId, Guid.NewGuid());
+    public OwnedDirectory CreateRecords() => _store.CreateNamedExclusive(Layout.ManagedRoot,
+      "records", "records", Layout.InstallationId, Operation);
     public BookSplice.Updates.Windows.SafeDirectoryHandle OpenForRename(OwnedDirectory owned) =>
       _store.OpenValidatedForRename(owned, Layout.Staging);
     public BookSplice.Updates.Windows.SafeDirectoryHandle OpenVersions() =>
