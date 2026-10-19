@@ -35,6 +35,8 @@ public sealed class SafeDirectoryHandle : IDisposable
   public FileIdentity Identity { get; }
   public SafeFileHandle Handle { get; }
 
+  public static SafeDirectoryHandle OpenCanonical(string path) => OpenPath(path, false);
+
   internal SafeDirectoryHandle(string path, SafeFileHandle handle, List<SafeFileHandle> ancestry,
     SafeDirectoryHandle? parent = null)
   {

@@ -27,6 +27,24 @@ public sealed class JsonSettingsStore : ISettingsStore
   public JsonSettingsStore(string localAppDataRoot) => SettingsPath = Path.Combine(localAppDataRoot, "BookSplice", "settings.json");
   public string SettingsPath { get; }
 
+  public static SettingsLoadResult ParseSnapshot(byte[]? bytes)
+  {
+    if (bytes is null) return SettingsLoadResult.Missing(AppSettings.Defaults);
+    try
+    {
+      var node = JsonNode.Parse(bytes, documentOptions: new JsonDocumentOptions { MaxDepth = 32 });
+      if (node is not JsonObject json) return new(SettingsLoadCode.Corrupt, null, ["root must be an object"]);
+      if (ReadInt(json, "schemaVersion") != AppSettings.CurrentSchemaVersion)
+        return new(SettingsLoadCode.UnsupportedFutureSchema, null, ["updater protocol requires settings schema 1"]);
+      var settings = Parse(json);
+      var validation = SettingsValidator.Validate(settings);
+      return validation.IsValid ? new(SettingsLoadCode.Valid, settings, []) :
+        new(SettingsLoadCode.ValidationFailed, null, validation.Errors);
+    }
+    catch (Exception ex) when (ex is JsonException or FormatException or InvalidOperationException or NotSupportedException)
+    { return new(SettingsLoadCode.Corrupt, null, [ex.Message]); }
+  }
+
   public async Task<SettingsLoadResult> LoadAsync(CancellationToken cancellationToken = default)
   {
     if (!File.Exists(SettingsPath)) return SettingsLoadResult.Missing(AppSettings.Defaults);
@@ -83,7 +101,7 @@ public sealed class JsonSettingsStore : ISettingsStore
     ReadBool(json, "createChapters"), ReadNullableInt(json, "conversionJobs"),
     ReadEnum<CollisionPolicy>(json, "collisionPolicy"), ReadString(json, "metadataProfileId") ?? string.Empty,
     ReadEnum<ValidationLevel>(json, "validationLevel"), ReadEnum<LogLevel>(json, "logLevel")) with
-  { UnknownProperties = json.Where(p => !Known.Contains(p.Key)).ToDictionary(p => p.Key, p => JsonSerializer.Deserialize<JsonElement>(p.Value!.ToJsonString()), StringComparer.Ordinal) };
+  { UnknownProperties = json.Where(p => !Known.Contains(p.Key)).ToDictionary(p => p.Key, p => JsonSerializer.Deserialize<JsonElement>(p.Value?.ToJsonString() ?? "null"), StringComparer.Ordinal) };
 
   private static JsonObject ToJson(AppSettings s)
   {

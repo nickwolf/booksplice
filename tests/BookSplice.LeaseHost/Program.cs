@@ -3,6 +3,51 @@ using BookSplice.Updates.Storage;
 using BookSplice.Updates.Handover;
 using System.IO.Pipes;
 using System.Globalization;
+using System.Buffers.Binary;
+using System.Text.Json;
+
+if (args.Length == 3 && args[0] == "--update-self-check")
+{
+  var isolatedData = Environment.GetEnvironmentVariable("BOOKSPLICE_LOCAL_APP_DATA")
+    ?? throw new InvalidDataException("Isolated data root was not supplied.");
+  var settings = Path.Combine(isolatedData, "BookSplice", "settings.json");
+  if (!File.Exists(settings)) return 2;
+  using var document = JsonDocument.Parse(File.ReadAllBytes(settings));
+  if (document.RootElement.GetProperty("schemaVersion").GetInt32() != 1) return 2;
+  var checks = SelfCheckReport.RequiredChecks.ToDictionary(name => name,
+    _ => new SelfCheckEntry(true, null), StringComparer.Ordinal);
+  var report = JsonSerializer.SerializeToUtf8Bytes(new SelfCheckReport(1, "BookSplice", args[2],
+    "win-x64", 1, checks));
+  using var pipe = new NamedPipeClientStream(".", args[1], PipeDirection.InOut,
+    PipeOptions.Asynchronous);
+  await pipe.ConnectAsync();
+  var acknowledgement = new byte[1];
+  await pipe.ReadExactlyAsync(acknowledgement);
+  if (acknowledgement[0] != 0xA5) return 2;
+  var prefix = new byte[4];
+  BinaryPrimitives.WriteInt32LittleEndian(prefix, report.Length);
+  await pipe.WriteAsync(prefix);
+  await pipe.WriteAsync(report);
+  await pipe.FlushAsync();
+  return 0;
+}
+
+if (args.Length == 4 && args[0] == "selfcheck-report")
+{
+  using var pipe = new NamedPipeClientStream(".", args[1], PipeDirection.InOut,
+    PipeOptions.Asynchronous);
+  await pipe.ConnectAsync();
+  var acknowledgement = new byte[1];
+  await pipe.ReadExactlyAsync(acknowledgement);
+  if (acknowledgement[0] != 0xA5) return 2;
+  var report = Convert.FromBase64String(args[2]);
+  var prefix = new byte[4];
+  BinaryPrimitives.WriteInt32LittleEndian(prefix, report.Length);
+  await pipe.WriteAsync(prefix);
+  await pipe.WriteAsync(report);
+  await pipe.FlushAsync();
+  return int.Parse(args[3], CultureInfo.InvariantCulture);
+}
 
 if (args.Length == 0)
 {
@@ -20,6 +65,14 @@ if (args.Length == 2 && args[0] == "write-data-env")
 {
   File.WriteAllText(args[1], Environment.GetEnvironmentVariable("BOOKSPLICE_LOCAL_APP_DATA") ??
     "<missing>");
+  return 0;
+}
+
+if (args.Length == 2 && args[0] == "write-media-env")
+{
+  File.WriteAllText(args[1],
+    (Environment.GetEnvironmentVariable("BOOKSPLICE_FFMPEG_DIR") ?? "<missing>") + "|" +
+    (Environment.GetEnvironmentVariable("FFMPEG_DATADIR") ?? "<missing>"));
   return 0;
 }
 

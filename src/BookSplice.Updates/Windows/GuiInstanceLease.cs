@@ -34,30 +34,36 @@ public sealed class GuiInstanceLease : IDisposable
   private static extern bool UnlockFileEx(SafeFileHandle handle, uint reserved, uint bytesLow, uint bytesHigh, ref Overlapped overlapped);
 
   public static GuiInstanceLease? TryAcquire(string canonicalDataRoot)
+    => TryAcquire(canonicalDataRoot, null);
+
+  internal static GuiInstanceLease? TryAcquire(string canonicalDataRoot, Action? beforeLockChild)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(canonicalDataRoot);
     var path = Path.GetFullPath(canonicalDataRoot);
-    var root = SafeDirectoryHandle.OpenPath(path, permitChildren: false, createMissing: true);
+    using var created = SafeDirectoryHandle.OpenPath(path, permitChildren: false,
+      createMissing: true);
+    beforeLockChild?.Invoke();
+    var stream = new FileStream(created.OpenOrCreateFile("gui-instance.lock"), FileAccess.ReadWrite);
+    SafeDirectoryHandle? root = null;
     try
     {
-      var stream = new FileStream(root.OpenOrCreateFile("gui-instance.lock"), FileAccess.ReadWrite);
-      try
+      root = SafeDirectoryHandle.OpenPath(path, permitChildren: false,
+        allowEntryMutation: true);
+      if (root.Identity != created.Identity)
+        throw new IOException("The GUI instance data root changed during acquisition.");
+      var overlapped = new Overlapped();
+      if (!LockFileEx(stream.SafeFileHandle, 3, 0, 1, 0, ref overlapped))
       {
-        var overlapped = new Overlapped();
-        if (!LockFileEx(stream.SafeFileHandle, 3, 0, 1, 0, ref overlapped))
-        {
-          var error = Marshal.GetLastWin32Error();
-          if (error is 33 or 158) return null;
-          throw new Win32Exception(error, "The GUI instance lock could not be acquired.");
-        }
-        var lease = new GuiInstanceLease(root, stream);
-        root = null!;
-        stream = null!;
-        return lease;
+        var error = Marshal.GetLastWin32Error();
+        if (error is 33 or 158) return null;
+        throw new Win32Exception(error, "The GUI instance lock could not be acquired.");
       }
-      finally { stream?.Dispose(); }
+      var lease = new GuiInstanceLease(root, stream);
+      root = null;
+      stream = null!;
+      return lease;
     }
-    finally { root?.Dispose(); }
+    finally { stream?.Dispose(); root?.Dispose(); }
   }
 
   public void Dispose()

@@ -14,7 +14,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Using Include="Xunit" /><ProjectReference Include="..\..\src\BookSplice.Gui\BookSplice.Gui.csproj" />
+    <Using Include="Xunit" />
+    <ProjectReference Include="..\..\src\BookSplice.Gui\BookSplice.Gui.csproj" />
+    <ProjectReference Include="..\BookSplice.LeaseHost\BookSplice.LeaseHost.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

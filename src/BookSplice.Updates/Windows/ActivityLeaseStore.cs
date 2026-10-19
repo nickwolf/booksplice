@@ -38,7 +38,8 @@ public sealed class ActivityLeaseStore : IActivityLeaseStore
 
   public IDisposable? TryEnterJob()
   {
-    var root = OpenRoot();
+    var root = OpenRoot(out var anchor);
+    using var retainedAnchor = anchor;
     var transferred = false;
     try
     {
@@ -69,7 +70,8 @@ public sealed class ActivityLeaseStore : IActivityLeaseStore
 
   public IDisposable? TryEnterUpdate()
   {
-    var root = OpenRoot();
+    var root = OpenRoot(out var anchor);
+    using var retainedAnchor = anchor;
     var transferred = false;
     try
     {
@@ -88,17 +90,32 @@ public sealed class ActivityLeaseStore : IActivityLeaseStore
     finally { if (!transferred) root.Dispose(); }
   }
 
-  private SafeDirectoryHandle OpenRoot()
+  private SafeDirectoryHandle OpenRoot(out SafeFileHandle anchor)
   {
-    var root = SafeDirectoryHandle.OpenPath(_root, permitChildren: false);
-    if (root.Identity == _identity) return root;
-    root.Dispose();
-    throw new InvalidOperationException("The activity data root has changed.");
+    using var readOnly = SafeDirectoryHandle.OpenPath(_root, permitChildren: false);
+    if (readOnly.Identity != _identity)
+      throw new InvalidOperationException("The activity data root has changed.");
+    anchor = readOnly.OpenOrCreateFile("activity.lock");
+    try
+    {
+      var root = SafeDirectoryHandle.OpenPath(_root, permitChildren: false,
+        allowEntryMutation: true);
+      if (root.Identity == readOnly.Identity) return root;
+      root.Dispose();
+      throw new InvalidOperationException("The activity data root has changed.");
+    }
+    catch { anchor.Dispose(); throw; }
   }
 
   private SafeDirectoryHandle OpenRootUnanchored()
   {
-    return SafeDirectoryHandle.OpenPath(_root, permitChildren: false, createMissing: true);
+    using var created = SafeDirectoryHandle.OpenPath(_root, permitChildren: false,
+      createMissing: true);
+    var root = SafeDirectoryHandle.OpenPath(_root, permitChildren: false,
+      allowEntryMutation: true);
+    if (root.Identity == created.Identity) return root;
+    root.Dispose();
+    throw new InvalidOperationException("The activity data root changed during acquisition.");
   }
 
   private static NativeLease? TryLock(SafeDirectoryHandle root, long offset, bool exclusive, FileIdentity? expected = null)

@@ -6,6 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="BookSplice.Updates.Tests" />
+    <InternalsVisibleTo Include="BookSplice.Gui.Tests" />
     <InternalsVisibleTo Include="BookSplice.Launcher" />
   </ItemGroup>
 </Project>

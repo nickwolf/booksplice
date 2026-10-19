@@ -9,6 +9,8 @@ using System.Text.Json;
 using BookSplice.Updates.Policy;
 using BookSplice.Updates.Security;
 using BookSplice.Updates.Storage;
+using BookSplice.Updates.Handover;
+using BookSplice.Updates.Windows;
 using BookSplice.Updates.Transport;
 using Microsoft.Win32.SafeHandles;
 
@@ -17,6 +19,126 @@ namespace BookSplice.Updates.Tests.Storage;
 [Collection("WindowsOwnedStorage")]
 public sealed class PackageStagerTests
 {
+  [Fact]
+  public void ExclusiveScratchChildCannotAdoptExistingJunction()
+  {
+    var root = Path.Combine(Path.GetTempPath(), "booksplice-scratch-junction-" + Guid.NewGuid().ToString("N"));
+    var outside = Path.Combine(Path.GetTempPath(), "booksplice-scratch-outside-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(root);
+    Directory.CreateDirectory(outside);
+    var link = Path.Combine(root, "selfcheck-collision");
+    try
+    {
+      CreateJunction(link, outside);
+      using var parent = SafeDirectoryHandle.OpenCanonical(root);
+      Assert.ThrowsAny<Exception>(() => SafeDirectoryHandle.CreateBorrowedChild(parent,
+        "selfcheck-collision"));
+      Assert.Empty(Directory.EnumerateFileSystemEntries(outside));
+    }
+    finally
+    {
+      if (Directory.Exists(link)) Directory.Delete(link);
+      Directory.Delete(root);
+      Directory.Delete(outside);
+    }
+  }
+
+  [Fact]
+  public void ActiveWriteSharedLeaseRootCannotBecomeReparsePoint()
+  {
+    var parent = Path.Combine(Path.GetTempPath(), "booksplice-active-root-" + Guid.NewGuid().ToString("N"));
+    var root = Path.Combine(parent, "BookSplice");
+    var control = Path.Combine(parent, "empty-control");
+    var outside = Path.Combine(Path.GetTempPath(), "booksplice-active-outside-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(root);
+    Directory.CreateDirectory(control);
+    Directory.CreateDirectory(outside);
+    var sentinel = Path.Combine(outside, "sentinel.txt");
+    File.WriteAllText(sentinel, "unchanged");
+    try
+    {
+      Assert.True(TrySetMountPoint(control, outside), "The disposable empty-directory control must allow FSCTL_SET_REPARSE_POINT.");
+      ClearMountPoint(control);
+      using var gui = GuiInstanceLease.TryAcquire(root);
+      Assert.NotNull(gui);
+      using var job = new ActivityLeaseStore(root).TryEnterJob();
+      Assert.NotNull(job);
+      Assert.False(TrySetMountPoint(root, outside));
+      Assert.Equal("unchanged", File.ReadAllText(sentinel));
+      Assert.Equal(0, (int)(File.GetAttributes(root) & FileAttributes.ReparsePoint));
+    }
+    finally
+    {
+      Directory.Delete(parent, true);
+      Directory.Delete(outside, true);
+    }
+  }
+
+  [Fact]
+  public void EmptyGuiRootCannotReparseBetweenValidationAndFirstLockChild()
+  {
+    var parent = Path.Combine(Path.GetTempPath(), "booksplice-first-lock-" + Guid.NewGuid().ToString("N"));
+    var root = Path.Combine(parent, "BookSplice");
+    var outside = Path.Combine(Path.GetTempPath(), "booksplice-first-lock-outside-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(root);
+    Directory.CreateDirectory(outside);
+    var mutated = false;
+    Exception? acquisitionFailure = null;
+    try
+    {
+      var attempted = false;
+      GuiInstanceLease? lease = null;
+      try
+      {
+        lease = GuiInstanceLease.TryAcquire(root, () =>
+      {
+        attempted = true;
+        mutated = TrySetMountPoint(root, outside);
+      });
+      }
+      catch (Exception error) { acquisitionFailure = error; }
+      finally { lease?.Dispose(); }
+      Assert.True(attempted);
+      Assert.True(mutated, "The native fault must alter the validated empty root in place.");
+      Assert.Empty(Directory.EnumerateFileSystemEntries(outside));
+      Assert.Equal(1921, Assert.IsType<System.ComponentModel.Win32Exception>(acquisitionFailure).NativeErrorCode);
+    }
+    finally
+    {
+      if (mutated) ClearMountPoint(root);
+      Directory.Delete(parent, true);
+      Directory.Delete(outside);
+    }
+  }
+
+  [Fact]
+  public async Task StagedSelfCheckUsesExclusiveScratchAndPreservesSourceSettings()
+  {
+    using var fixture = new Fixture(runnableSelfCheck: true);
+    var settingsRoot = Path.Combine(fixture.Layout.DataRoot, "BookSplice");
+    Directory.CreateDirectory(settingsRoot);
+    var settingsPath = Path.Combine(settingsRoot, "settings.json");
+    var original = Encoding.UTF8.GetBytes("{\"schemaVersion\":1}");
+    File.WriteAllBytes(settingsPath, original);
+    var snapshot = await SettingsSnapshot.CaptureAsync(settingsPath);
+    using var staged = await fixture.Stager.StageAsync(fixture.Release, fixture.Manifest,
+      fixture.Layout, CancellationToken.None);
+    using (var stage = SafeDirectoryHandle.OpenCanonical(staged.Stage.Path))
+    {
+      using var first = SafeDirectoryHandle.CreateBorrowedChild(stage, "collision");
+      Assert.ThrowsAny<Exception>(() => SafeDirectoryHandle.CreateBorrowedChild(stage, "collision"));
+      Assert.True(Directory.Exists(first.Path));
+    }
+    var report = await SelfCheckRunner.RunAsync(staged, snapshot, CancellationToken.None);
+    Assert.Equal("0.2.0", report.Version);
+    Assert.Equal(original, File.ReadAllBytes(settingsPath));
+    staged.Inventory.Revalidate();
+    Assert.Single(Directory.GetDirectories(staged.Stage.Path, "selfcheck-*"));
+    File.WriteAllText(settingsPath, "{\"schemaVersion\":1,\"changed\":true}");
+    await Assert.ThrowsAsync<InvalidDataException>(() =>
+      SelfCheckRunner.RunAsync(staged, snapshot, CancellationToken.None));
+  }
+
   [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
   private static extern SafeFileHandle CreateFileW(string path, uint access, uint share,
     nint security, uint disposition, uint flags, nint template);
@@ -371,7 +493,11 @@ public sealed class PackageStagerTests
     BinaryPrimitives.WriteUInt16LittleEndian(buffer.AsSpan(14), checked((ushort)print.Length));
     substitute.CopyTo(buffer, 16);
     print.CopyTo(buffer, 18 + substitute.Length);
-    using var handle = OpenReparseForWrite(directory);
+    const uint backupSemantics = 0x02000000;
+    const uint openReparsePoint = 0x00200000;
+    using var handle = CreateFileW(directory, 0x100, 7, 0, 3,
+      backupSemantics | openReparsePoint, 0);
+    if (handle.IsInvalid) return false;
     return DeviceIoControl(handle, 0x000900A4, buffer, (uint)buffer.Length, 0, 0, out _, 0);
   }
 
@@ -432,7 +558,7 @@ public sealed class PackageStagerTests
     private readonly OwnedDirectoryStore _store;
     private readonly string _root;
 
-    public Fixture(bool serveWrongArchive = false)
+    public Fixture(bool serveWrongArchive = false, bool runnableSelfCheck = false)
     {
       _root = Path.Combine(Path.GetTempPath(), "booksplice-stage-test-" + Guid.NewGuid().ToString("N"));
       Directory.CreateDirectory(_root);
@@ -449,7 +575,7 @@ public sealed class PackageStagerTests
       var staging = _store.CreateNamedExclusive(managed, "staging", "staging", installation, Guid.NewGuid());
       var trash = _store.CreateNamedExclusive(managed, "trash", "trash", installation, Guid.NewGuid());
       Layout = new InstallationLayout(original, data, managed, versions, staging, trash, _store);
-      _archive = Archive();
+      _archive = Archive(runnableSelfCheck);
       _served = serveWrongArchive ? _archive.Select((value, index) => index == 0 ? (byte)(value ^ 1) : value).ToArray() : _archive;
       const string name = "BookSplice-0.2.0-win-x64.zip";
       const string tag = "v0.2.0";
@@ -555,7 +681,7 @@ public sealed class PackageStagerTests
     private static ReleaseAsset Asset(long id, string name, long length) =>
       new(id, name, new Uri("https://github.com/nickwolf/booksplice/releases/download/v0.2.0/" + name), length);
 
-    private static byte[] Archive()
+    private static byte[] Archive(bool runnableSelfCheck)
     {
       static string Hash(string value) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
       var licenseHash = Hash("license");
@@ -590,11 +716,36 @@ public sealed class PackageStagerTests
       using (var zip = new ZipArchive(stream, ZipArchiveMode.Create, true))
         foreach (var (name, data) in entries)
         {
-          using var writer = new StreamWriter(zip.CreateEntry(name).Open(), new UTF8Encoding(false));
-          writer.Write(data);
+          using var entry = zip.CreateEntry(name).Open();
+          if (runnableSelfCheck && name == "BookSplice.Gui.exe")
+          {
+            using var source = File.OpenRead(Path.Combine(SelfCheckHelperDirectory(), "BookSplice.LeaseHost.exe"));
+            source.CopyTo(entry);
+          }
+          else
+          {
+            var bytes = new UTF8Encoding(false).GetBytes(data);
+            entry.Write(bytes);
+          }
         }
+      if (runnableSelfCheck)
+      {
+        using var zip = new ZipArchive(stream, ZipArchiveMode.Update, true);
+        foreach (var name in new[] { "BookSplice.LeaseHost.dll", "BookSplice.LeaseHost.deps.json",
+          "BookSplice.LeaseHost.runtimeconfig.json", "BookSplice.Updates.dll" })
+        {
+          using var entry = zip.CreateEntry(name).Open();
+          using var source = File.OpenRead(Path.Combine(SelfCheckHelperDirectory(), name));
+          source.CopyTo(entry);
+        }
+      }
       return stream.ToArray();
     }
+
+    private static string SelfCheckHelperDirectory() => Path.Combine(
+      new DirectoryInfo(AppContext.BaseDirectory).Parent!.Parent!.Parent!.Parent!.FullName,
+      "BookSplice.LeaseHost", "bin", new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name,
+      "net10.0-windows");
 
     public void Dispose()
     {

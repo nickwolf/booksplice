@@ -18,16 +18,35 @@ public sealed class VerifiedExecutable : IDisposable
   private bool _disposed;
 
   private VerifiedExecutable(string path, FileIdentity identity, IDisposable inventory,
-    Action revalidate)
+    Action revalidate, string? retainedSha256 = null)
   {
     Path = path;
     Identity = identity;
     _inventory = inventory;
     _revalidate = revalidate;
+    RetainedSha256 = retainedSha256;
   }
 
   public string Path { get; }
   public FileIdentity Identity { get; }
+  internal string? RetainedSha256 { get; }
+
+  internal static VerifiedExecutable FromStaged(StagedPackage package)
+  {
+    ArgumentNullException.ThrowIfNull(package);
+    var inventory = package.Inventory;
+    inventory.ValidatePackage(package.Manifest);
+    var file = inventory.Files.Single(x =>
+      string.Equals(x.RelativePath, "BookSplice.Gui.exe", StringComparison.Ordinal));
+    return new VerifiedExecutable(package.GuiPath, file.Identity, NoopDisposable.Instance,
+      inventory.Revalidate, file.Sha256);
+  }
+
+  private sealed class NoopDisposable : IDisposable
+  {
+    public static NoopDisposable Instance { get; } = new();
+    public void Dispose() { }
+  }
 
   public static VerifiedExecutable FromManaged(PackageInventory inventory,
     OwnedOrOriginalTarget target)
@@ -129,22 +148,25 @@ public sealed class SupervisedProcess : IDisposable
   private readonly FileIdentity _imageIdentity;
   private readonly string _imageSha256;
   private readonly SecurityIdentifier _user;
+  private readonly Action? _retainedImageRevalidate;
   private bool _disposed;
 
   internal SupervisedProcess(Process process, ProcessIdentity identity, FileIdentity imageIdentity,
-    string imageSha256, SecurityIdentifier user)
+    string imageSha256, SecurityIdentifier user, Action? retainedImageRevalidate = null)
   {
     _process = process;
     Identity = identity;
     _imageIdentity = imageIdentity;
     _imageSha256 = imageSha256;
     _user = user;
+    _retainedImageRevalidate = retainedImageRevalidate;
   }
 
   public ProcessIdentity Identity { get; }
   public FileIdentity ImageIdentity => _imageIdentity;
   public string ImageSha256 => _imageSha256;
   public bool HasExited => _process.HasExited;
+  public int ExitCode => _process.ExitCode;
 
   public static SupervisedProcess CaptureCurrent()
   {
@@ -194,10 +216,15 @@ public sealed class SupervisedProcess : IDisposable
     if (pid != Identity.Pid || ProcessSupervisor.Identity(_process.SafeHandle) != Identity ||
         _process.HasExited)
       throw new IOException("The pipe peer is not the retained process.");
-    var image = ProcessSupervisor.ImageFingerprint(Identity.ExecutablePath);
-    if (image.Identity != _imageIdentity ||
-        !string.Equals(image.Sha256, _imageSha256, StringComparison.OrdinalIgnoreCase) ||
-        !ProcessSupervisor.ProcessUser(_process.SafeHandle).Equals(_user))
+    if (_retainedImageRevalidate is null)
+    {
+      var image = ProcessSupervisor.ImageFingerprint(Identity.ExecutablePath);
+      if (image.Identity != _imageIdentity ||
+          !string.Equals(image.Sha256, _imageSha256, StringComparison.OrdinalIgnoreCase))
+        throw new IOException("The pipe peer image changed.");
+    }
+    else _retainedImageRevalidate();
+    if (!ProcessSupervisor.ProcessUser(_process.SafeHandle).Equals(_user))
       throw new IOException("The pipe peer image or user changed.");
   }
 
@@ -378,7 +405,9 @@ public static class ProcessSupervisor
     try
     {
       var identity = Identity(process.SafeHandle);
-      var image = ImageFingerprint(identity.ExecutablePath);
+      var image = verifiedExecutable.RetainedSha256 is { } retainedSha256
+        ? (verifiedExecutable.Identity, Sha256: retainedSha256)
+        : ImageFingerprint(identity.ExecutablePath);
       if (!string.Equals(identity.ExecutablePath, verifiedExecutable.Path,
           StringComparison.OrdinalIgnoreCase) ||
           image.Identity != verifiedExecutable.Identity ||
@@ -386,7 +415,8 @@ public static class ProcessSupervisor
         throw new IOException("The child process does not match the verified executable.");
       verifiedExecutable.Revalidate();
       return new SupervisedProcess(process, identity, verifiedExecutable.Identity,
-        image.Sha256, WindowsIdentity.GetCurrent().User!);
+        image.Sha256, WindowsIdentity.GetCurrent().User!,
+        verifiedExecutable.RetainedSha256 is null ? null : verifiedExecutable.Revalidate);
     }
     catch (Exception error)
     {

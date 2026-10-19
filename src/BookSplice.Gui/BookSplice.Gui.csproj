@@ -6,6 +6,10 @@
     <ProjectReference Include="..\BookSplice.Updates\BookSplice.Updates.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="BookSplice.Gui.Tests" />
+  </ItemGroup>
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
@@ -15,5 +19,12 @@
     <ApplicationIcon>Assets\BookSplice.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
+
+  <ItemGroup Condition="'$(BookSplicePackageVersion)' != ''">
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>BookSplicePackageVersion</_Parameter1>
+      <_Parameter2>$(BookSplicePackageVersion)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
 
 </Project>
