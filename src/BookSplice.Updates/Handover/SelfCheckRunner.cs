@@ -10,8 +10,11 @@ namespace BookSplice.Updates.Handover;
 [SupportedOSPlatform("windows")]
 public sealed class SelfCheckRunner
 {
-  public static async Task<SelfCheckReport> RunAsync(StagedPackage package, SettingsSnapshot snapshot,
-    CancellationToken cancellationToken)
+  public static Task<SelfCheckReport> RunAsync(StagedPackage package, SettingsSnapshot snapshot,
+    CancellationToken cancellationToken) => RunAsync(package, snapshot, null, cancellationToken);
+
+  internal static async Task<SelfCheckReport> RunAsync(StagedPackage package, SettingsSnapshot snapshot,
+    Action<SupervisedProcess>? afterChildStart, CancellationToken cancellationToken)
   {
     ArgumentNullException.ThrowIfNull(package);
     ArgumentNullException.ThrowIfNull(snapshot);
@@ -41,6 +44,7 @@ public sealed class SelfCheckRunner
       new Dictionary<string, string> { ["BOOKSPLICE_LOCAL_APP_DATA"] = data.Path });
     try
     {
+      afterChildStart?.Invoke(child);
       var reportBytes = await ReadReportAsync(server, child, timeout.Token).ConfigureAwait(false);
       await child.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
       var report = ValidateResult(child.ExitCode, reportBytes, package.Manifest.Version);

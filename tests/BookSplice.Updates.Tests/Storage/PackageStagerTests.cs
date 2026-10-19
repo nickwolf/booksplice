@@ -230,13 +230,13 @@ public sealed class PackageStagerTests
       ClearMountPoint(control);
       using var staged = await fixture.Stager.StageAsync(fixture.Release, fixture.Manifest,
         fixture.Layout, CancellationToken.None);
-      var helper = SelfCheckRunner.RunAsync(staged, snapshot, CancellationToken.None);
       var original = fixture.Layout.OriginalApplicationPath;
       var old = new OwnedOrOriginalTarget(TargetKind.Original,
         Path.Combine(original, "BookSplice.Gui.exe"), fixture.Layout.OriginalIdentity,
         fixture.Layout.OriginalIdentity, null, "0.1.0", 1, null);
-      try
+      var report = await SelfCheckRunner.RunAsync(staged, snapshot, child =>
       {
+        Assert.False(child.HasExited);
         journal.Begin(new UpdateTransaction(1, fixture.Layout.InstallationId, fixture.Operation,
           UpdatePhase.Preparing, old, null, null, true, 1, new string('A', 64), [],
           null, null, null, null));
@@ -245,8 +245,9 @@ public sealed class PackageStagerTests
         Assert.ThrowsAny<IOException>(() => Directory.Move(staged.Payload.Path,
           staged.Payload.Path + "-moved"));
         staged.Inventory.Revalidate();
-      }
-      finally { Assert.Equal("0.2.0", (await helper).Version); }
+        Assert.False(child.HasExited);
+      }, CancellationToken.None);
+      Assert.Equal("0.2.0", report.Version);
       Assert.Equal(2, mutationAttempts);
       Assert.Equal(UpdatePhase.Preparing, journal.Read().Value!.Phase);
       Assert.Equal("unchanged", File.ReadAllText(Path.Combine(outside, "sentinel")));
