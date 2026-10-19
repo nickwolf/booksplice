@@ -110,7 +110,7 @@ public sealed record InstallationRecord(int SchemaVersion, Guid InstallationId,
   FileIdentity OriginalExecutableIdentity, string OriginalExecutableSha256,
   string OriginalVersion, int OriginalProtocolVersion,
   FileIdentity? OriginalParentIdentity = null, PersistedPackage? OriginalPackage = null,
-  string? OriginalPackageBindingSha256 = null)
+  string? OriginalPackageBindingSha256 = null, string? StableLauncherSha256 = null)
 {
   public static InstallationRecord FromLayout(InstallationLayout layout, string originalVersion)
   {
@@ -130,7 +130,8 @@ public sealed record InstallationRecord(int SchemaVersion, Guid InstallationId,
 
   public bool IsValid() => SchemaVersion == 1 && InstallationId != Guid.Empty &&
     OriginalIdentity.IsValid && DataIdentity.IsValid && OriginalExecutableIdentity.IsValid &&
-    (StableLauncherIdentity is null || StableLauncherIdentity.Value.IsValid) &&
+    (StableLauncherIdentity is null ? StableLauncherSha256 is null :
+      StableLauncherIdentity.Value.IsValid && RecoveryRecordValidation.Hash(StableLauncherSha256)) &&
     RecoveryRecordValidation.Hash(OriginalExecutableSha256) &&
     !string.IsNullOrWhiteSpace(OriginalVersion) && OriginalVersion.Length <= 128 &&
     OriginalProtocolVersion == UpdateProtocol.ProtocolVersion &&

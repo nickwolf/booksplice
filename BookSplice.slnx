@@ -5,6 +5,7 @@
     <Project Path="src/BookSplice.FFmpeg/BookSplice.FFmpeg.csproj" />
     <Project Path="src/BookSplice.Gui/BookSplice.Gui.csproj" />
     <Project Path="src/BookSplice.Updates/BookSplice.Updates.csproj" />
+    <Project Path="src/BookSplice.Launcher/BookSplice.Launcher.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/BookSplice.Acceptance.Tests/BookSplice.Acceptance.Tests.csproj" />

@@ -4,9 +4,22 @@ using BookSplice.Updates.Handover;
 using System.IO.Pipes;
 using System.Globalization;
 
+if (args.Length == 0)
+{
+  await Task.Delay(TimeSpan.FromSeconds(30));
+  return 0;
+}
+
 if (args.Length > 0 && args[0] == "hold")
 {
   await Task.Delay(TimeSpan.FromSeconds(30));
+  return 0;
+}
+
+if (args.Length == 2 && args[0] == "write-data-env")
+{
+  File.WriteAllText(args[1], Environment.GetEnvironmentVariable("BOOKSPLICE_LOCAL_APP_DATA") ??
+    "<missing>");
   return 0;
 }
 

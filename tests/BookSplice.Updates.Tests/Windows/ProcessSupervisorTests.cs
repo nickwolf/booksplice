@@ -1,5 +1,6 @@
 using BookSplice.Updates.Handover;
 using BookSplice.Updates.Windows;
+using BookSplice.Updates.Storage;
 using System.Diagnostics;
 
 namespace BookSplice.Updates.Tests.Windows;
@@ -30,6 +31,31 @@ public sealed class ProcessSupervisorTests
     Assert.Throws<IOException>(() => child.VerifyPeer(child.Identity.Pid + 1));
     await child.StopAsync();
     Assert.True(child.HasExited);
+  }
+
+  [Fact]
+  public async Task PassesOnlyTheRecordedDataRootParentToAChild()
+  {
+    if (!OperatingSystem.IsWindows()) return;
+    var root = Path.Combine(Path.GetTempPath(), "booksplice-child-env-" +
+      Guid.NewGuid().ToString("N"));
+    var dataRoot = Path.Combine(root, "BookSplice");
+    Directory.CreateDirectory(dataRoot);
+    try
+    {
+      using var data = SafeDirectoryHandle.OpenPath(dataRoot, false);
+      var environment = LaunchResolver.ChildEnvironment(dataRoot, data.Identity);
+      Assert.Equal(root, environment["BOOKSPLICE_LOCAL_APP_DATA"]);
+      Assert.Throws<InvalidDataException>(() => LaunchResolver.ChildEnvironment(
+        Path.Combine(root, "other"), data.Identity));
+      var output = Path.Combine(root, "environment.txt");
+      using var capability = VerifiedExecutable.PinFile(HelperPath());
+      using var child = ProcessSupervisor.Start(capability, ["write-data-env", output],
+        environment);
+      await child.WaitForExitAsync();
+      Assert.Equal(root, File.ReadAllText(output));
+    }
+    finally { Directory.Delete(root, true); }
   }
 
   [Fact]
