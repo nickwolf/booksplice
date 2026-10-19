@@ -29,7 +29,9 @@ public sealed class RegistryTests
         installationId, Guid.NewGuid());
       var trash = creator.CreateNamedExclusive(owned, "trash", "trash",
         installationId, Guid.NewGuid());
-      var layout = new InstallationLayout(original, data, owned, versions, staging, trash, creator);
+      var records = creator.CreateNamedExclusive(owned, "records", "records",
+        installationId, Guid.NewGuid());
+      var layout = new InstallationLayout(original, data, owned, records, versions, staging, trash, creator);
       var installation = InstallationRecord.FromLayout(layout, "1.0.0");
       var path = Path.Combine(owned.Path, "registry.json");
       var state = new AtomicStateStore(owned,
@@ -60,12 +62,15 @@ public sealed class RegistryTests
     try
     {
       var installationId = Guid.NewGuid();
-      var managed = new OwnedDirectoryStore(root, _ => { }).CreateExclusive(root,
-        "managed", installationId, Guid.NewGuid());
-      var path = Path.Combine(managed.Path, "ownership.json");
-      var state = new AtomicStateStore(managed,
-        [OwnershipState.Definition("ownership.json", managed)]);
-      var recorder = new DurableOwnershipRecorder(state, path, managed);
+      var managed = new OwnedDirectoryStore(root, _ => { }).CreateNamedExclusive(root,
+        ".booksplice-managed-" + installationId.ToString("D"), "managed-root",
+        installationId, Guid.NewGuid());
+      var records = new OwnedDirectoryStore(root, _ => { }).CreateNamedExclusive(managed,
+        "records", "records", installationId, Guid.NewGuid());
+      var path = Path.Combine(records.Path, "ownership.json");
+      var state = new AtomicStateStore(records,
+        [OwnershipState.Definition("ownership.json", records, managed)]);
+      var recorder = new DurableOwnershipRecorder(state, path, records, managed);
       var creator = new OwnedDirectoryStore(root, recorder.Record);
       var child = creator.CreateNamedExclusive(managed, "versions", "versions",
         installationId, Guid.NewGuid());

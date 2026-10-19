@@ -307,11 +307,20 @@ public sealed class AtomicStateTests(ITestOutputHelper output)
     var (root, owned) = NewRoot();
     try
     {
-      var definition = OwnershipState.Definition("ownership.json", owned);
-      var good = new OwnershipState(1, owned.InstallationId, owned.Identity,
-        [OwnershipEntry.FromCreated(owned with { Kind = "managed-root" })]);
+      var managed = owned with { Kind = "managed-root" };
+      var records = new OwnedDirectoryStore(root, _ => { }).CreateNamedExclusive(managed,
+        "records", "records", managed.InstallationId, Guid.NewGuid());
+      var definition = OwnershipState.Definition("ownership.json", records, managed);
+      var good = new OwnershipState(1, owned.InstallationId, records.Identity,
+        [OwnershipEntry.FromCreated(managed), OwnershipEntry.FromCreated(records)]);
       Assert.True(definition.Validate(good));
+      var version = new OwnedDirectoryStore(root, _ => { }).CreateNamedExclusive(managed,
+        "versions", "versions", managed.InstallationId, Guid.NewGuid());
+      Assert.True(definition.Validate(good with
+      { Entries = [.. good.Entries, OwnershipEntry.FromCreated(version)] }));
       Assert.False(definition.Validate(good with { RecordRootIdentity = default }));
+      Assert.False(definition.Validate(good with { RecordRootIdentity = managed.Identity }));
+      Assert.False(definition.Validate(good with { InstallationId = Guid.NewGuid() }));
       Assert.False(definition.Validate(good with
       {
         Entries =
@@ -346,13 +355,16 @@ public sealed class AtomicStateTests(ITestOutputHelper output)
     var (root, owned) = NewRoot();
     try
     {
-      var definition = OwnershipState.Definition("ownership.json", owned);
+      var managed = owned with { Kind = "managed-root" };
+      var records = new OwnedDirectoryStore(root, _ => { }).CreateNamedExclusive(managed,
+        "records", "records", managed.InstallationId, Guid.NewGuid());
+      var definition = OwnershipState.Definition("ownership.json", records, managed);
       var child = OwnershipEntry.FromCreated(owned with
       {
         Path = Path.Combine(owned.Path, relative),
         Kind = "version"
       });
-      var state = new OwnershipState(1, owned.InstallationId, owned.Identity, [child]);
+      var state = new OwnershipState(1, owned.InstallationId, records.Identity, [child]);
       Assert.False(definition.Validate(state));
     }
     finally { Directory.Delete(root, true); }

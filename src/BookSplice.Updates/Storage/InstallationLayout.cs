@@ -7,17 +7,19 @@ namespace BookSplice.Updates.Storage;
 public sealed class InstallationLayout
 {
   public InstallationLayout(string originalApplicationPath, string dataRoot, OwnedDirectory managedRoot,
-    OwnedDirectory versions, OwnedDirectory staging, OwnedDirectory trash, OwnedDirectoryStore store)
-    : this(originalApplicationPath, dataRoot, managedRoot, versions, staging, trash, store, null, null) { }
+    OwnedDirectory records, OwnedDirectory versions, OwnedDirectory staging, OwnedDirectory trash,
+    OwnedDirectoryStore store)
+    : this(originalApplicationPath, dataRoot, managedRoot, records, versions, staging, trash, store, null, null) { }
 
   private InstallationLayout(string originalApplicationPath, string dataRoot, OwnedDirectory managedRoot,
-    OwnedDirectory versions, OwnedDirectory staging, OwnedDirectory trash, OwnedDirectoryStore store,
+    OwnedDirectory records, OwnedDirectory versions, OwnedDirectory staging, OwnedDirectory trash, OwnedDirectoryStore store,
     FileIdentity? expectedOriginal, FileIdentity? expectedData)
   {
     ArgumentNullException.ThrowIfNull(store);
     OriginalApplicationPath = Canonical(originalApplicationPath);
     DataRoot = Canonical(dataRoot);
     ManagedRoot = managedRoot ?? throw new ArgumentNullException(nameof(managedRoot));
+    Records = records ?? throw new ArgumentNullException(nameof(records));
     Versions = versions ?? throw new ArgumentNullException(nameof(versions));
     Staging = staging ?? throw new ArgumentNullException(nameof(staging));
     Trash = trash ?? throw new ArgumentNullException(nameof(trash));
@@ -38,17 +40,19 @@ public sealed class InstallationLayout
 
   public static InstallationLayout Restore(string originalApplicationPath, string dataRoot,
     FileIdentity originalIdentity, FileIdentity dataIdentity, OwnedDirectory managedRoot,
-    OwnedDirectory versions, OwnedDirectory staging, OwnedDirectory trash, OwnedDirectoryStore store)
+    OwnedDirectory records, OwnedDirectory versions, OwnedDirectory staging, OwnedDirectory trash,
+    OwnedDirectoryStore store)
   {
     if (!originalIdentity.IsValid || !dataIdentity.IsValid)
       throw new OwnedDirectoryException("Persisted installation identities are invalid.");
-    return new InstallationLayout(originalApplicationPath, dataRoot, managedRoot, versions, staging,
+    return new InstallationLayout(originalApplicationPath, dataRoot, managedRoot, records, versions, staging,
       trash, store, originalIdentity, dataIdentity);
   }
 
   public string OriginalApplicationPath { get; }
   public string DataRoot { get; }
   public OwnedDirectory ManagedRoot { get; }
+  public OwnedDirectory Records { get; }
   public OwnedDirectory Versions { get; }
   public OwnedDirectory Staging { get; }
   public OwnedDirectory Trash { get; }
@@ -61,8 +65,8 @@ public sealed class InstallationLayout
   {
     ArgumentNullException.ThrowIfNull(store);
     if (InstallationId == Guid.Empty ||
-        new[] { Versions, Staging, Trash }.Any(child => child.InstallationId != InstallationId) ||
-        ManagedRoot.Kind != "managed-root" || Versions.Kind != "versions" ||
+        new[] { Records, Versions, Staging, Trash }.Any(child => child.InstallationId != InstallationId) ||
+        ManagedRoot.Kind != "managed-root" || Records.Kind != "records" || Versions.Kind != "versions" ||
         Staging.Kind != "staging" || Trash.Kind != "trash")
     {
       throw new OwnedDirectoryException("Installation ownership records disagree.");
@@ -71,6 +75,7 @@ public sealed class InstallationLayout
     var sibling = Path.GetDirectoryName(OriginalApplicationPath)!;
     var expectedRoot = Path.Combine(sibling, ".booksplice-managed-" + InstallationId.ToString("D"));
     if (!Same(ManagedRoot.Path, expectedRoot) ||
+        !Same(Records.Path, Path.Combine(expectedRoot, "records")) ||
         !Same(Versions.Path, Path.Combine(expectedRoot, "versions")) ||
         !Same(Staging.Path, Path.Combine(expectedRoot, "staging")) ||
         !Same(Trash.Path, Path.Combine(expectedRoot, "trash")) ||
@@ -84,6 +89,7 @@ public sealed class InstallationLayout
     if (original.Identity != OriginalIdentity || data.Identity != DataIdentity)
       throw new OwnedDirectoryException("An installation root was replaced.");
     if (original.Identity.VolumeSerial != Check(ManagedRoot, store).VolumeSerial ||
+        Check(Records, store).VolumeSerial != original.Identity.VolumeSerial ||
         Check(Versions, store).VolumeSerial != original.Identity.VolumeSerial ||
         Check(Staging, store).VolumeSerial != original.Identity.VolumeSerial ||
         Check(Trash, store).VolumeSerial != original.Identity.VolumeSerial)

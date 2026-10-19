@@ -32,7 +32,9 @@ public sealed class ShortcutOwnershipTests
         installationId, Guid.NewGuid());
       var trash = directories.CreateNamedExclusive(managed, "trash", "trash",
         installationId, Guid.NewGuid());
-      var layout = new InstallationLayout(original, data, managed, versions, staging,
+      var records = directories.CreateNamedExclusive(managed, "records", "records",
+        installationId, Guid.NewGuid());
+      var layout = new InstallationLayout(original, data, managed, records, versions, staging,
         trash, directories);
       File.WriteAllText(layout.StableLauncherPath, "launcher");
       FileIdentity launcherIdentity;
@@ -46,8 +48,8 @@ public sealed class ShortcutOwnershipTests
           File.ReadAllBytes(layout.StableLauncherPath)))
       };
       var path = Path.Combine(programs, "BookSplice.lnk");
-      var recordPath = Path.Combine(managed.Path, "shortcut.json");
-      var state = new AtomicStateStore(managed,
+      var recordPath = Path.Combine(records.Path, "shortcut.json");
+      var state = new AtomicStateStore(records,
         [ShortcutOwnershipRecord.Definition("shortcut.json", installationId,
           path, layout.StableLauncherPath)]);
       var shortcuts = new ManagedShortcutStore(installation, state, recordPath, programs);

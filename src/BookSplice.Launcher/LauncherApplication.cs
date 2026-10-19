@@ -29,20 +29,26 @@ public static class LauncherApplication
           !Guid.TryParseExact(rootName[prefix.Length..], "D", out var installationId))
         throw new InvalidDataException("The launcher is outside a recorded installation.");
       using var rootHandle = SafeDirectoryHandle.OpenPath(rootPath, false);
+      using var recordsHandle = SafeDirectoryHandle.OpenGuardedChild(rootHandle, "records");
+      var recordsPath = Path.Combine(rootPath, "records");
       var managed = new OwnedDirectory(rootPath, rootHandle.Identity, installationId,
         Guid.NewGuid(), "managed-root");
-      var state = new AtomicStateStore(managed,
+      var records = new OwnedDirectory(recordsPath, recordsHandle.Identity, installationId,
+        Guid.NewGuid(), "records");
+      var state = new AtomicStateStore(records,
       [
         InstallationRecord.Definition("installation.json", installationId),
         CurrentTarget.Definition("current.json", installationId),
         UpdateTransaction.Definition("journal.json", installationId),
-        OwnershipState.Definition("ownership.json", managed)
+        OwnershipState.Definition("ownership.json", records, managed)
       ]);
       var installationRead = state.Read<InstallationRecord>(
-        Path.Combine(rootPath, "installation.json"));
+        Path.Combine(recordsPath, "installation.json"));
       if (installationRead.Kind != StateReadKind.Valid || installationRead.Value is not { } record ||
           record.ManagedRoot.Path != rootPath ||
           record.ManagedRoot.Identity != rootHandle.Identity ||
+          record.Records.Path != recordsPath ||
+          record.Records.Identity != recordsHandle.Identity ||
           record.StableLauncherIdentity is not { } launcherIdentity ||
           record.StableLauncherSha256 is not { } launcherHash)
         throw new InvalidDataException("The launcher installation record is invalid.");
@@ -54,22 +60,23 @@ public static class LauncherApplication
         throw new InvalidDataException("The stable launcher image changed.");
       image.Dispose();
       rootHandle.Dispose();
+      recordsHandle.Dispose();
       var directories = new OwnedDirectoryStore(
         Path.GetDirectoryName(record.OriginalApplicationPath)!,
         _ => throw new InvalidOperationException("Launch cannot create directories."));
       var layout = record.Restore(directories);
       var snapshot = new JournalSnapshot(installationRead,
-        state.Read<CurrentTarget>(Path.Combine(rootPath, "current.json")),
-        state.Read<UpdateTransaction>(Path.Combine(rootPath, "journal.json")),
-        state.Read<OwnershipState>(Path.Combine(rootPath, "ownership.json")));
+        state.Read<CurrentTarget>(Path.Combine(recordsPath, "current.json")),
+        state.Read<UpdateTransaction>(Path.Combine(recordsPath, "journal.json")),
+        state.Read<OwnershipState>(Path.Combine(recordsPath, "ownership.json")));
       var decision = LaunchResolver.Resolve(layout, snapshot);
       if (decision.Kind != LaunchDecisionKind.Ready)
         throw new InvalidDataException(decision.Reason ?? "Launch recovery is required.");
       var freshSnapshot = new JournalSnapshot(
-        state.Read<InstallationRecord>(Path.Combine(rootPath, "installation.json")),
-        state.Read<CurrentTarget>(Path.Combine(rootPath, "current.json")),
-        state.Read<UpdateTransaction>(Path.Combine(rootPath, "journal.json")),
-        state.Read<OwnershipState>(Path.Combine(rootPath, "ownership.json")));
+        state.Read<InstallationRecord>(Path.Combine(recordsPath, "installation.json")),
+        state.Read<CurrentTarget>(Path.Combine(recordsPath, "current.json")),
+        state.Read<UpdateTransaction>(Path.Combine(recordsPath, "journal.json")),
+        state.Read<OwnershipState>(Path.Combine(recordsPath, "ownership.json")));
       var beforeStart = LaunchResolver.Resolve(layout, freshSnapshot);
       if (beforeStart.Kind != LaunchDecisionKind.Ready ||
           !LaunchResolver.SameTarget(beforeStart.Target, decision.Target))

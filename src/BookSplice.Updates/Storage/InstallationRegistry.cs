@@ -95,12 +95,14 @@ public sealed class DurableOwnershipRecorder
   private readonly Guid _installationId;
   private readonly FileIdentity _recordRootIdentity;
 
-  public DurableOwnershipRecorder(AtomicStateStore store, string path, OwnedDirectory recordRoot)
+  public DurableOwnershipRecorder(AtomicStateStore store, string path, OwnedDirectory recordRoot,
+    OwnedDirectory managedRoot)
   {
     _store = store ?? throw new ArgumentNullException(nameof(store));
     _path = path ?? throw new ArgumentNullException(nameof(path));
     _installationId = recordRoot.InstallationId;
     _recordRootIdentity = recordRoot.Identity;
+    _ = OwnershipState.Definition("ownership.json", recordRoot, managedRoot);
   }
 
   public void Record(OwnedDirectory created)

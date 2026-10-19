@@ -18,15 +18,21 @@ public sealed record OwnershipState(int SchemaVersion, Guid InstallationId,
   FileIdentity RecordRootIdentity, IReadOnlyList<OwnershipEntry> Entries)
 {
   public static StateRecordDefinition<OwnershipState> Definition(string filename,
-    OwnedDirectory recordRoot)
+    OwnedDirectory recordRoot, OwnedDirectory managedRoot)
   {
     ArgumentNullException.ThrowIfNull(recordRoot);
-    var root = recordRoot.Path;
+    ArgumentNullException.ThrowIfNull(managedRoot);
+    if (recordRoot.InstallationId != managedRoot.InstallationId ||
+        !string.Equals(recordRoot.Path, Path.Combine(managedRoot.Path, "records"),
+          StringComparison.OrdinalIgnoreCase) || recordRoot.Kind != "records" ||
+        managedRoot.Kind != "managed-root")
+      throw new ArgumentException("The ownership roots are inconsistent.");
+    var root = managedRoot.Path;
     return new StateRecordDefinition<OwnershipState>(filename, state =>
       state.SchemaVersion == 1 && state.InstallationId == recordRoot.InstallationId &&
       state.RecordRootIdentity == recordRoot.Identity && state.Entries is not null &&
       state.Entries.Count <= 20_000 && state.Entries.All(entry =>
-        Valid(entry, root, recordRoot.Identity, state.InstallationId)) &&
+        Valid(entry, root, managedRoot.Identity, state.InstallationId)) &&
       state.Entries.Select(entry => entry.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count() ==
         state.Entries.Count, 16 * 1024 * 1024);
   }

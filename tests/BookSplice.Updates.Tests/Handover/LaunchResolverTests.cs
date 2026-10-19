@@ -34,7 +34,8 @@ public sealed class LaunchResolverTests
       var versions = store.CreateNamedExclusive(managed, "versions", "versions", installationId, Guid.NewGuid());
       var staging = store.CreateNamedExclusive(managed, "staging", "staging", installationId, Guid.NewGuid());
       var trash = store.CreateNamedExclusive(managed, "trash", "trash", installationId, Guid.NewGuid());
-      var layout = new InstallationLayout(original, data, managed, versions, staging, trash, store);
+      var records = store.CreateNamedExclusive(managed, "records", "records", installationId, Guid.NewGuid());
+      var layout = new InstallationLayout(original, data, managed, records, versions, staging, trash, store);
       Directory.CreateDirectory(Path.Combine(versions.Path, "v999"));
       var installation = InstallationRecord.FromLayout(layout, "1.0.0");
       var missing = new JournalSnapshot(new StateRead<InstallationRecord>(StateReadKind.Valid, installation),
@@ -47,8 +48,8 @@ public sealed class LaunchResolverTests
           installation.OriginalIdentity, installation.OriginalExecutableIdentity,
           installation.OriginalPackage, installation.OriginalVersion,
           installation.OriginalProtocolVersion, null), null);
-      var ownership = new OwnershipState(1, installationId, managed.Identity,
-        new[] { managed, versions, staging, trash }.Select(OwnershipEntry.FromCreated).ToArray());
+      var ownership = new OwnershipState(1, installationId, records.Identity,
+        new[] { managed, records, versions, staging, trash }.Select(OwnershipEntry.FromCreated).ToArray());
       var committed = missing with
       {
         Current = new StateRead<CurrentTarget>(StateReadKind.Valid, current),
@@ -88,6 +89,17 @@ public sealed class LaunchResolverTests
           Current = new StateRead<CurrentTarget>(StateReadKind.Valid,
             current with { Current = current.Current with { ProtocolVersion = 2 } })
         }).Kind);
+      Assert.Equal(LaunchDecisionKind.Refused, LaunchResolver.Resolve(layout,
+        committed with
+        {
+          Installation = new StateRead<InstallationRecord>(StateReadKind.Valid,
+            installation with { Records = installation.Records with { Identity = managed.Identity } })
+        }).Kind);
+      Directory.Move(records.Path, records.Path + "-old");
+      Directory.CreateDirectory(records.Path);
+      Assert.Equal(LaunchDecisionKind.Refused, LaunchResolver.Resolve(layout, committed).Kind);
+      Directory.Delete(records.Path);
+      Directory.Move(records.Path + "-old", records.Path);
       File.AppendAllText(Path.Combine(original, "README.md"), "changed");
       Assert.Equal(LaunchDecisionKind.Refused, LaunchResolver.Resolve(layout, committed).Kind);
     }

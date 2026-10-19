@@ -264,13 +264,18 @@ public sealed class PackageStagerTests
   {
     using var fixture = new Fixture();
     var (stager, journal, _, _) = fixture.CreateDurableStager();
+    var directPath = Path.Combine(fixture.Layout.ManagedRoot.Path, "journal.json");
+    var directState = new AtomicStateStore(fixture.Layout.ManagedRoot,
+      [UpdateTransaction.Definition("journal.json", fixture.Layout.InstallationId)]);
+    var directJournal = new UpdateJournal(directState, directPath, fixture.Layout.InstallationId);
+    directJournal.Begin(journal.Read().Value!);
     var staged = await stager.StageAsync(fixture.Release, fixture.Manifest,
       fixture.Layout, CancellationToken.None);
-    Assert.ThrowsAny<Exception>(() => journal.Change(fixture.Operation,
+    Assert.ThrowsAny<Exception>(() => directJournal.Change(fixture.Operation,
       UpdatePhase.Preparing, current => current));
     staged.Dispose();
-    journal.Change(fixture.Operation, UpdatePhase.Preparing, current => current);
-    Assert.Equal(UpdatePhase.Preparing, journal.Read().Value!.Phase);
+    directJournal.Change(fixture.Operation, UpdatePhase.Preparing, current => current);
+    Assert.Equal(UpdatePhase.Preparing, directJournal.Read().Value!.Phase);
   }
 
   [Fact]
@@ -653,7 +658,8 @@ public sealed class PackageStagerTests
       var versions = _store.CreateNamedExclusive(managed, "versions", "versions", installation, Guid.NewGuid());
       var staging = _store.CreateNamedExclusive(managed, "staging", "staging", installation, Guid.NewGuid());
       var trash = _store.CreateNamedExclusive(managed, "trash", "trash", installation, Guid.NewGuid());
-      Layout = new InstallationLayout(original, data, managed, versions, staging, trash, _store);
+      var records = _store.CreateNamedExclusive(managed, "records", "records", installation, Operation);
+      Layout = new InstallationLayout(original, data, managed, records, versions, staging, trash, _store);
       _archive = Archive(runnableSelfCheck);
       _served = serveWrongArchive ? _archive.Select((value, index) => index == 0 ? (byte)(value ^ 1) : value).ToArray() : _archive;
       const string name = "BookSplice-0.2.0-win-x64.zip";
@@ -718,8 +724,7 @@ public sealed class PackageStagerTests
 
     public OwnedDirectory CreateEmptyPayload() => _store.CreateNamedExclusive(Layout.Staging,
       "empty", "payload", Layout.InstallationId, Guid.NewGuid());
-    public OwnedDirectory CreateRecords() => _store.CreateNamedExclusive(Layout.ManagedRoot,
-      "records", "records", Layout.InstallationId, Operation);
+    public OwnedDirectory CreateRecords() => Layout.Records;
     public BookSplice.Updates.Windows.SafeDirectoryHandle OpenForRename(OwnedDirectory owned) =>
       _store.OpenValidatedForRename(owned, Layout.Staging);
     public BookSplice.Updates.Windows.SafeDirectoryHandle OpenVersions() =>
@@ -735,16 +740,17 @@ public sealed class PackageStagerTests
       string OwnershipPath) CreateDurableStager(Action<string>? afterPromotedRecord = null)
     {
       var managed = Layout.ManagedRoot;
-      var ownershipPath = Path.Combine(managed.Path, "ownership.json");
-      var journalPath = Path.Combine(managed.Path, "journal.json");
-      var state = new AtomicStateStore(managed,
-        [OwnershipState.Definition("ownership.json", managed),
+      var records = Layout.Records;
+      var ownershipPath = Path.Combine(records.Path, "ownership.json");
+      var journalPath = Path.Combine(records.Path, "journal.json");
+      var state = new AtomicStateStore(records,
+        [OwnershipState.Definition("ownership.json", records, managed),
          UpdateTransaction.Definition("journal.json", Layout.InstallationId)]);
       state.Write(ownershipPath, new OwnershipState(1, Layout.InstallationId,
-        managed.Identity,
-        new[] { managed, Layout.Versions, Layout.Staging, Layout.Trash }
+        records.Identity,
+        new[] { managed, records, Layout.Versions, Layout.Staging, Layout.Trash }
           .Select(OwnershipEntry.FromCreated).ToArray()));
-      var recorder = new DurableOwnershipRecorder(state, ownershipPath, managed);
+      var recorder = new DurableOwnershipRecorder(state, ownershipPath, records, managed);
       var creator = new OwnedDirectoryStore(_root, recorder.Record);
       var journal = new UpdateJournal(state, journalPath, Layout.InstallationId, recorder);
       var old = new OwnedOrOriginalTarget(TargetKind.Original,

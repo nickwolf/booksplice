@@ -52,16 +52,28 @@ public static class LaunchResolver
     ArgumentNullException.ThrowIfNull(snapshot);
     try
     {
+      if (!string.Equals(layout.Records.Path,
+            Path.Combine(layout.ManagedRoot.Path, "records"), StringComparison.OrdinalIgnoreCase))
+        return LaunchDecision.Refuse("The records directory is outside the installation.");
+      using (var managedRoot = SafeDirectoryHandle.OpenPath(layout.ManagedRoot.Path, false))
+      using (var records = SafeDirectoryHandle.OpenGuardedChild(managedRoot, "records"))
+      {
+        if (managedRoot.Identity != layout.ManagedRoot.Identity ||
+            records.Identity != layout.Records.Identity)
+          return LaunchDecision.Refuse("The records directory changed.");
+      }
       if (snapshot.Installation.Kind != StateReadKind.Valid ||
           snapshot.Installation.Value is not { } installation || !installation.IsValid() ||
           installation.InstallationId != layout.InstallationId ||
           installation.OriginalIdentity != layout.OriginalIdentity ||
           installation.DataIdentity != layout.DataIdentity ||
           installation.ManagedRoot != layout.ManagedRoot ||
+          installation.Records != layout.Records ||
           snapshot.Ownership.Kind != StateReadKind.Valid ||
           snapshot.Ownership.Value is not { } ownership ||
           ownership.InstallationId != layout.InstallationId ||
-          ownership.RecordRootIdentity != layout.ManagedRoot.Identity)
+          !OwnershipState.Definition("ownership.json", layout.Records,
+            layout.ManagedRoot).Validate(ownership))
         return LaunchDecision.Refuse("The installation or ownership record is invalid.");
       if (snapshot.Transaction.Kind == StateReadKind.Invalid)
         return LaunchDecision.Refuse("The update transaction is invalid.");

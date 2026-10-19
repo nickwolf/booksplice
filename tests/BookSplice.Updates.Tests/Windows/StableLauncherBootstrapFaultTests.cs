@@ -27,7 +27,7 @@ public sealed class StableLauncherBootstrapFaultTests
   public void FailedRecordLeavesAnUnadoptedOrphan()
   {
     using var fixture = new Fixture();
-    var failing = new AtomicStateStore(fixture.Layout.ManagedRoot,
+    var failing = new AtomicStateStore(fixture.Layout.Records,
       [InstallationRecord.Definition("installation.json", fixture.Layout.InstallationId)],
       point =>
       {
@@ -67,7 +67,9 @@ public sealed class StableLauncherBootstrapFaultTests
         id, Guid.NewGuid());
       var trash = store.CreateNamedExclusive(managed, "trash", "trash",
         id, Guid.NewGuid());
-      Layout = new InstallationLayout(original, data, managed, versions, staging,
+      var records = store.CreateNamedExclusive(managed, "records", "records",
+        id, Guid.NewGuid());
+      Layout = new InstallationLayout(original, data, managed, records, versions, staging,
         trash, store);
       var installation = InstallationRecord.FromLayout(Layout, "1.0.0");
       _current = new CurrentTarget(1, id,
@@ -75,10 +77,10 @@ public sealed class StableLauncherBootstrapFaultTests
           installation.OriginalIdentity, installation.OriginalExecutableIdentity,
           installation.OriginalPackage, installation.OriginalVersion,
           installation.OriginalProtocolVersion, null), null);
-      _ownership = new OwnershipState(1, id, managed.Identity,
-        new[] { managed, versions, staging, trash }.Select(OwnershipEntry.FromCreated).ToArray());
-      RecordPath = Path.Combine(managed.Path, "installation.json");
-      State = new AtomicStateStore(managed,
+      _ownership = new OwnershipState(1, id, records.Identity,
+        new[] { managed, records, versions, staging, trash }.Select(OwnershipEntry.FromCreated).ToArray());
+      RecordPath = Path.Combine(records.Path, "installation.json");
+      State = new AtomicStateStore(records,
         [InstallationRecord.Definition("installation.json", id)]);
       State.Write(RecordPath, installation);
     }

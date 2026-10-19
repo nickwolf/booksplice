@@ -104,7 +104,7 @@ public sealed record CurrentTarget(int SchemaVersion, Guid InstallationId,
 [SupportedOSPlatform("windows")]
 public sealed record InstallationRecord(int SchemaVersion, Guid InstallationId,
   string OriginalApplicationPath, FileIdentity OriginalIdentity, string DataRoot,
-  FileIdentity DataIdentity, OwnedDirectory ManagedRoot, OwnedDirectory Versions,
+  FileIdentity DataIdentity, OwnedDirectory ManagedRoot, OwnedDirectory Records, OwnedDirectory Versions,
   OwnedDirectory Staging, OwnedDirectory Trash, string StableLauncherPath,
   FileIdentity? StableLauncherIdentity, string OriginalExecutablePath,
   FileIdentity OriginalExecutableIdentity, string OriginalExecutableSha256,
@@ -119,7 +119,7 @@ public sealed record InstallationRecord(int SchemaVersion, Guid InstallationId,
     var executable = original.Snapshot.Files.Single(file =>
       string.Equals(file.RelativePath, "BookSplice.Gui.exe", StringComparison.OrdinalIgnoreCase));
     return new(1, layout.InstallationId, layout.OriginalApplicationPath, layout.OriginalIdentity,
-      layout.DataRoot, layout.DataIdentity, layout.ManagedRoot, layout.Versions,
+      layout.DataRoot, layout.DataIdentity, layout.ManagedRoot, layout.Records, layout.Versions,
       layout.Staging, layout.Trash, layout.StableLauncherPath, null,
       Path.Combine(layout.OriginalApplicationPath, "BookSplice.Gui.exe"),
       executable.Identity, executable.Sha256,
@@ -140,13 +140,14 @@ public sealed record InstallationRecord(int SchemaVersion, Guid InstallationId,
       Path.Combine(OriginalApplicationPath, "BookSplice.Gui.exe"), StringComparison.OrdinalIgnoreCase) &&
     RecoveryRecordValidation.Absolute(OriginalApplicationPath) &&
     RecoveryRecordValidation.Absolute(DataRoot) &&
-    ManagedRoot is not null && Versions is not null && Staging is not null && Trash is not null &&
-    new[] { ManagedRoot, Versions, Staging, Trash }.All(x => x.Identity.IsValid &&
+    ManagedRoot is not null && Records is not null && Versions is not null && Staging is not null && Trash is not null &&
+    new[] { ManagedRoot, Records, Versions, Staging, Trash }.All(x => x.Identity.IsValid &&
       x.InstallationId == InstallationId && RecoveryRecordValidation.Absolute(x.Path)) &&
-    ManagedRoot.Kind == "managed-root" && Versions.Kind == "versions" &&
+    ManagedRoot.Kind == "managed-root" && Records.Kind == "records" && Versions.Kind == "versions" &&
     Staging.Kind == "staging" && Trash.Kind == "trash" &&
     string.Equals(ManagedRoot.Path, Path.Combine(Path.GetDirectoryName(OriginalApplicationPath)!,
       ".booksplice-managed-" + InstallationId.ToString("D")), StringComparison.OrdinalIgnoreCase) &&
+    string.Equals(Records.Path, Path.Combine(ManagedRoot.Path, "records"), StringComparison.OrdinalIgnoreCase) &&
     string.Equals(Versions.Path, Path.Combine(ManagedRoot.Path, "versions"), StringComparison.OrdinalIgnoreCase) &&
     string.Equals(Staging.Path, Path.Combine(ManagedRoot.Path, "staging"), StringComparison.OrdinalIgnoreCase) &&
     string.Equals(Trash.Path, Path.Combine(ManagedRoot.Path, "trash"), StringComparison.OrdinalIgnoreCase) &&
@@ -179,7 +180,7 @@ public sealed record InstallationRecord(int SchemaVersion, Guid InstallationId,
   {
     if (!IsValid()) throw new InvalidDataException("The installation record is invalid.");
     return InstallationLayout.Restore(OriginalApplicationPath, DataRoot, OriginalIdentity,
-      DataIdentity, ManagedRoot, Versions, Staging, Trash, store);
+      DataIdentity, ManagedRoot, Records, Versions, Staging, Trash, store);
   }
 
   public static StateRecordDefinition<InstallationRecord> Definition(string filename,

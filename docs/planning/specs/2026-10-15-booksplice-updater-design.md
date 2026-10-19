@@ -97,10 +97,12 @@ Create a random managed root beside the initially running extracted application 
   <original extracted application>/
   .booksplice-managed-<installation-id>/
     BookSplice.Launcher.exe
-    install.json
-    current.json
-    transaction.json
-    ownership.json
+    records/
+      installation.json
+      current.json
+      journal.json
+      ownership.json
+      shortcut.json
     versions/<version>-<transaction-id>/<complete flat package>
     staging/<transaction-id>/
     trash/<transaction-id>/
@@ -108,7 +110,7 @@ Create a random managed root beside the initially running extracted application 
 
 The original extracted application remains unowned and is never deleted. It is the first rollback target. New releases live beside it beneath the managed root. A destination must be created exclusively; an existing directory is neither adopted nor overwritten, even when its contents look correct. Record ownership only after successful creation. A crash before recording may leave an orphan; recovery leaves that orphan untouched.
 
-`install.json` binds the installation ID, original executable identity, managed root, and data root. `current.json` contains the committed application identity and previous working target. It initially points at the original version. Transaction and ownership records use versioned schemas, bounded parsing, write-through temporary files, and same-volume atomic replacement. A parse or durability error stops the update and disables destructive cleanup. Never erase a pending transaction just because it is old.
+The `records` child is created exclusively before staging, and its exact identity is persisted with its managed-root ancestry and installation ID. Mutable state lives there so journal replacement can complete while strict package guards remain held during helper startup. `installation.json` binds the installation ID, original executable identity, managed root, records child, and data root. `current.json` contains the committed application identity and previous working target. It initially points at the original version. Transaction and ownership records use versioned schemas, bounded parsing, write-through temporary files, and same-volume atomic replacement. A missing or replaced records child, parse error, or durability error stops the update and disables destructive cleanup. Never erase a pending transaction just because it is old.
 
 Updater preferences and scheduling metadata live under `<BookSplice data root>/updates/` separately from conversion settings. A locked installation registry maps exact original and managed executable paths to the managed root. Multiple manually extracted copies are not silently combined into one installation. The GUI instance lock is scoped to the canonical BookSplice data root, so two copies cannot concurrently edit that root through the GUI.
 

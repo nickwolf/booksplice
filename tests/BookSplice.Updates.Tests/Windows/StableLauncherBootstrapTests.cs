@@ -28,7 +28,9 @@ public sealed class StableLauncherBootstrapTests
         Guid.NewGuid());
       var trash = directories.CreateNamedExclusive(managed, "trash", "trash", id,
         Guid.NewGuid());
-      var layout = new InstallationLayout(original, data, managed, versions, staging,
+      var records = directories.CreateNamedExclusive(managed, "records", "records", id,
+        Guid.NewGuid());
+      var layout = new InstallationLayout(original, data, managed, records, versions, staging,
         trash, directories);
       var installation = InstallationRecord.FromLayout(layout, "1.0.0");
       var current = new CurrentTarget(1, id,
@@ -36,10 +38,10 @@ public sealed class StableLauncherBootstrapTests
           installation.OriginalIdentity, installation.OriginalExecutableIdentity,
           installation.OriginalPackage, installation.OriginalVersion,
           installation.OriginalProtocolVersion, null), null);
-      var ownership = new OwnershipState(1, id, managed.Identity,
-        new[] { managed, versions, staging, trash }.Select(OwnershipEntry.FromCreated).ToArray());
-      var recordPath = Path.Combine(managed.Path, "installation.json");
-      var state = new AtomicStateStore(managed,
+      var ownership = new OwnershipState(1, id, records.Identity,
+        new[] { managed, records, versions, staging, trash }.Select(OwnershipEntry.FromCreated).ToArray());
+      var recordPath = Path.Combine(records.Path, "installation.json");
+      var state = new AtomicStateStore(records,
         [InstallationRecord.Definition("installation.json", id)]);
       state.Write(recordPath, installation);
       JournalSnapshot Snapshot() => new(

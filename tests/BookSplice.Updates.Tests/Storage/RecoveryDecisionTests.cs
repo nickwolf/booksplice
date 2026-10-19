@@ -25,6 +25,7 @@ public sealed class RecoveryDecisionTests
     OwnedOrOriginalTarget Old, OwnedOrOriginalTarget New) Fixture()
   {
     var root = Owned(Managed, ManagedIdentity, "managed-root");
+    var records = Owned(Managed + @"\records", ManagedIdentity, "records");
     var versions = Owned(Managed + @"\versions", ManagedIdentity, "versions");
     var staging = Owned(Managed + @"\staging", ManagedIdentity, "staging");
     var trash = Owned(Managed + @"\trash", ManagedIdentity, "trash");
@@ -32,7 +33,7 @@ public sealed class RecoveryDecisionTests
     var package = PersistedPackage.FromSnapshot(new PackageSnapshot(ManagedIdentity, [],
       [new PackageFile("BookSplice.Gui.exe", 1, new string('a', 64), ExecutableIdentity)]));
     var installation = new InstallationRecord(1, InstallationId, Root, OriginalIdentity,
-      @"C:\BookSpliceData", OriginalIdentity, root, versions, staging, trash,
+      @"C:\BookSpliceData", OriginalIdentity, root, records, versions, staging, trash,
       Managed + @"\BookSplice.Launcher.exe", null, Root + @"\BookSplice.Gui.exe",
       ExecutableIdentity, new string('a', 64), "1.0.0", 1);
     var ownership = new OwnershipState(1, InstallationId, ManagedIdentity,

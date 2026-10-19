@@ -56,7 +56,8 @@ public static class RecoveryPolicy
     var installation = snapshot.Installation.Value;
     var ownership = snapshot.Ownership.Value;
     if (ownership.InstallationId != installation.InstallationId ||
-        ownership.RecordRootIdentity != installation.ManagedRoot.Identity)
+        !OwnershipState.Definition("ownership.json", installation.Records,
+          installation.ManagedRoot).Validate(ownership))
       return RecoveryDecision.Refuse("Ownership is bound to another installation.");
 
     var current = snapshot.Current.Value;

@@ -68,7 +68,8 @@ public static class StableLauncherBootstrap
     var afterCopy = LaunchResolver.Resolve(layout, snapshot);
     if (afterCopy.Kind != LaunchDecisionKind.Ready ||
         !LaunchResolver.SameTarget(afterCopy.Target, decision.Target))
-      throw new InvalidDataException("The committed package changed during launcher bootstrap.");
+      throw new InvalidDataException("The committed package changed during launcher bootstrap: " +
+        afterCopy.Reason);
     fault?.Invoke(BootstrapPoint.AfterCopy);
     RevalidateCopy(layout, identity, sourceFile.Sha256);
     var updated = installation with
