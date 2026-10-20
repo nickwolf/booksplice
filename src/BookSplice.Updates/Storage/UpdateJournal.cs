@@ -14,7 +14,7 @@ public sealed record UpdateTransaction(int SchemaVersion, Guid InstallationId, G
   string? SettingsSha256, bool SettingsAbsent, int ProtocolVersion, string Nonce,
   IReadOnlyList<OwnedDirectory> OwnedPaths, ProcessIdentity? Coordinator,
   ProcessIdentity? OldProcess, ProcessIdentity? NewProcess, PersistedPromotion? Promotion,
-  WriterFinalization? Finalization = null)
+  WriterFinalization? Finalization = null, CurrentTarget? PriorMapping = null)
 {
   public bool IsValid() => SchemaVersion == 1 && InstallationId != Guid.Empty && Id != Guid.Empty &&
     Enum.IsDefined(Phase) && OldTarget is not null && OldTarget.IsValid() &&
@@ -28,10 +28,29 @@ public sealed record UpdateTransaction(int SchemaVersion, Guid InstallationId, G
       RecoveryRecordValidation.Absolute(x.Path)) &&
     OwnedPaths.Select(x => x.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count() == OwnedPaths.Count &&
     ValidProcess(Coordinator) && ValidProcess(OldProcess) && ValidProcess(NewProcess) &&
+    (PriorMapping is null ||
+     PriorMapping.SchemaVersion == 1 && PriorMapping.InstallationId == InstallationId &&
+     PriorMapping.Current is not null && PriorMapping.Current.IsValid() &&
+     SameTarget(PriorMapping.Current, OldTarget) &&
+     (PriorMapping.Previous is null || PriorMapping.Previous.IsValid() &&
+      !string.Equals(PriorMapping.Previous.ExecutablePath,
+        PriorMapping.Current.ExecutablePath, StringComparison.OrdinalIgnoreCase))) &&
     (Promotion is null || ValidPromotion(Promotion)) &&
     ValidFinalization(Finalization, Phase, OldProcess, NewProcess) &&
     (Phase is UpdatePhase.Preparing or UpdatePhase.RollingBack or UpdatePhase.Failed ||
      NewTarget is not null || Promotion is not null);
+
+  internal static bool SameTarget(OwnedOrOriginalTarget? left,
+    OwnedOrOriginalTarget? right) => left is null && right is null ||
+    LaunchResolver.SameTarget(left, right);
+
+  internal static bool SameMapping(CurrentTarget? left, CurrentTarget? right) =>
+    left is null && right is null ||
+    left is not null && right is not null &&
+    left.SchemaVersion == right.SchemaVersion &&
+    left.InstallationId == right.InstallationId &&
+    SameTarget(left.Current, right.Current) &&
+    SameTarget(left.Previous, right.Previous);
 
   private bool ValidPromotion(PersistedPromotion promotion)
   {
@@ -200,6 +219,7 @@ public sealed class UpdateJournal : IPromotionJournal
           next.SettingsAbsent != read.Value.SettingsAbsent ||
           next.ProtocolVersion != read.Value.ProtocolVersion ||
           next.Nonce != read.Value.Nonce ||
+          !UpdateTransaction.SameMapping(next.PriorMapping, read.Value.PriorMapping) ||
           (!allowFinalization && next.Finalization != read.Value.Finalization) ||
           (allowFinalization && read.Value.Finalization is not null) ||
           (expected != UpdatePhase.Preparing && next.NewTarget != read.Value.NewTarget))

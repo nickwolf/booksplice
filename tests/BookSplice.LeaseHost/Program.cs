@@ -6,6 +6,33 @@ using System.Globalization;
 using System.Buffers.Binary;
 using System.Text.Json;
 
+if (args.Length == 11 && args[0] == "rpc-old-host")
+{
+  using var expectedCoordinator = SupervisedProcess.CaptureExpected(new ProcessIdentity(
+    int.Parse(args[4], CultureInfo.InvariantCulture),
+    long.Parse(args[5], CultureInfo.InvariantCulture), args[6]),
+    new FileIdentity(ulong.Parse(args[7], CultureInfo.InvariantCulture), args[8]), args[9]);
+  using var self = SupervisedProcess.CaptureCurrent();
+  using var server = new OldHostRpcServer(self, Guid.Parse(args[3]));
+  var host = new TestOldHost(args[10] == "frozen");
+  var ticketTemp = args[1] + ".tmp";
+  File.WriteAllText(ticketTemp, server.Ticket.Encode());
+  File.Move(ticketTemp, args[1]);
+  try
+  {
+    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+    await server.ServeAsync(expectedCoordinator, host, timeout.Token);
+    File.WriteAllText(args[2], $"ok|{host.Frozen}|{string.Join(',', host.Events)}");
+    return 0;
+  }
+  catch (Exception error)
+  {
+    File.WriteAllText(args[2], $"{error.GetType().Name}|{host.Frozen}|{string.Join(',', host.Events)}");
+    await Task.Delay(TimeSpan.FromSeconds(30));
+    return 3;
+  }
+}
+
 if (args.Length == 3 && args[0] == "--update-self-check")
 {
   var isolatedData = Environment.GetEnvironmentVariable("BOOKSPLICE_LOCAL_APP_DATA")
@@ -144,3 +171,31 @@ using (lease)
 return 0;
 
 internal sealed record CounterState(int SchemaVersion, int Count);
+
+internal sealed class TestOldHost(bool frozen) : IOldApplicationHost
+{
+  public bool Frozen { get; private set; } = frozen;
+  public List<string> Events { get; } = [];
+  public Task<bool> FreezeAsync(CancellationToken cancellationToken = default)
+  {
+    Events.Add("freeze");
+    Frozen = true;
+    return Task.FromResult(true);
+  }
+  public Task<bool> HideAndReleaseGuiAsync(CancellationToken cancellationToken = default)
+  {
+    Events.Add("hide");
+    return Task.FromResult(Frozen);
+  }
+  public Task<bool> RestoreAndAcquireGuiAsync(CancellationToken cancellationToken = default)
+  {
+    Events.Add("restore");
+    Frozen = false;
+    return Task.FromResult(true);
+  }
+  public Task ExitAsync(CancellationToken cancellationToken = default)
+  {
+    Events.Add("exit");
+    return Task.CompletedTask;
+  }
+}

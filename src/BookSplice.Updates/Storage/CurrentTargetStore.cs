@@ -18,11 +18,24 @@ public sealed class CurrentTargetStore
     _path = Path.Combine(layout.Records.Path, "current.json");
   }
 
+  public CurrentTarget CapturePriorMapping(OwnedOrOriginalTarget expectedOld)
+  {
+    ArgumentNullException.ThrowIfNull(expectedOld);
+    var read = _state.Read<CurrentTarget>(_path);
+    if (read.Kind != StateReadKind.Valid || read.Value is not { } mapping ||
+        mapping.InstallationId != _layout.InstallationId ||
+        !LaunchResolver.SameTarget(mapping.Current, expectedOld))
+      throw new InvalidDataException("The pre-update launch mapping changed.");
+    return mapping;
+  }
+
   public CurrentTarget Commit(Guid operationId, PackageInventory retainedCandidate)
   {
     ArgumentNullException.ThrowIfNull(retainedCandidate);
     var transaction = RequireTransaction(operationId, Handover.UpdatePhase.Committing);
     var oldTarget = transaction.OldTarget;
+    var prior = transaction.PriorMapping ??
+      throw new InvalidDataException("The pre-update launch mapping was not recorded.");
     var newTarget = transaction.NewTarget ??
       throw new InvalidDataException("The committed update has no candidate target.");
     ValidateNewTarget(newTarget, transaction, retainedCandidate);
@@ -30,6 +43,7 @@ public sealed class CurrentTargetStore
     {
       if (read.Kind != StateReadKind.Valid || read.Value is not { } current ||
           current.InstallationId != _layout.InstallationId ||
+          !UpdateTransaction.SameMapping(current, prior) ||
           !LaunchResolver.SameTarget(current.Current, oldTarget))
         throw new InvalidDataException("The current launch target changed before commit.");
       return new CurrentTarget(1, _layout.InstallationId, newTarget, oldTarget);
@@ -41,6 +55,8 @@ public sealed class CurrentTargetStore
     var transaction = RequireTransaction(operationId, Handover.UpdatePhase.RollingBack);
     var oldTarget = transaction.OldTarget;
     var newTarget = transaction.NewTarget;
+    var prior = transaction.PriorMapping ??
+      throw new InvalidDataException("The pre-update launch mapping was not recorded.");
     return _state.Transition<CurrentTarget>(_path, read =>
     {
       if (read.Kind != StateReadKind.Valid || read.Value is not { } current ||
@@ -48,7 +64,7 @@ public sealed class CurrentTargetStore
           newTarget is null || !LaunchResolver.SameTarget(current.Current, newTarget) ||
           !LaunchResolver.SameTarget(current.Previous, oldTarget))
         throw new InvalidDataException("The committed candidate mapping changed before restore.");
-      return new CurrentTarget(1, _layout.InstallationId, oldTarget, null);
+      return prior;
     });
   }
 

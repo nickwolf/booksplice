@@ -68,22 +68,51 @@ public sealed class CurrentTargetStoreTests
         UpdateTransaction.Definition("journal.json", installation)
       ]);
       var pointerPath = Path.Combine(records.Path, "current.json");
-      state.Write(pointerPath, new CurrentTarget(1, installation, oldTarget, null));
+      var previous = oldTarget with
+      {
+        ExecutablePath = Path.Combine(root, "Previous", "BookSplice.Gui.exe"),
+        Version = "0.9.0",
+        Package = null
+      };
+      var originalMapping = new CurrentTarget(1, installation, oldTarget, previous);
+      state.Write(pointerPath, originalMapping);
       var journal = new UpdateJournal(state, Path.Combine(records.Path, "journal.json"),
         installation);
-      journal.Begin(new UpdateTransaction(1, installation, operation,
+      var writer = new CurrentTargetStore(state, journal, layout);
+      var recordedPrior = writer.CapturePriorMapping(oldTarget);
+      var initial = new UpdateTransaction(1, installation, operation,
         UpdatePhase.Preparing, oldTarget, null, null, true, 1,
-        new string('A', 64), [], null, null, null, promotion));
+        new string('A', 64), [], null, null, null, promotion,
+        PriorMapping: recordedPrior);
+      Assert.False((initial with
+      {
+        PriorMapping = recordedPrior with { InstallationId = Guid.NewGuid() }
+      }).IsValid());
+      Assert.False((initial with
+      {
+        PriorMapping = recordedPrior with { Current = previous }
+      }).IsValid());
+      journal.Begin(initial);
+      Assert.Throws<InvalidDataException>(() => journal.Change(operation,
+        UpdatePhase.Preparing, current => current with
+        {
+          PriorMapping = originalMapping with { Previous = null }
+        }));
       journal.Change(operation, UpdatePhase.Preparing,
         current => current with { NewTarget = newTarget });
       journal.Transition(operation, UpdatePhase.Preparing, UpdatePhase.Prepared);
       journal.Transition(operation, UpdatePhase.Prepared, UpdatePhase.Starting);
       journal.Transition(operation, UpdatePhase.Starting, UpdatePhase.Ready);
       journal.Transition(operation, UpdatePhase.Ready, UpdatePhase.Committing);
-      var writer = new CurrentTargetStore(state, journal, layout);
       Assert.Throws<InvalidDataException>(() => writer.Commit(Guid.NewGuid(), inventory));
       Assert.True(LaunchResolver.SameTarget(oldTarget,
         state.Read<CurrentTarget>(pointerPath).Value!.Current));
+      state.Write(pointerPath, originalMapping with
+      {
+        Previous = previous with { Version = "0.8.0" }
+      });
+      Assert.Throws<InvalidDataException>(() => writer.Commit(operation, inventory));
+      state.Write(pointerPath, originalMapping);
       var committed = writer.Commit(operation, inventory);
       Assert.True(LaunchResolver.SameTarget(newTarget, committed.Current));
       Assert.True(LaunchResolver.SameTarget(oldTarget, committed.Previous));
@@ -91,7 +120,7 @@ public sealed class CurrentTargetStoreTests
       journal.Transition(operation, UpdatePhase.Committing, UpdatePhase.RollingBack);
       var restored = writer.Restore(operation);
       Assert.True(LaunchResolver.SameTarget(oldTarget, restored.Current));
-      Assert.Null(restored.Previous);
+      Assert.True(LaunchResolver.SameTarget(previous, restored.Previous));
       Assert.Throws<InvalidDataException>(() => writer.Restore(operation));
     }
     finally { Directory.Delete(root, true); }
