@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Threading;
+using System.Diagnostics;
 using BookSplice.Gui.Updates;
 using BookSplice.Updates.Windows;
 
@@ -86,6 +87,17 @@ public sealed class HandoverHostTests
           Assert.True(host.HideAndReleaseGuiAsync().GetAwaiter().GetResult());
           Assert.True(gate.IsFrozen);
           Assert.False(app.Dispatcher.HasShutdownStarted);
+          var applicationExitObserved = false;
+          app.Exit += (_, _) => applicationExitObserved = true;
+          var exitRequest = host.ExitAsync();
+          Assert.True(exitRequest.IsCompletedSuccessfully);
+          exitRequest.GetAwaiter().GetResult();
+          var exitFrame = new DispatcherFrame();
+          app.Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle,
+            new Action(() => exitFrame.Continue = false));
+          Dispatcher.PushFrame(exitFrame);
+          Assert.True(applicationExitObserved);
+          Assert.False(Process.GetCurrentProcess().HasExited);
         }
         finally
         {
