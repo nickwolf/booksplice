@@ -5,6 +5,7 @@ using BookSplice.Gui.Bootstrap;
 using BookSplice.Gui.ViewModels;
 using BookSplice.Gui.Views;
 using BookSplice.Gui.Updates;
+using BookSplice.Updates.Handover;
 using BookSplice.Updates.Windows;
 
 namespace BookSplice.Gui;
@@ -30,7 +31,7 @@ public partial class App : Application
         }
         if (e.Args is ["--update-candidate", var encoded])
         {
-          var request = CandidateStartupRequest.Parse(encoded);
+          var request = CandidateStartupRequest.Parse(encoded, PackagedIdentity.Matches);
           var active = await RestrictedStartup.RunCandidateAsync(request,
             window => { MainWindow = window; window.Show(); },
             lease => _candidateLease = lease, CancellationToken.None);
