@@ -27,7 +27,8 @@ public sealed class JournalTests
         @"C:\BookSplice\BookSplice.Gui.exe", Identity, Identity, null, "1.0.0", 1, null);
       var transaction = new UpdateTransaction(1, installationId, Guid.NewGuid(),
         UpdatePhase.Preparing, old, null, null, true, 1,
-        new string('A', 64), [], null, null, null, null);
+        new string('A', 64), [], null,
+        new ProcessIdentity(42, 123, old.ExecutablePath), null, null);
       journal.Begin(transaction);
 
       Assert.Throws<InvalidDataException>(() => journal.Transition(transaction.Id,
@@ -46,7 +47,19 @@ public sealed class JournalTests
       journal.Transition(transaction.Id, UpdatePhase.Preparing, UpdatePhase.RollingBack);
       journal.Transition(transaction.Id, UpdatePhase.RollingBack, UpdatePhase.Failed);
       Assert.Throws<InvalidDataException>(() => journal.Begin(transaction with { Id = Guid.NewGuid() }));
-      Assert.Equal(transaction.Id, journal.Read().Value!.Id);
+      Assert.Throws<InvalidDataException>(() => journal.Begin(
+        transaction with { Id = Guid.NewGuid() }, Guid.NewGuid()));
+      Assert.Throws<InvalidDataException>(() => journal.RecordObservedFinalization(
+        transaction.Id, UpdatePhase.Failed,
+        WriterFinalizationState.OldRestoredAfterCandidateExit,
+        new ProcessIdentity(43, 123, old.ExecutablePath)));
+      journal.RecordObservedFinalization(transaction.Id, UpdatePhase.Failed,
+        WriterFinalizationState.OldRestoredAfterCandidateExit,
+        transaction.OldProcess!);
+      var next = transaction with { Id = Guid.NewGuid(), Phase = UpdatePhase.Preparing };
+      Assert.Throws<InvalidDataException>(() => journal.Begin(next, Guid.NewGuid()));
+      journal.Begin(next, transaction.Id);
+      Assert.Equal(next.Id, journal.Read().Value!.Id);
     }
     finally { Directory.Delete(root, true); }
   }
