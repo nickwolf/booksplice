@@ -30,6 +30,30 @@ public sealed class JournalTests
         new string('A', 64), [], null,
         new ProcessIdentity(42, 123, old.ExecutablePath), null, null);
       journal.Begin(transaction);
+      var oldWriterMarker = new WriterFinalization(
+        WriterFinalizationState.OldRestoredAfterCandidateExit, DateTime.UtcNow.Ticks,
+        transaction.OldProcess!);
+      Assert.False((transaction with { Finalization = oldWriterMarker }).IsValid());
+      Assert.False((transaction with
+      {
+        Phase = UpdatePhase.Failed,
+        Finalization = oldWriterMarker with
+        {
+          State = WriterFinalizationState.CandidateActiveAfterOldExit
+        }
+      }).IsValid());
+      Assert.False((transaction with
+      {
+        Phase = UpdatePhase.Failed,
+        Finalization = oldWriterMarker with
+        {
+          Process = new ProcessIdentity(43, 123, old.ExecutablePath)
+        }
+      }).IsValid());
+      Assert.Throws<InvalidDataException>(() => journal.Begin(
+        transaction with { Id = Guid.NewGuid(), Finalization = oldWriterMarker }));
+      Assert.Throws<InvalidDataException>(() => journal.Begin(
+        transaction with { Id = Guid.NewGuid(), Finalization = oldWriterMarker }, transaction.Id));
 
       Assert.Throws<InvalidDataException>(() => journal.Transition(transaction.Id,
         UpdatePhase.Preparing, UpdatePhase.Committed));
@@ -53,13 +77,32 @@ public sealed class JournalTests
         transaction.Id, UpdatePhase.Failed,
         WriterFinalizationState.OldRestoredAfterCandidateExit,
         new ProcessIdentity(43, 123, old.ExecutablePath)));
+      Assert.Throws<InvalidDataException>(() => journal.Change(transaction.Id,
+        UpdatePhase.Failed, current => current with { Finalization = oldWriterMarker }));
       journal.RecordObservedFinalization(transaction.Id, UpdatePhase.Failed,
         WriterFinalizationState.OldRestoredAfterCandidateExit,
         transaction.OldProcess!);
-      var next = transaction with { Id = Guid.NewGuid(), Phase = UpdatePhase.Preparing };
+      var nextProcess = new ProcessIdentity(44, 124, old.ExecutablePath);
+      var next = transaction with
+      {
+        Id = Guid.NewGuid(),
+        Phase = UpdatePhase.Preparing,
+        NewTarget = old,
+        NewProcess = nextProcess
+      };
       Assert.Throws<InvalidDataException>(() => journal.Begin(next, Guid.NewGuid()));
       journal.Begin(next, transaction.Id);
-      Assert.Equal(next.Id, journal.Read().Value!.Id);
+      journal.Transition(next.Id, UpdatePhase.Preparing, UpdatePhase.Prepared);
+      journal.Transition(next.Id, UpdatePhase.Prepared, UpdatePhase.Starting);
+      journal.Transition(next.Id, UpdatePhase.Starting, UpdatePhase.Ready);
+      journal.Transition(next.Id, UpdatePhase.Ready, UpdatePhase.Committing);
+      journal.Transition(next.Id, UpdatePhase.Committing, UpdatePhase.Committed);
+      journal.RecordObservedFinalization(next.Id, UpdatePhase.Committed,
+        WriterFinalizationState.CandidateActiveAfterOldExit, nextProcess);
+      Assert.True(journal.Read().Value!.IsValid());
+      var final = transaction with { Id = Guid.NewGuid(), Phase = UpdatePhase.Preparing };
+      journal.Begin(final, next.Id);
+      Assert.Equal(final.Id, journal.Read().Value!.Id);
     }
     finally { Directory.Delete(root, true); }
   }

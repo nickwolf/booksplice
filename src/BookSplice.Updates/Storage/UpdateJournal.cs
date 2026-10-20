@@ -29,9 +29,7 @@ public sealed record UpdateTransaction(int SchemaVersion, Guid InstallationId, G
     OwnedPaths.Select(x => x.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count() == OwnedPaths.Count &&
     ValidProcess(Coordinator) && ValidProcess(OldProcess) && ValidProcess(NewProcess) &&
     (Promotion is null || ValidPromotion(Promotion)) &&
-    (Finalization is null || Enum.IsDefined(Finalization.State) &&
-      Finalization.ObservedAtUtcTicks > 0 && Finalization.Process is not null &&
-      ValidProcess(Finalization.Process)) &&
+    ValidFinalization(Finalization, Phase, OldProcess, NewProcess) &&
     (Phase is UpdatePhase.Preparing or UpdatePhase.RollingBack or UpdatePhase.Failed ||
      NewTarget is not null || Promotion is not null);
 
@@ -64,6 +62,19 @@ public sealed record UpdateTransaction(int SchemaVersion, Guid InstallationId, G
   private static bool ValidProcess(ProcessIdentity? process) => process is null ||
     (process.Pid > 0 && process.StartTimeUtcTicks > 0 &&
      RecoveryRecordValidation.Absolute(process.ExecutablePath));
+
+  private static bool ValidFinalization(WriterFinalization? finalization, UpdatePhase phase,
+    ProcessIdentity? oldProcess, ProcessIdentity? newProcess) => finalization is null ||
+    (Enum.IsDefined(finalization.State) && finalization.ObservedAtUtcTicks > 0 &&
+     finalization.Process is not null && ValidProcess(finalization.Process) &&
+     (phase, finalization.State) switch
+     {
+       (UpdatePhase.Committed, WriterFinalizationState.CandidateActiveAfterOldExit) =>
+         finalization.Process == newProcess,
+       (UpdatePhase.Failed, WriterFinalizationState.OldRestoredAfterCandidateExit) =>
+         finalization.Process == oldProcess,
+       _ => false
+     });
 
   public static StateRecordDefinition<UpdateTransaction> Definition(string filename,
     Guid installationId) => new(filename, value => value.InstallationId == installationId &&
@@ -98,7 +109,8 @@ public sealed class UpdateJournal : IPromotionJournal
   public UpdateTransaction Begin(UpdateTransaction transaction)
   {
     ArgumentNullException.ThrowIfNull(transaction);
-    if (transaction.InstallationId != _installationId || transaction.Phase != UpdatePhase.Preparing)
+    if (transaction.InstallationId != _installationId || transaction.Phase != UpdatePhase.Preparing ||
+        transaction.Finalization is not null)
       throw new InvalidDataException("The initial transaction is invalid.");
     return _store.Transition<UpdateTransaction>(_path, current =>
       current.Kind == StateReadKind.Missing ? transaction :
@@ -109,7 +121,8 @@ public sealed class UpdateJournal : IPromotionJournal
   {
     ArgumentNullException.ThrowIfNull(transaction);
     if (expectedPriorOperationId == Guid.Empty || transaction.Id == expectedPriorOperationId ||
-        transaction.InstallationId != _installationId || transaction.Phase != UpdatePhase.Preparing)
+        transaction.InstallationId != _installationId || transaction.Phase != UpdatePhase.Preparing ||
+        transaction.Finalization is not null)
       throw new InvalidDataException("The replacement transaction is invalid.");
     return _store.Transition<UpdateTransaction>(_path, current =>
     {
@@ -125,10 +138,10 @@ public sealed class UpdateJournal : IPromotionJournal
     WriterFinalizationState state, ProcessIdentity observedProcess)
   {
     ArgumentNullException.ThrowIfNull(observedProcess);
-    return Change(id, expected, current => current with
+    return ChangeCore(id, expected, current => current with
     {
       Finalization = ValidateFinalization(current, expected, state, observedProcess)
-    });
+    }, allowFinalization: true);
   }
 
   private static WriterFinalization ValidateFinalization(UpdateTransaction current,
@@ -167,6 +180,10 @@ public sealed class UpdateJournal : IPromotionJournal
 
   public UpdateTransaction Change(Guid id, UpdatePhase expected,
     Func<UpdateTransaction, UpdateTransaction> change)
+    => ChangeCore(id, expected, change, allowFinalization: false);
+
+  private UpdateTransaction ChangeCore(Guid id, UpdatePhase expected,
+    Func<UpdateTransaction, UpdateTransaction> change, bool allowFinalization)
   {
     ArgumentNullException.ThrowIfNull(change);
     if (id == Guid.Empty) throw new ArgumentException("Operation ID is empty.", nameof(id));
@@ -183,8 +200,8 @@ public sealed class UpdateJournal : IPromotionJournal
           next.SettingsAbsent != read.Value.SettingsAbsent ||
           next.ProtocolVersion != read.Value.ProtocolVersion ||
           next.Nonce != read.Value.Nonce ||
-          (expected != UpdatePhase.Committed && expected != UpdatePhase.Failed &&
-            next.Finalization != read.Value.Finalization) ||
+          (!allowFinalization && next.Finalization != read.Value.Finalization) ||
+          (allowFinalization && read.Value.Finalization is not null) ||
           (expected != UpdatePhase.Preparing && next.NewTarget != read.Value.NewTarget))
         throw new InvalidDataException("The journal mutation is invalid.");
       return next;
