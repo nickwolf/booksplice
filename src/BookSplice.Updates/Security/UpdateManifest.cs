@@ -4,7 +4,8 @@ public sealed class VerifiedManifest
 {
   internal VerifiedManifest(int schemaVersion, string product, string repository, string tag, string version,
     string target, string archiveName, long archiveLength, string archiveSha256, int packageProtocol,
-    int settingsSchemaMin, int settingsSchemaMax, Policy.ReleaseIdentity releaseIdentity)
+    int settingsSchemaMin, int settingsSchemaMax, Policy.ReleaseIdentity releaseIdentity,
+    string? manifestSha256 = null)
   {
     SchemaVersion = schemaVersion;
     Product = product;
@@ -19,6 +20,7 @@ public sealed class VerifiedManifest
     SettingsSchemaMin = settingsSchemaMin;
     SettingsSchemaMax = settingsSchemaMax;
     ReleaseIdentity = releaseIdentity;
+    ManifestSha256 = manifestSha256;
   }
 
   public int SchemaVersion { get; }
@@ -30,6 +32,7 @@ public sealed class VerifiedManifest
   public string ArchiveName { get; }
   public long ArchiveLength { get; }
   public string ArchiveSha256 { get; }
+  public string? ManifestSha256 { get; }
   public int PackageProtocol { get; }
   public int SettingsSchemaMin { get; }
   public int SettingsSchemaMax { get; }

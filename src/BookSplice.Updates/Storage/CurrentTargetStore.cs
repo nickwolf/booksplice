@@ -1,4 +1,5 @@
 using System.Runtime.Versioning;
+using BookSplice.Updates.Windows;
 
 namespace BookSplice.Updates.Storage;
 
@@ -64,6 +65,29 @@ public sealed class CurrentTargetStore
           newTarget is null || !LaunchResolver.SameTarget(current.Current, newTarget) ||
           !LaunchResolver.SameTarget(current.Previous, oldTarget))
         throw new InvalidDataException("The committed candidate mapping changed before restore.");
+      return prior;
+    });
+  }
+
+  public CurrentTarget RestoreAfterCandidateExit(Guid operationId, SupervisedProcess candidate)
+  {
+    ArgumentNullException.ThrowIfNull(candidate);
+    var transaction = RequireTransaction(operationId, Handover.UpdatePhase.RollingBack);
+    if (transaction.NewProcess != candidate.Identity || !candidate.HasExited)
+      throw new InvalidDataException("The recorded candidate exit has not been observed.");
+    var prior = transaction.PriorMapping ??
+      throw new InvalidDataException("The pre-update launch mapping was not recorded.");
+    var newTarget = transaction.NewTarget ??
+      throw new InvalidDataException("The candidate target was not recorded.");
+    return _state.Transition<CurrentTarget>(_path, read =>
+    {
+      if (read.Kind != StateReadKind.Valid || read.Value is not { } current ||
+          current.InstallationId != _layout.InstallationId)
+        throw new InvalidDataException("The current launch mapping cannot be reconciled.");
+      if (UpdateTransaction.SameMapping(current, prior)) return prior;
+      if (!LaunchResolver.SameTarget(current.Current, newTarget) ||
+          !LaunchResolver.SameTarget(current.Previous, transaction.OldTarget))
+        throw new InvalidDataException("The current launch mapping differs from the recorded candidate.");
       return prior;
     });
   }

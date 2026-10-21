@@ -27,7 +27,9 @@ public sealed class ManifestVerifierTests
     var signature = key.SignData(message, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
     var envelope = Encoding.UTF8.GetBytes($$"""{"schemaVersion":1,"keyId":"{{keyId}}","algorithm":"RSA-PSS-SHA256","signature":"{{Convert.ToBase64String(signature)}}"}""");
     var verifier = new ManifestVerifier(new Dictionary<string, byte[]> { [keyId] = spki });
-    Assert.Equal(3, verifier.Verify(manifest, envelope, release, 1).ArchiveLength);
+    var verified = verifier.Verify(manifest, envelope, release, 1);
+    Assert.Equal(3, verified.ArchiveLength);
+    Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(manifest)), verified.ManifestSha256);
     manifest[^2] ^= 1;
     Assert.Throws<ManifestVerificationException>(() => verifier.Verify(manifest, envelope, release, 1));
   }

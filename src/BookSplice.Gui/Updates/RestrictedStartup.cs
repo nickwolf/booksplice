@@ -64,19 +64,29 @@ public static class RestrictedStartup
       using (var exitWait = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token))
       {
         var observedExit = oldGui.WaitForExitAsync(exitWait.Token);
-        var coordinatorLoss = session.ReceiveAsync(exitWait.Token);
-        if (await Task.WhenAny(observedExit, coordinatorLoss) == coordinatorLoss)
+        var coordinatorLoss = coordinator.WaitForExitAsync(exitWait.Token);
+        var channelLoss = session.ReceiveAsync(CancellationToken.None);
+        _ = channelLoss.ContinueWith(task => _ = task.Exception,
+          CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted |
+          TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        var first = await Task.WhenAny(observedExit, coordinatorLoss, channelLoss);
+        if (first != observedExit)
         {
           exitWait.Cancel();
           try { await observedExit; }
           catch (OperationCanceledException) { }
-          await coordinatorLoss;
-          throw new IOException("The coordinator sent an unexpected message after old exit.");
+          await first;
+          throw new IOException("The update channel changed before the old GUI exit.");
         }
         exitWait.Cancel();
         try { await coordinatorLoss; }
         catch (OperationCanceledException) { }
         await observedExit;
+        if (channelLoss.IsCompleted)
+        {
+          await channelLoss;
+          throw new IOException("The update channel changed before activation.");
+        }
       }
       await snapshot.VerifyUnchangedAsync(settingsPath, deadline.Token);
       VerifySnapshot(snapshot, request.ExpectedSettingsSha256);
@@ -84,8 +94,9 @@ public static class RestrictedStartup
       if (!restricted.IsVisible) throw new IOException("The restricted window closed.");
       settingsStore.Enable();
       retainLease(lease);
-      retained = true;
       restricted.IsEnabled = true;
+      await session.SendAsync(UpdateMessageKind.Activated, deadline.Token);
+      retained = true;
       return restricted;
     }
     finally

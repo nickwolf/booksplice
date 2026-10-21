@@ -10,6 +10,42 @@ public sealed class JournalTests
   private static readonly FileIdentity Identity = new(1, "0123456789ABCDEF0123456789ABCDEF");
 
   [Fact]
+  public void CommittedCandidateLossRequiresTheRecordedProcessAndNoFinalization()
+  {
+    var root = Path.Combine(Path.GetTempPath(), "booksplice-journal-loss-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(root);
+    try
+    {
+      var installation = Guid.NewGuid();
+      var owned = new OwnedDirectoryStore(root, _ => { }).CreateExclusive(root,
+        "managed", installation, Guid.NewGuid());
+      var state = new AtomicStateStore(owned,
+        [UpdateTransaction.Definition("journal.json", installation)]);
+      var journal = new UpdateJournal(state, Path.Combine(owned.Path, "journal.json"), installation);
+      var old = new OwnedOrOriginalTarget(TargetKind.Original,
+        @"C:\BookSplice\BookSplice.Gui.exe", Identity, Identity, null, "1.0.0", 1, null);
+      var candidate = new ProcessIdentity(52, 124, @"C:\BookSplice\BookSplice.Gui.exe");
+      var transaction = new UpdateTransaction(1, installation, Guid.NewGuid(),
+        UpdatePhase.Preparing, old, old, null, true, 1, new string('A', 64), [],
+        null, new ProcessIdentity(42, 123, old.ExecutablePath), candidate, null);
+      journal.Begin(transaction);
+      journal.Transition(transaction.Id, UpdatePhase.Preparing, UpdatePhase.Prepared);
+      journal.Transition(transaction.Id, UpdatePhase.Prepared, UpdatePhase.Starting);
+      journal.Transition(transaction.Id, UpdatePhase.Starting, UpdatePhase.Ready);
+      journal.Transition(transaction.Id, UpdatePhase.Ready, UpdatePhase.Committing);
+      journal.Transition(transaction.Id, UpdatePhase.Committing, UpdatePhase.Committed);
+      Assert.Throws<InvalidDataException>(() => journal.Transition(transaction.Id,
+        UpdatePhase.Committed, UpdatePhase.RollingBack));
+      Assert.Throws<InvalidDataException>(() => journal.TransitionCommittedCandidateLoss(
+        transaction.Id, candidate with { Pid = 53 }));
+      Assert.Equal(UpdatePhase.Committed, journal.Read().Value!.Phase);
+      journal.TransitionCommittedCandidateLoss(transaction.Id, candidate);
+      Assert.Equal(UpdatePhase.RollingBack, journal.Read().Value!.Phase);
+    }
+    finally { Directory.Delete(root, true); }
+  }
+
+  [Fact]
   public void StaleAndIllegalTransitionsRetainTheDurableRecord()
   {
     var root = Path.Combine(Path.GetTempPath(), "booksplice-journal-" + Guid.NewGuid().ToString("N"));
@@ -99,6 +135,8 @@ public sealed class JournalTests
       journal.Transition(next.Id, UpdatePhase.Committing, UpdatePhase.Committed);
       journal.RecordObservedFinalization(next.Id, UpdatePhase.Committed,
         WriterFinalizationState.CandidateActiveAfterOldExit, nextProcess);
+      Assert.Throws<InvalidDataException>(() => journal.TransitionCommittedCandidateLoss(
+        next.Id, nextProcess));
       Assert.True(journal.Read().Value!.IsValid());
       var final = transaction with { Id = Guid.NewGuid(), Phase = UpdatePhase.Preparing };
       journal.Begin(final, next.Id);

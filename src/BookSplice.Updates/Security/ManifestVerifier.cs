@@ -91,7 +91,8 @@ public sealed class ManifestVerifier
       var identity = new ReleaseIdentity(release.Id, release.Tag, release.PageUri, release.Notes,
         Array.AsReadOnly(release.Assets.Select(a => new AssetIdentity(a.Id, a.Name, a.Length, a.DownloadUri)).ToArray()));
       return new VerifiedManifest(schema, product, repository, tag, version, target, archiveName,
-        length, hash, protocol, min, max, identity);
+        length, hash, protocol, min, max, identity,
+        Convert.ToHexStringLower(SHA256.HashData(manifest.Span)));
     }
     catch (Exception exception) when (exception is JsonException or DecoderFallbackException or FormatException or
       InvalidOperationException or KeyNotFoundException or CryptographicException or ArgumentException)

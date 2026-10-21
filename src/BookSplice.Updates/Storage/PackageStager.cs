@@ -118,6 +118,10 @@ public sealed class PackageStager
 
   public async Task<StagedPackage> StageAsync(ReleaseCandidate release, VerifiedManifest manifest,
     InstallationLayout layout, CancellationToken cancellationToken)
+    => await StageAsync(release, manifest, layout, _operationId(), cancellationToken);
+
+  public async Task<StagedPackage> StageAsync(ReleaseCandidate release, VerifiedManifest manifest,
+    InstallationLayout layout, Guid operationId, CancellationToken cancellationToken)
   {
     ArgumentNullException.ThrowIfNull(release);
     ArgumentNullException.ThrowIfNull(manifest);
@@ -131,7 +135,7 @@ public sealed class PackageStager
         manifest.ArchiveLength is <= 0 or > UpdateLimits.ZipMaxBytes)
       throw new PackageException("The release and verified manifest disagree.");
     CheckSpace(layout.Staging.Path, checked(manifest.ArchiveLength + _extractionReserve));
-    var operation = _operationId();
+    var operation = operationId;
     if (operation == Guid.Empty) throw new PackageException("A staging operation ID is required.");
     var stage = _store.CreateNamedExclusive(layout.Staging, operation.ToString("D"),
       "stage", layout.InstallationId, operation);

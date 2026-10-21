@@ -197,12 +197,22 @@ public sealed class UpdateJournal : IPromotionJournal
       return current with { Phase = next };
     });
 
+  public UpdateTransaction TransitionCommittedCandidateLoss(Guid id,
+    ProcessIdentity observedCandidate) =>
+    ChangeCore(id, UpdatePhase.Committed, current =>
+    {
+      if (current.Finalization is not null || current.NewProcess != observedCandidate)
+        throw new InvalidDataException("The committed candidate loss is not the active transfer.");
+      return current with { Phase = UpdatePhase.RollingBack };
+    }, allowFinalization: false, allowCommittedRollback: true);
+
   public UpdateTransaction Change(Guid id, UpdatePhase expected,
     Func<UpdateTransaction, UpdateTransaction> change)
     => ChangeCore(id, expected, change, allowFinalization: false);
 
   private UpdateTransaction ChangeCore(Guid id, UpdatePhase expected,
-    Func<UpdateTransaction, UpdateTransaction> change, bool allowFinalization)
+    Func<UpdateTransaction, UpdateTransaction> change, bool allowFinalization,
+    bool allowCommittedRollback = false)
   {
     ArgumentNullException.ThrowIfNull(change);
     if (id == Guid.Empty) throw new ArgumentException("Operation ID is empty.", nameof(id));
@@ -213,7 +223,9 @@ public sealed class UpdateJournal : IPromotionJournal
         throw new InvalidDataException("The journal operation or phase changed.");
       var next = change(read.Value);
       if (next.Id != id || next.InstallationId != _installationId || !next.IsValid() ||
-          (next.Phase != expected && !Allowed(expected, next.Phase)) ||
+          (next.Phase != expected && !Allowed(expected, next.Phase) &&
+           !(allowCommittedRollback && expected == UpdatePhase.Committed &&
+             next.Phase == UpdatePhase.RollingBack)) ||
           next.OldTarget != read.Value.OldTarget ||
           next.SettingsSha256 != read.Value.SettingsSha256 ||
           next.SettingsAbsent != read.Value.SettingsAbsent ||

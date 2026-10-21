@@ -141,6 +141,7 @@ public sealed class RestrictedStartupTests
           await Dispatcher.Yield(DispatcherPriority.Background);
           Assert.False(shown.IsEnabled);
           session.Dispose();
+          Assert.False(current.HasExited);
           await Assert.ThrowsAnyAsync<Exception>(async () => await candidate);
           Assert.False(shown.IsVisible);
           Assert.False(File.Exists(Path.Combine(root, "settings.json")));
@@ -149,6 +150,8 @@ public sealed class RestrictedStartupTests
         await old.StopAsync(timeout.Token);
         await session.SendAsync(UpdateMessageKind.OldExited, timeout.Token);
         var active = await candidate;
+        Assert.Equal(UpdateMessageKind.Activated,
+          (await session.ReceiveAsync(timeout.Token)).Kind);
         Assert.Same(shown, active);
         Assert.Equal(1, shows);
         Assert.True(active.IsEnabled);

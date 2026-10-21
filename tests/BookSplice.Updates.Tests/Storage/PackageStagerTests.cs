@@ -615,7 +615,7 @@ public sealed class PackageStagerTests
     Assert.Equal(0, process.ExitCode);
   }
 
-  private sealed class Journal : IPromotionJournal
+  internal sealed class Journal : IPromotionJournal
   {
     public List<PromotionIntent> Intents { get; } = [];
     public List<OwnedDirectory> Promoted { get; } = [];
@@ -633,7 +633,7 @@ public sealed class PackageStagerTests
     }
   }
 
-  private sealed class Fixture : IDisposable
+  internal sealed class Fixture : IDisposable
   {
     private readonly RSA _key = RSA.Create(3072);
     private readonly ValidatedHttpTransport _transport;
@@ -721,6 +721,7 @@ public sealed class PackageStagerTests
     public VerifiedManifest Manifest { get; }
     public Journal Journal { get; } = new();
     public PackageStager Stager { get; }
+    public OwnedDirectoryStore Store => _store;
 
     public OwnedDirectory CreateEmptyPayload() => _store.CreateNamedExclusive(Layout.Staging,
       "empty", "payload", Layout.InstallationId, Guid.NewGuid());
@@ -737,7 +738,8 @@ public sealed class PackageStagerTests
         beforeExtraction, afterRelease);
 
     public (PackageStager Stager, UpdateJournal Journal, AtomicStateStore State,
-      string OwnershipPath) CreateDurableStager(Action<string>? afterPromotedRecord = null)
+      string OwnershipPath) CreateDurableStager(Action<string>? afterPromotedRecord = null,
+      bool beginJournal = true, Action<StateWritePoint>? writeFault = null)
     {
       var managed = Layout.ManagedRoot;
       var records = Layout.Records;
@@ -745,7 +747,8 @@ public sealed class PackageStagerTests
       var journalPath = Path.Combine(records.Path, "journal.json");
       var state = new AtomicStateStore(records,
         [OwnershipState.Definition("ownership.json", records, managed),
-         UpdateTransaction.Definition("journal.json", Layout.InstallationId)]);
+         UpdateTransaction.Definition("journal.json", Layout.InstallationId),
+         CurrentTarget.Definition("current.json", Layout.InstallationId)], writeFault);
       state.Write(ownershipPath, new OwnershipState(1, Layout.InstallationId,
         records.Identity,
         new[] { managed, records, Layout.Versions, Layout.Staging, Layout.Trash }
@@ -756,9 +759,10 @@ public sealed class PackageStagerTests
       var old = new OwnedOrOriginalTarget(TargetKind.Original,
         Path.Combine(Layout.OriginalApplicationPath, "BookSplice.Gui.exe"),
         Layout.OriginalIdentity, Layout.OriginalIdentity, null, "0.1.0", 1, null);
-      journal.Begin(new UpdateTransaction(1, Layout.InstallationId, Operation,
-        BookSplice.Updates.Handover.UpdatePhase.Preparing, old, null, null, true, 1,
-        new string('A', 64), [], null, null, null, null));
+      if (beginJournal)
+        journal.Begin(new UpdateTransaction(1, Layout.InstallationId, Operation,
+          BookSplice.Updates.Handover.UpdatePhase.Preparing, old, null, null, true, 1,
+          new string('A', 64), [], null, null, null, null));
       var stager = new PackageStager(new PackageDownloader(new FixedClient(Release), _transport),
         creator, journal, new SafeZipExtractor(creator), _ => long.MaxValue, 1024,
         () => Operation, afterPromotedRecord: afterPromotedRecord);

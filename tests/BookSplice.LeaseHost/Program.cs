@@ -105,16 +105,31 @@ if (args.Length == 2 && args[0] == "write-media-env")
 
 if (args.Length > 0 && args[0] == "pipe-ready")
 {
+  if (args.Length > 10 && int.TryParse(args[10], CultureInfo.InvariantCulture,
+      out var delayMilliseconds))
+    await Task.Delay(delayMilliseconds);
   using var coordinator = SupervisedProcess.CaptureExpected(new ProcessIdentity(
     int.Parse(args[3], CultureInfo.InvariantCulture),
     long.Parse(args[4], CultureInfo.InvariantCulture), args[5]),
     new FileIdentity(ulong.Parse(args[7], CultureInfo.InvariantCulture), args[8]), args[9]);
   using var self = SupervisedProcess.CaptureCurrent();
+  using var old = args.Length == 17 ? SupervisedProcess.CaptureExpected(new ProcessIdentity(
+    int.Parse(args[11], CultureInfo.InvariantCulture),
+    long.Parse(args[12], CultureInfo.InvariantCulture), args[13]),
+    new FileIdentity(ulong.Parse(args[14], CultureInfo.InvariantCulture), args[15]), args[16]) : null;
   using var session = await UpdatePipe.ConnectAsync(args[1], coordinator, Guid.Parse(args[2]),
     Convert.FromHexString(args[6]), self, CancellationToken.None);
   await session.SendAsync(UpdateMessageKind.Ready);
   Console.WriteLine("sent");
   Console.Out.Flush();
+  if (old is not null)
+  {
+    if ((await session.ReceiveAsync()).Kind != UpdateMessageKind.Commit) return 4;
+    if ((await session.ReceiveAsync()).Kind != UpdateMessageKind.OldExited) return 5;
+    await old.WaitForExitAsync();
+    if (args[10] == "activate")
+      await session.SendAsync(UpdateMessageKind.Activated);
+  }
   await Task.Delay(TimeSpan.FromSeconds(30));
   return 0;
 }
