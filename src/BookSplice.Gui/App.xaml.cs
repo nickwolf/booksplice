@@ -6,6 +6,7 @@ using BookSplice.Gui.ViewModels;
 using BookSplice.Gui.Views;
 using BookSplice.Gui.Updates;
 using BookSplice.Updates.Handover;
+using BookSplice.Updates.Policy;
 using BookSplice.Updates.Windows;
 
 namespace BookSplice.Gui;
@@ -15,6 +16,8 @@ public partial class App : Application
 {
   private GuiInstanceLease? _lease;
   private UpdateComposition? _updates;
+  private UpdatePreferencesStore? _preferenceStore;
+  private UpdatePreferences? _preferences;
 
   protected override async void OnStartup(StartupEventArgs e)
   {
@@ -37,6 +40,8 @@ public partial class App : Application
           var active = await RestrictedStartup.RunCandidateAsync(request,
             window => { MainWindow = window; window.Show(); },
             lease => _lease = lease, CancellationToken.None);
+          CreateUpdates(request.DataRoot);
+          AttachUpdates(active);
           MainWindow = active;
           ShutdownMode = ShutdownMode.OnMainWindowClose;
           return;
@@ -51,8 +56,8 @@ public partial class App : Application
       var root = Environment.GetEnvironmentVariable("BOOKSPLICE_LOCAL_APP_DATA");
       if (string.IsNullOrWhiteSpace(root)) root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
       var dataRoot = System.IO.Path.Combine(System.IO.Path.GetFullPath(root), "BookSplice");
-      _updates = new UpdateComposition(dataRoot, AppContext.BaseDirectory, PackagedIdentity.Version);
-      if (_updates.TryForwardDirectLaunch()) { Shutdown(); return; }
+      CreateUpdates(dataRoot);
+      if (_updates!.TryForwardDirectLaunch()) { Shutdown(); return; }
       _lease = GuiStartup.AcquireLease(dataRoot, message =>
         MessageBox.Show(message, "BookSplice", MessageBoxButton.OK, MessageBoxImage.Information));
       if (_lease is null) { Shutdown(); return; }
@@ -76,7 +81,9 @@ public partial class App : Application
       var mediaTools = Environment.GetEnvironmentVariable("BOOKSPLICE_FFMPEG_DIR");
       if (string.IsNullOrWhiteSpace(mediaTools)) mediaTools = System.IO.Path.Combine(AppContext.BaseDirectory, "tools", "ffmpeg");
       var services = await Task.Run(() => host.CreateServices(mediaTools));
-      MainWindow = new MainWindow(store, settings, services);
+      var window = new MainWindow(store, settings, services);
+      AttachUpdates(window);
+      MainWindow = window;
       ShutdownMode = ShutdownMode.OnMainWindowClose;
       MainWindow.Show();
     }
@@ -85,6 +92,21 @@ public partial class App : Application
       MessageBox.Show($"BookSplice could not start. {exception.Message}", "BookSplice", MessageBoxButton.OK, MessageBoxImage.Error);
       Shutdown(1);
     }
+  }
+
+  private void CreateUpdates(string dataRoot)
+  {
+    _preferenceStore = new UpdatePreferencesStore(dataRoot);
+    _preferences = _preferenceStore.Load();
+    _updates = new UpdateComposition(dataRoot, AppContext.BaseDirectory, PackagedIdentity.Version,
+      new MemoryCheckState { LastSuccess = _preferences.LastSuccess });
+  }
+
+  private void AttachUpdates(MainWindow window)
+  {
+    if (PackagedIdentity.Version is { } version)
+      window.UseUpdates(_updates!, _preferenceStore!, _preferences!, version,
+        System.IO.Path.GetFullPath(AppContext.BaseDirectory));
   }
 
   protected override void OnExit(ExitEventArgs e)

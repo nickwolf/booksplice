@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using BookSplice.Core.Settings;
+using BookSplice.Gui.Updates;
 using BookSplice.Gui.ViewModels;
 using BookSplice.Gui.Views;
 
@@ -79,6 +80,7 @@ public sealed class AccessibilityContractTests
           };
           Assert.True(window.MinWidth * 2 <= 1920);
           Assert.True(window.MinHeight * 2 <= 1080);
+          window.UseUpdates(new IdleUpdateBackend(), new UpdatePreferencesStore(root), new UpdatePreferences(AutomaticChecksEnabled: false), "0.1.0", @"C:\Apps\BookSplice");
           window.Show();
           window.UpdateLayout();
           var actions = Assert.IsType<WrapPanel>(window.FindName("PrimaryActions"));
@@ -123,6 +125,7 @@ public sealed class AccessibilityContractTests
           };
           Assert.True(window.MinWidth * 2 <= 1920);
           Assert.True(window.MinHeight * 2 <= 1080);
+          window.UseUpdates(new IdleUpdateBackend(), new UpdatePreferencesStore(root), new UpdatePreferences(AutomaticChecksEnabled: false), "0.1.0", @"C:\Apps\BookSplice");
           window.Show();
           window.UpdateLayout();
           var image = new RenderTargetBitmap(760, 520, 96, 96, PixelFormats.Pbgra32);

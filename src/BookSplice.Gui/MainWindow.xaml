@@ -16,6 +16,7 @@
           <Button Content="Add f_iles..." Click="AddFiles_Click" Padding="12,6" Margin="4"/>
           <Button Content="_Convert ready books" Click="ConvertAll_Click" Padding="12,6" Margin="4"/>
           <Button Content="_Settings" Click="Settings_Click" Padding="12,6" Margin="4"/>
+          <Button x:Name="UpdatesButton" Content="Check for _updates..." Click="Updates_Click" Padding="12,6" Margin="4" Visibility="Collapsed"/>
         </WrapPanel>
       </StackPanel>
       <TextBlock x:Name="Destination" TextWrapping="Wrap"/>

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO;
+using BookSplice.Core.Settings;
 using BookSplice.Updates.Handover;
 using BookSplice.Updates.Policy;
 using BookSplice.Updates.Security;
@@ -10,17 +11,18 @@ using BookSplice.Updates.Windows;
 namespace BookSplice.Gui.Updates;
 
 // Wires the production update components once and owns their lifetimes.
-public sealed class UpdateComposition : IDisposable
+public sealed class UpdateComposition : IUpdateBackend, IDisposable
 {
   private readonly string _dataRoot;
   private readonly string _applicationDirectory;
   private readonly string? _version;
   private readonly GitHubReleaseClient _client;
   private readonly ValidatedHttpTransport _transport;
+  private readonly UpdateCheckService _checks;
   private IDisposable? _admission;
 
   public UpdateComposition(string dataRoot, string applicationDirectory, string? packagedVersion,
-    TimeProvider? clock = null)
+    ICheckState checkState, TimeProvider? clock = null)
   {
     _dataRoot = dataRoot;
     _applicationDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(applicationDirectory));
@@ -29,11 +31,17 @@ public sealed class UpdateComposition : IDisposable
     _client = new GitHubReleaseClient(clock);
     _transport = ValidatedHttpTransport.CreateProduction(clock);
     Reader = new SignedReleaseReader(_client, _transport, new ManifestVerifier());
+    _checks = new UpdateCheckService(_client, checkState, clock);
   }
 
-  public IReleaseClient Client => _client;
   public ISignedReleaseReader Reader { get; }
-  public string? InstalledVersion => _version;
+
+  public Task<CheckResult> CheckAsync(bool manual, CancellationToken cancellationToken) =>
+    _checks.CheckAsync(manual, cancellationToken);
+
+  public async Task<string> ReadManifestDigestAsync(ReleaseCandidate release,
+    CancellationToken cancellationToken) =>
+    (await Reader.ReadAsync(release, AppSettings.CurrentSchemaVersion, cancellationToken)).ManifestSha256!;
 
   public static LaunchedImage Self()
   {
@@ -51,7 +59,7 @@ public sealed class UpdateComposition : IDisposable
     StableLauncherBootstrap.Start(opened.Layout, opened.Record, []).Dispose();
   });
 
-  public bool HasPrevious => TryOpen() is { } opened &&
+  public bool HasPrevious() => TryOpen() is { } opened &&
     opened.State.Read<CurrentTarget>(Path.Combine(opened.RecordsPath, "current.json"))
       .Value?.Previous is not null;
 
