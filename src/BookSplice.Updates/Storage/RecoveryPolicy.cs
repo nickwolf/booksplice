@@ -107,6 +107,9 @@ public static class RecoveryPolicy
             transaction.NewTarget.ExecutablePath, StringComparison.OrdinalIgnoreCase))))
       return RecoveryDecision.Refuse("The transaction target is not bound to this installation.");
 
+    if (transaction.Phase == UpdatePhase.Committed && transaction.NewProcess is null)
+      return RecoveryDecision.Refuse("The candidate may have launched, but its process identity was not recorded.");
+
     if (transaction.Coordinator is not null &&
         processes.For(transaction.Coordinator) != ProcessLife.Exited)
       return RecoveryDecision.Refuse("The recorded coordinator must be resolved first.");
@@ -137,6 +140,13 @@ public static class RecoveryPolicy
     if (current is null || (!Same(current.Current, transaction.OldTarget) &&
         (transaction.NewTarget is null || !Same(current.Current, transaction.NewTarget))))
       return RecoveryDecision.Refuse("The provisional launch mapping is inconsistent.");
+    if (transaction.NewProcess is null && transaction.Phase is
+        (UpdatePhase.Starting or UpdatePhase.Ready or UpdatePhase.Committing))
+      return RecoveryDecision.Refuse("The candidate may have launched, but its process identity was not recorded.");
+    if (transaction.NewProcess is null && transaction.Phase is
+        (UpdatePhase.RollingBack or UpdatePhase.Failed) &&
+        !HasCompletedOldWriter(transaction, current))
+      return RecoveryDecision.Refuse("The candidate may have launched, but its process identity was not recorded.");
     if (transaction.NewProcess is not null &&
         processes.For(transaction.NewProcess) == ProcessLife.Unknown)
       return RecoveryDecision.Refuse("The candidate process identity is unresolved.");
@@ -172,6 +182,15 @@ public static class RecoveryPolicy
   private static OldAction FreshAction(OwnedOrOriginalTarget target) =>
     target.Kind == TargetKind.Original && target.Package is null ?
       OldAction.ManualRecoveryOnly : OldAction.LaunchAfterValidation;
+
+  private static bool HasCompletedOldWriter(UpdateTransaction transaction,
+    CurrentTarget current) => transaction.IsValid() && transaction.Phase == UpdatePhase.Failed &&
+      transaction.Finalization is
+      {
+        State: WriterFinalizationState.OldRestoredAfterCandidateExit,
+        ObservedAtUtcTicks: > 0
+      } finalization && transaction.OldProcess is not null &&
+      finalization.Process == transaction.OldProcess && Same(current.Current, transaction.OldTarget);
 
   private static bool TargetBelongs(OwnedOrOriginalTarget target,
     InstallationRecord installation, OwnershipState ownership)

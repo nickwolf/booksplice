@@ -177,6 +177,147 @@ public sealed class RecoveryDecisionTests
     Assert.Equal(OldAction.ResumeExisting, decision.Old);
   }
 
+  [Theory]
+  [InlineData(UpdatePhase.Starting, false)]
+  [InlineData(UpdatePhase.Starting, true)]
+  [InlineData(UpdatePhase.Ready, false)]
+  [InlineData(UpdatePhase.Ready, true)]
+  [InlineData(UpdatePhase.Committing, false)]
+  [InlineData(UpdatePhase.Committing, true)]
+  [InlineData(UpdatePhase.Committed, false)]
+  [InlineData(UpdatePhase.Committed, true)]
+  public void MissingCandidateIdentityAfterLaunchBoundaryRefusesWithoutActions(
+    UpdatePhase phase, bool newPointer)
+  {
+    var snapshot = Snapshot(phase, newPointer);
+    snapshot = snapshot with
+    {
+      Transaction = snapshot.Transaction with
+      { Value = snapshot.Transaction.Value! with { NewProcess = null } }
+    };
+
+    var decision = RecoveryPolicy.Decide(snapshot,
+      new ProcessSnapshot(new Dictionary<ProcessIdentity, ProcessLife>
+      { [OldProcess] = ProcessLife.Alive }));
+
+    Assert.True(decision.Refused);
+    Assert.Null(decision.TargetPendingNativeValidation);
+    Assert.Equal(PointerAction.Keep, decision.MappingAction);
+    Assert.Equal(PointerAction.Keep, decision.AfterObservedExitMappingAction);
+    Assert.Equal(RecoveryStop.None, decision.Stop);
+    Assert.Null(decision.ExactProcess);
+    Assert.False(decision.WaitForObservedExit);
+    Assert.Equal(OldAction.None, decision.Old);
+    Assert.False(decision.CandidateWritePermissionAfterValidation);
+  }
+
+  [Theory]
+  [InlineData(UpdatePhase.RollingBack, false)]
+  [InlineData(UpdatePhase.RollingBack, true)]
+  [InlineData(UpdatePhase.Failed, false)]
+  [InlineData(UpdatePhase.Failed, true)]
+  public void MissingCandidateIdentityInRollbackHistoryRefusesWithoutFinalization(
+    UpdatePhase phase, bool newPointer)
+  {
+    var snapshot = Snapshot(phase, newPointer);
+    snapshot = snapshot with
+    {
+      Transaction = snapshot.Transaction with
+      { Value = snapshot.Transaction.Value! with { NewProcess = null } }
+    };
+
+    var decision = RecoveryPolicy.Decide(snapshot,
+      new ProcessSnapshot(new Dictionary<ProcessIdentity, ProcessLife>
+      { [OldProcess] = ProcessLife.Exited }));
+
+    Assert.True(decision.Refused);
+    Assert.Null(decision.TargetPendingNativeValidation);
+    Assert.Equal(PointerAction.Keep, decision.MappingAction);
+    Assert.Equal(RecoveryStop.None, decision.Stop);
+    Assert.Equal(OldAction.None, decision.Old);
+    Assert.False(decision.CandidateWritePermissionAfterValidation);
+  }
+
+  [Theory]
+  [InlineData(UpdatePhase.Preparing)]
+  [InlineData(UpdatePhase.Prepared)]
+  public void MissingCandidateIdentityBeforeLaunchRemainsUsable(UpdatePhase phase)
+  {
+    var snapshot = Snapshot(phase, false);
+    snapshot = snapshot with
+    {
+      Transaction = snapshot.Transaction with
+      {
+        Value = snapshot.Transaction.Value! with
+        {
+          NewTarget = phase == UpdatePhase.Preparing ? null : snapshot.Transaction.Value!.NewTarget,
+          NewProcess = null
+        }
+      }
+    };
+    Assert.True(snapshot.Transaction.Value!.IsValid());
+
+    var decision = RecoveryPolicy.Decide(snapshot, new ProcessSnapshot(
+      new Dictionary<ProcessIdentity, ProcessLife> { [OldProcess] = ProcessLife.Alive }));
+
+    Assert.False(decision.Refused);
+    Assert.Equal(OldAction.ResumeExisting, decision.Old);
+    Assert.False(decision.CandidateWritePermissionAfterValidation);
+  }
+
+  [Fact]
+  public void FinalizedPrelaunchFailureWithMissingCandidateRemainsUsable()
+  {
+    var snapshot = Snapshot(UpdatePhase.Failed, false);
+    snapshot = snapshot with
+    {
+      Transaction = snapshot.Transaction with
+      {
+        Value = snapshot.Transaction.Value! with
+        {
+          NewProcess = null,
+          Finalization = new WriterFinalization(
+            WriterFinalizationState.OldRestoredAfterCandidateExit,
+            DateTime.UtcNow.Ticks, OldProcess)
+        }
+      }
+    };
+
+    var decision = RecoveryPolicy.Decide(snapshot, new ProcessSnapshot(
+      new Dictionary<ProcessIdentity, ProcessLife> { [OldProcess] = ProcessLife.Alive }));
+
+    Assert.False(decision.Refused);
+    Assert.Equal(PointerAction.Keep, decision.MappingAction);
+    Assert.Equal(RecoveryStop.None, decision.Stop);
+    Assert.Equal(OldAction.ResumeExisting, decision.Old);
+    Assert.False(decision.CandidateWritePermissionAfterValidation);
+  }
+
+  [Fact]
+  public void InvalidFinalizationCannotResolveMissingCandidate()
+  {
+    var snapshot = Snapshot(UpdatePhase.Failed, false);
+    snapshot = snapshot with
+    {
+      Transaction = snapshot.Transaction with
+      {
+        Value = snapshot.Transaction.Value! with
+        {
+          NewProcess = null,
+          Finalization = new WriterFinalization(
+            WriterFinalizationState.OldRestoredAfterCandidateExit, 0, OldProcess)
+        }
+      }
+    };
+
+    var decision = RecoveryPolicy.Decide(snapshot, new ProcessSnapshot(
+      new Dictionary<ProcessIdentity, ProcessLife> { [OldProcess] = ProcessLife.Alive }));
+
+    Assert.True(decision.Refused);
+    Assert.Null(decision.TargetPendingNativeValidation);
+    Assert.False(decision.CandidateWritePermissionAfterValidation);
+  }
+
   [Fact]
   public void ExitedOriginalRequiresManualRecoveryUntilFullInventoryExists()
   {
