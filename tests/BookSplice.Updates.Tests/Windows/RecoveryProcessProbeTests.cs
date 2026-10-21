@@ -12,27 +12,26 @@ public sealed class RecoveryProcessProbeTests
   public async Task AliveObservationOwnsVerifiedCapabilityAndDisposeDoesNotStopProcess()
   {
     if (!OperatingSystem.IsWindows()) return;
-    using var child = StartHelper();
-    var expected = Expected(child);
+    await using var child = StartHelper();
+    var expected = Expected(child.Process);
     var probe = new RecoveryProcessProbe();
 
-    var observation = probe.Observe(expected.Identity, expected.Image, expected.Sha256);
+    using var observation = probe.Observe(expected.Identity, expected.Image, expected.Sha256);
     Assert.Equal(ProcessLife.Alive, observation.Life);
     Assert.NotNull(observation.Process);
-    observation.Process.VerifyPeer(child.Id);
+    observation.Process.VerifyPeer(child.Process.Id);
     observation.Dispose();
-    Assert.False(child.HasExited);
-    await StopOwnedChild(child);
+    Assert.False(child.Process.HasExited);
   }
 
   [Fact]
   public async Task MissingRecordedProcessIsExited()
   {
     if (!OperatingSystem.IsWindows()) return;
-    using var child = StartHelper();
-    var expected = Expected(child);
-    child.Kill();
-    await child.WaitForExitAsync();
+    await using var child = StartHelper();
+    var expected = Expected(child.Process);
+    child.Process.Kill();
+    await child.Process.WaitForExitAsync();
 
     using var observation = new RecoveryProcessProbe().Observe(expected.Identity,
       expected.Image, expected.Sha256);
@@ -44,24 +43,23 @@ public sealed class RecoveryProcessProbeTests
   public async Task ReusedPidCreationIdentityIsExitedWithoutAdoptingReplacement()
   {
     if (!OperatingSystem.IsWindows()) return;
-    using var child = StartHelper();
-    var expected = Expected(child);
+    await using var child = StartHelper();
+    var expected = Expected(child.Process);
     var stale = expected.Identity with { StartTimeUtcTicks = expected.Identity.StartTimeUtcTicks + 1 };
 
     using var observation = new RecoveryProcessProbe().Observe(stale, expected.Image,
       expected.Sha256);
     Assert.Equal(ProcessLife.Exited, observation.Life);
     Assert.Null(observation.Process);
-    Assert.False(child.HasExited);
-    await StopOwnedChild(child);
+    Assert.False(child.Process.HasExited);
   }
 
   [Fact]
   public async Task PathAndHashMismatchAreUnknownWhileRecordedProcessRemainsAlive()
   {
     if (!OperatingSystem.IsWindows()) return;
-    using var child = StartHelper();
-    var expected = Expected(child);
+    await using var child = StartHelper();
+    var expected = Expected(child.Process);
     var probe = new RecoveryProcessProbe();
 
     using var pathMismatch = probe.Observe(expected.Identity with
@@ -80,8 +78,7 @@ public sealed class RecoveryProcessProbeTests
     Assert.Null(pathMismatch.Process);
     Assert.Null(hashMismatch.Process);
     Assert.Null(fileIdentityMismatch.Process);
-    Assert.False(child.HasExited);
-    await StopOwnedChild(child);
+    Assert.False(child.Process.HasExited);
   }
 
   [Theory]
@@ -113,13 +110,13 @@ public sealed class RecoveryProcessProbeTests
       new FileIdentity(1, new string('1', 32)), new string('1', 64)));
   }
 
-  private static Process StartHelper() => Process.Start(new ProcessStartInfo(
-    ProcessSupervisorTests.HelperPath())
+  private static OwnedHelperProcess StartHelper() => new(Process.Start(new ProcessStartInfo(
+      ProcessSupervisorTests.HelperPath())
   {
     ArgumentList = { "hold" },
     UseShellExecute = false,
     CreateNoWindow = true
-  })!;
+  })!);
 
   private static (ProcessIdentity Identity, FileIdentity Image, string Sha256) Expected(
     Process process)
@@ -129,9 +126,22 @@ public sealed class RecoveryProcessProbeTests
     return (identity, image.Identity, image.Sha256);
   }
 
-  private static async Task StopOwnedChild(Process child)
+  private sealed class OwnedHelperProcess(Process process) : IAsyncDisposable
   {
-    if (!child.HasExited) child.Kill();
-    await child.WaitForExitAsync();
+    public Process Process { get; } = process;
+
+    public async ValueTask DisposeAsync()
+    {
+      try
+      {
+        if (!Process.HasExited)
+        {
+          try { Process.Kill(); }
+          catch (InvalidOperationException) when (Process.HasExited) { }
+        }
+        await Process.WaitForExitAsync();
+      }
+      finally { Process.Dispose(); }
+    }
   }
 }
