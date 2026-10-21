@@ -7,7 +7,14 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$MediaToolDirectory,
 
-    [string]$OutputDirectory = (Join-Path (Split-Path $PSScriptRoot -Parent) 'artifacts\release')
+    [string]$OutputDirectory = (Join-Path (Split-Path $PSScriptRoot -Parent) 'artifacts\release'),
+
+    # Test (default) packages embed no production trust and can never install production updates.
+    [ValidateSet('Test', 'Release')]
+    [string]$Flavor = 'Test',
+
+    # Optional disposable public key (PEM) embedded in a Test package. Ignored for Release.
+    [string]$TestPublicKeyPath
 )
 
 Set-StrictMode -Version Latest
@@ -15,6 +22,10 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'ReleaseOwnedDirectory.ps1')
 
 $repositoryRoot = Split-Path $PSScriptRoot -Parent
+$productionKeyPath = Join-Path $repositoryRoot 'src\BookSplice.Updates\Trust\production-public-key.pem'
+if ($Flavor -eq 'Release' -and -not (Test-Path -LiteralPath $productionKeyPath -PathType Leaf)) {
+    throw 'A Release build requires the reviewed production public key in src\BookSplice.Updates\Trust\production-public-key.pem.'
+}
 $mediaManifest = Get-Content -LiteralPath (Join-Path $repositoryRoot 'tools\ffmpeg\manifest.json') -Raw | ConvertFrom-Json
 $releaseRoot = [IO.Path]::GetFullPath($OutputDirectory)
 $packageName = "BookSplice-$Version-win-x64"
@@ -83,13 +94,20 @@ $commonPublish = @(
     '/p:IncludeNativeLibrariesForSelfExtract=true',
     '/p:DebugType=None',
     '/p:DebugSymbols=false',
-    '/p:ContinuousIntegrationBuild=true'
+    '/p:ContinuousIntegrationBuild=true',
+    "/p:BookSpliceFlavor=$Flavor"
 )
+if ($Flavor -eq 'Test' -and $TestPublicKeyPath) {
+    $commonPublish += "/p:BookSpliceTestPublicKey=$([IO.Path]::GetFullPath($TestPublicKeyPath))"
+}
 
 & dotnet publish (Join-Path $repositoryRoot 'src\BookSplice.Cli\BookSplice.Cli.csproj') @commonPublish
 if ($LASTEXITCODE -ne 0) { throw "CLI publish failed with exit code $LASTEXITCODE." }
 & dotnet publish (Join-Path $repositoryRoot 'src\BookSplice.Gui\BookSplice.Gui.csproj') @commonPublish
 if ($LASTEXITCODE -ne 0) { throw "GUI publish failed with exit code $LASTEXITCODE." }
+
+& dotnet publish (Join-Path $repositoryRoot 'src\BookSplice.Launcher\BookSplice.Launcher.csproj') @commonPublish
+if ($LASTEXITCODE -ne 0) { throw "Launcher publish failed with exit code $LASTEXITCODE." }
 
 Get-ChildItem -LiteralPath $resolvedStaging -Filter '*.pdb' -File | Remove-Item -Force
 $toolOutput = New-Item -ItemType Directory -Path (Join-Path $resolvedStaging 'tools\ffmpeg') -Force
@@ -118,6 +136,7 @@ BookSplice $Version
 Runtime: Windows x64, self-contained .NET 10
 Media tools: source-built FFmpeg $($mediaManifest.release), LGPL 2.1 or later; zlib 1.3.2
 Media license SHA-256: $expectedLicenseSha256
+Build flavor: $Flavor
 "@
 [IO.File]::WriteAllText((Join-Path $resolvedStaging 'VERSION.txt'), $manifest.Replace("`n", "`r`n"), [Text.UTF8Encoding]::new($false))
 
