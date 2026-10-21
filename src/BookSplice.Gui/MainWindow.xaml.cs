@@ -51,6 +51,7 @@ public partial class MainWindow : Window
   private void ShowUpdates()
   {
     if (_updates is null) return;
+    _ = _updates.InitializeAsync();
     _updatesWindow ??= new UpdatesWindow(_updates) { Owner = this };
     _updatesWindow.Show();
     _updatesWindow.Activate();

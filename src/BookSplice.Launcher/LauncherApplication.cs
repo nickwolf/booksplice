@@ -50,9 +50,7 @@ public static class LauncherApplication
     {
       string? notice = null;
       try { notice = CommittedFollowUp.Run(installation); }
-      catch (Exception error) when (error is IOException or InvalidDataException or
-        UnauthorizedAccessException)
-      { }
+      catch (Exception) { }
       if (notice is not null) _ = MessageBoxW(0, notice, "BookSplice update", 0x40);
       return 0;
     }

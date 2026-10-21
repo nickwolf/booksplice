@@ -106,8 +106,8 @@ public sealed class UpdatesViewModel : ObservableModel, IDisposable
     Message = "Checking for updates.";
     CheckResult result;
     try { result = await _backend.CheckAsync(manual, cancellationToken); }
-    catch (OperationCanceledException) { Phase = before; Message = beforeMessage; return; }
-    catch (Exception exception) when (exception is IOException or HttpRequestException or ReleaseTransportException or InvalidDataException)
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { Phase = before; Message = beforeMessage; return; }
+    catch (Exception exception)
     { Fail(UpdatesPhase.CheckFailed, "Could not check for updates: " + exception.Message + " Try again later."); return; }
     switch (result.Kind)
     {
@@ -122,8 +122,13 @@ public sealed class UpdatesViewModel : ObservableModel, IDisposable
     }
     Save(_preferences with { LastSuccess = _clock.GetUtcNow() });
     Changed(nameof(LastSuccessText));
+    if (_installed is null)
+    {
+      Fail(UpdatesPhase.CheckFailed, "The installed version could not be read, so updates cannot be compared.");
+      return;
+    }
     if (result.Selection is not { Kind: SelectionKind.Available, Installable: true, Candidate: { } candidate, Identity: { } identity } ||
-        _installed is null || candidate.Version.CompareTo(_installed) <= 0)
+        candidate.Version.CompareTo(_installed) <= 0)
     {
       Clear();
       Phase = UpdatesPhase.UpToDate;
@@ -132,7 +137,8 @@ public sealed class UpdatesViewModel : ObservableModel, IDisposable
     }
     string digest;
     try { digest = await _backend.ReadManifestDigestAsync(candidate, cancellationToken); }
-    catch (Exception exception) when (exception is IOException or HttpRequestException or ReleaseTransportException or InvalidDataException or OperationCanceledException)
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { Phase = before; Message = beforeMessage; return; }
+    catch (Exception exception)
     { Fail(UpdatesPhase.CheckFailed, "A newer release exists but its signed update could not be verified: " + exception.Message); return; }
     _candidate = candidate;
     _identity = identity;
@@ -191,9 +197,9 @@ public sealed class UpdatesViewModel : ObservableModel, IDisposable
     Message = workingMessage;
     UpdateOutcome outcome;
     try { outcome = await run(operation.Token); }
-    catch (Exception exception) when (exception is not OperationCanceledException)
+    catch (OperationCanceledException) when (operation.IsCancellationRequested) { outcome = new UpdateOutcome(UpdateOutcomeKind.Cancelled); }
+    catch (Exception exception)
     { outcome = new UpdateOutcome(UpdateOutcomeKind.Failed, exception.Message); }
-    catch (OperationCanceledException) { outcome = new UpdateOutcome(UpdateOutcomeKind.Cancelled); }
     finally { _operation = null; }
     if (outcome.Kind == UpdateOutcomeKind.Prepared)
     {

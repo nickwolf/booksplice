@@ -72,6 +72,14 @@ public static class InstallationOpener
     string originalVersion, string? programsDirectory = null)
   {
     var parent = Path.GetDirectoryName(originalApplicationPath)!;
+    if (originalApplicationPath.Split(Path.DirectorySeparatorChar)
+        .Any(part => part.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase)))
+      throw new InvalidDataException("A managed copy cannot create another installation.");
+    var registry = InstallationRegistry.Open(dataRoot, create: false)?.Read();
+    if (registry?.Kind == StateReadKind.Invalid || registry?.Value?.Bindings.Any(binding =>
+        string.Equals(binding.ExecutablePath, Path.Combine(originalApplicationPath, "BookSplice.Gui.exe"),
+          StringComparison.OrdinalIgnoreCase)) == true)
+      throw new InvalidDataException("This copy of BookSplice already has an installation.");
     if (!File.Exists(Path.Combine(originalApplicationPath, "BookSplice.Launcher.exe")))
       throw new InvalidDataException("This copy of BookSplice has no update launcher.");
     var id = Guid.NewGuid();

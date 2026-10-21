@@ -94,6 +94,27 @@ public sealed class UpdatesViewModelTests : IDisposable
   });
 
   [Fact]
+  public void TimeoutOrUnexpectedFailureAfterUpToDateIsACheckFailureAndNeverWedgesTheWindow() => DispatcherTestHost.Run(async dispatcher =>
+  {
+    var model = Create(dispatcher, out _);
+    _backend.Result = new CheckResult(CheckKind.Success, new SelectionResult(SelectionKind.None, null, false, null, null), null, null);
+    await model.CheckAsync(manual: true);
+    Assert.Equal(UpdatesPhase.UpToDate, model.Phase);
+    foreach (Exception failure in new Exception[] { new TaskCanceledException("timed out"), new InvalidOperationException("odd") })
+    {
+      _backend.CheckFailure = failure;
+      await model.CheckAsync(manual: true);
+      Assert.Equal(UpdatesPhase.CheckFailed, model.Phase);
+      Assert.True(model.CanCheck);
+    }
+    using var cancelled = new CancellationTokenSource();
+    cancelled.Cancel();
+    _backend.CheckFailure = new OperationCanceledException(cancelled.Token);
+    await model.CheckAsync(manual: true, cancelled.Token);
+    Assert.Equal(UpdatesPhase.CheckFailed, model.Phase);
+  });
+
+  [Fact]
   public void NotesAreBoundedPlainTextAndOnlyRepositoryReleaseLinksAreOffered() => DispatcherTestHost.Run(async dispatcher =>
   {
     var model = Create(dispatcher, out _);
@@ -249,7 +270,10 @@ public sealed class UpdatesViewModelTests : IDisposable
     public ReleaseIdentity? InstalledIdentity { get; private set; }
     public string? InstalledDigest { get; private set; }
 
-    public Task<CheckResult> CheckAsync(bool manual, CancellationToken cancellationToken) => Task.FromResult(Result);
+    public Exception? CheckFailure { get; set; }
+
+    public Task<CheckResult> CheckAsync(bool manual, CancellationToken cancellationToken) =>
+      CheckFailure is null ? Task.FromResult(Result) : Task.FromException<CheckResult>(CheckFailure);
 
     public Task<string> ReadManifestDigestAsync(ReleaseCandidate release, CancellationToken cancellationToken) =>
       ManifestFailure is null ? Task.FromResult(Digest) : Task.FromException<string>(ManifestFailure);

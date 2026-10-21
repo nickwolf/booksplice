@@ -67,7 +67,7 @@ public sealed class UpdateComposition : IUpdateBackend, IDisposable
     string manifestSha256, Action shutdown, CancellationToken cancellationToken) =>
     HandOffAsync(async () =>
     {
-      var opened = await Task.Run(() => TryOpen() ?? Create(), cancellationToken);
+      var opened = await Task.Run(() => FindInstallation() ?? Create(), cancellationToken);
       var old = Current(opened) ?? throw new InvalidDataException("The installation has no current version.");
       var prepared = await Preparation(opened).PrepareUpdateAsync(new ConfirmedUpdate(release,
         identity, manifestSha256, old, Guid.NewGuid()), opened.Layout, cancellationToken);
@@ -77,7 +77,7 @@ public sealed class UpdateComposition : IUpdateBackend, IDisposable
   public Task<UpdateOutcome> RollbackAsync(Action shutdown, CancellationToken cancellationToken) =>
     HandOffAsync(async () =>
     {
-      var opened = TryOpen() ?? throw new InvalidDataException("No previous version is recorded.");
+      var opened = FindInstallation() ?? throw new InvalidDataException("No previous version is recorded.");
       return (await Preparation(opened).PrepareRollbackAsync(opened.Layout, cancellationToken), opened);
     }, shutdown);
 
@@ -88,7 +88,8 @@ public sealed class UpdateComposition : IUpdateBackend, IDisposable
     OpenedInstallation opened;
     try { (prepared, opened) = await prepare(); }
     catch (Exception error) when (error is IOException or InvalidDataException or
-      UnauthorizedAccessException or NotSupportedException or System.ComponentModel.Win32Exception)
+      UnauthorizedAccessException or NotSupportedException or ArgumentException or
+      System.ComponentModel.Win32Exception)
     {
       return new UpdateOutcome(UpdateOutcomeKind.Failed, error.Message);
     }
@@ -133,18 +134,23 @@ public sealed class UpdateComposition : IUpdateBackend, IDisposable
     return InstallationOpener.Create(_applicationDirectory, _dataRoot, _version);
   }
 
+  // Null only when this executable has no installation yet; any other problem throws.
+  private OpenedInstallation? FindInstallation()
+  {
+    using var directory = SafeDirectoryHandle.OpenCanonical(_applicationDirectory);
+    using var self = SupervisedProcess.CaptureCurrent();
+    var binding = InstallationRegistry.Open(_dataRoot, create: false)?.Resolve(
+      self.Identity.ExecutablePath, directory.Identity, self.ImageIdentity);
+    return binding is null ? null : InstallationOpener.Open(binding.ManagedRootPath, canCreate: true);
+  }
+
+  // For forwarding and the rollback check, where any problem simply means "no installation".
   private OpenedInstallation? TryOpen()
   {
-    try
-    {
-      using var directory = SafeDirectoryHandle.OpenCanonical(_applicationDirectory);
-      using var self = SupervisedProcess.CaptureCurrent();
-      var binding = InstallationRegistry.Open(_dataRoot, create: false)?.Resolve(
-        self.Identity.ExecutablePath, directory.Identity, self.ImageIdentity);
-      return binding is null ? null : InstallationOpener.Open(binding.ManagedRootPath, canCreate: true);
-    }
+    try { return FindInstallation(); }
     catch (Exception error) when (error is IOException or InvalidDataException or
-      UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception)
+      UnauthorizedAccessException or ArgumentException or NotSupportedException or
+      System.ComponentModel.Win32Exception)
     {
       return null;
     }

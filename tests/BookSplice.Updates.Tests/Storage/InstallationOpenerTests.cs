@@ -50,6 +50,25 @@ public sealed class InstallationOpenerTests : IDisposable
   }
 
   [Fact]
+  public void SecondCreateForTheSameExecutableLeavesNoOrphan()
+  {
+    InstallationOpener.Create(Original, Data, "0.1.0", Programs);
+    Assert.Throws<InvalidDataException>(() => InstallationOpener.Create(Original, Data, "0.1.0", Programs));
+    Assert.Single(Directory.GetDirectories(_root, ".booksplice-managed-*"));
+  }
+
+  [Fact]
+  public void ManagedCopyCannotCreateANestedInstallation()
+  {
+    var created = InstallationOpener.Create(Original, Data, "0.1.0", Programs);
+    var inside = Path.Combine(created.Layout.Versions.Path, "0.1.0-copy");
+    OriginalPackageFixture.Write(inside, "0.1.0");
+    Assert.Throws<InvalidDataException>(() => InstallationOpener.Create(inside, Data, "0.1.0", Programs));
+    Assert.Single(Directory.GetDirectories(_root, ".booksplice-managed-*"));
+    Assert.Empty(Directory.GetDirectories(created.Layout.Versions.Path, ".booksplice-managed-*"));
+  }
+
+  [Fact]
   public void ReplacedLauncherIsNeverStarted()
   {
     var created = InstallationOpener.Create(Original, Data, "0.1.0", Programs);
