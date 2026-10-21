@@ -40,7 +40,7 @@ $testRoot = $ownedTestRoot.Path
 try {
     Expand-Archive -LiteralPath $resolvedArchive -DestinationPath $testRoot
     $required = @(
-        'BookSplice.Gui.exe', 'booksplice.exe', 'LICENSE', 'README.md', 'THIRD-PARTY-NOTICES.md', 'VERSION.txt',
+        'BookSplice.Gui.exe', 'BookSplice.Launcher.exe', 'booksplice.exe', 'LICENSE', 'README.md', 'THIRD-PARTY-NOTICES.md', 'VERSION.txt',
         'licenses\FFmpeg-LICENSE.txt', 'licenses\FFmpeg-components.md', 'licenses\LGPL-2.1.txt', 'licenses\zlib-LICENSE.txt',
         'tools\ffmpeg\ffmpeg.exe', 'tools\ffmpeg\ffprobe.exe', 'sources\manifest.json', 'sources\BUILDING.md', 'sources\Dockerfile', 'sources\build-minimal.sh', 'sources\Build-MediaTools.ps1', 'sources\ffmpeg-946fcce07b.tar.gz', 'sources\zlib-v1.3.2.tar.gz'
     )
@@ -50,10 +50,11 @@ try {
         }
     }
     $versionText = Get-Content -LiteralPath (Join-Path $testRoot 'VERSION.txt') -Raw
-    $licenseMatch = [regex]::Match($versionText, '(?m)^Media license SHA-256: ([0-9a-f]{64})$')
+    $licenseMatch = [regex]::Match($versionText, '(?m)^Media license SHA-256: ([0-9a-f]{64})\r?$')
     if (-not $licenseMatch.Success) { throw 'Release version manifest does not contain the media license SHA-256.' }
     $licenseHash = (Get-FileHash -LiteralPath (Join-Path $testRoot 'licenses\FFmpeg-LICENSE.txt') -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($licenseHash -ne $licenseMatch.Groups[1].Value) { throw 'Bundled FFmpeg license checksum mismatch.' }
+    if ($versionText -notmatch '(?m)^Build flavor: (Test|Release)\r?$') { throw 'Release version manifest does not state its build flavor.' }
     $sourceManifest = Get-Content -LiteralPath (Join-Path $testRoot 'sources\manifest.json') -Raw | ConvertFrom-Json
     foreach ($source in @($sourceManifest.sourceArchives)) {
         $sourcePath = Join-Path (Join-Path $testRoot 'sources') ([string]$source.fileName)
