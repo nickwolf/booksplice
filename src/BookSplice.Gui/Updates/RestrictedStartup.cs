@@ -31,8 +31,6 @@ public static class RestrictedStartup
       throw new InvalidDataException("Candidate settings are incompatible.");
     using var coordinator = SupervisedProcess.CaptureExpected(request.Coordinator,
       request.CoordinatorImage, request.CoordinatorSha256);
-    using var oldGui = SupervisedProcess.CaptureExpected(request.OldGui,
-      request.OldGuiImage, request.OldGuiSha256);
     using var local = SupervisedProcess.CaptureCurrent();
     using var session = await UpdatePipe.ConnectAsync(request.PipeName, coordinator,
       request.TransactionId, Convert.FromBase64String(request.Nonce), local, token);
@@ -58,36 +56,6 @@ public static class RestrictedStartup
       await session.SendAsync(UpdateMessageKind.Ready, deadline.Token);
       var commit = await session.ReceiveAsync(deadline.Token);
       if (commit.Kind != UpdateMessageKind.Commit) throw new IOException("Candidate commit was refused.");
-      var oldExited = await session.ReceiveAsync(deadline.Token);
-      if (oldExited.Kind != UpdateMessageKind.OldExited)
-        throw new IOException("The old GUI exit was not acknowledged.");
-      using (var exitWait = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token))
-      {
-        var observedExit = oldGui.WaitForExitAsync(exitWait.Token);
-        var coordinatorLoss = coordinator.WaitForExitAsync(exitWait.Token);
-        var channelLoss = session.ReceiveAsync(CancellationToken.None);
-        _ = channelLoss.ContinueWith(task => _ = task.Exception,
-          CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted |
-          TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-        var first = await Task.WhenAny(observedExit, coordinatorLoss, channelLoss);
-        if (first != observedExit)
-        {
-          exitWait.Cancel();
-          try { await observedExit; }
-          catch (OperationCanceledException) { }
-          await first;
-          throw new IOException("The update channel changed before the old GUI exit.");
-        }
-        exitWait.Cancel();
-        try { await coordinatorLoss; }
-        catch (OperationCanceledException) { }
-        await observedExit;
-        if (channelLoss.IsCompleted)
-        {
-          await channelLoss;
-          throw new IOException("The update channel changed before activation.");
-        }
-      }
       await snapshot.VerifyUnchangedAsync(settingsPath, deadline.Token);
       VerifySnapshot(snapshot, request.ExpectedSettingsSha256);
       ValidateDataRoot(request.DataRoot, request.DataRootIdentity);
@@ -95,7 +63,6 @@ public static class RestrictedStartup
       settingsStore.Enable();
       retainLease(lease);
       restricted.IsEnabled = true;
-      await session.SendAsync(UpdateMessageKind.Activated, deadline.Token);
       retained = true;
       return restricted;
     }

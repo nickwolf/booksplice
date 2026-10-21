@@ -76,10 +76,9 @@ public sealed class RestrictedStartupTests
   }
 
   [Theory]
-  [InlineData(0)]
-  [InlineData(1)]
-  [InlineData(2)]
-  public void AuthenticatedCandidateKeepsSameWindowRestrictedUntilOldExit(int disconnectPhase)
+  [InlineData(false)]
+  [InlineData(true)]
+  public void AuthenticatedCandidateKeepsSameWindowRestrictedUntilCommit(bool disconnectBeforeCommit)
   {
     OnStaAsync(async () =>
     {
@@ -89,15 +88,13 @@ public sealed class RestrictedStartupTests
       Directory.CreateDirectory(root);
       var rootHandle = SafeDirectoryHandle.OpenCanonical(root);
       using var current = SupervisedProcess.CaptureCurrent();
-      using var capability = VerifiedExecutable.PinFile(HelperPath());
-      using var old = ProcessSupervisor.Start(capability, ["hold"], new Dictionary<string, string>());
       var pipeName = UpdatePipe.NewPipeName();
       var nonce = UpdatePipe.NewNonce();
       var transaction = Guid.NewGuid();
       using var server = UpdatePipe.CreateServer(pipeName);
       var request = new CandidateStartupRequest(pipeName, transaction,
         Convert.ToBase64String(nonce), current.Identity, current.ImageIdentity, current.ImageSha256,
-        old.Identity, old.ImageIdentity, old.ImageSha256, root, rootHandle.Identity, "absent", "0.2.0");
+        root, rootHandle.Identity, "absent", "0.2.0");
       MainWindow? shown = null;
       GuiInstanceLease? retained = null;
       var shows = 0;
@@ -124,7 +121,7 @@ public sealed class RestrictedStartupTests
           .GetValue(shown)!;
         var validSettings = AppSettings.Defaults with { OutputDirectory = parent };
         await Assert.ThrowsAsync<InvalidOperationException>(() => guardedStore.SaveAsync(validSettings));
-        if (disconnectPhase == 1)
+        if (disconnectBeforeCommit)
         {
           session.Dispose();
           await Assert.ThrowsAnyAsync<Exception>(async () => await candidate);
@@ -133,25 +130,7 @@ public sealed class RestrictedStartupTests
           return;
         }
         await session.SendAsync(UpdateMessageKind.Commit, timeout.Token);
-        await Dispatcher.Yield(DispatcherPriority.Background);
-        Assert.False(shown.IsEnabled);
-        if (disconnectPhase == 2)
-        {
-          await session.SendAsync(UpdateMessageKind.OldExited, timeout.Token);
-          await Dispatcher.Yield(DispatcherPriority.Background);
-          Assert.False(shown.IsEnabled);
-          session.Dispose();
-          Assert.False(current.HasExited);
-          await Assert.ThrowsAnyAsync<Exception>(async () => await candidate);
-          Assert.False(shown.IsVisible);
-          Assert.False(File.Exists(Path.Combine(root, "settings.json")));
-          return;
-        }
-        await old.StopAsync(timeout.Token);
-        await session.SendAsync(UpdateMessageKind.OldExited, timeout.Token);
         var active = await candidate;
-        Assert.Equal(UpdateMessageKind.Activated,
-          (await session.ReceiveAsync(timeout.Token)).Kind);
         Assert.Same(shown, active);
         Assert.Equal(1, shows);
         Assert.True(active.IsEnabled);
@@ -165,7 +144,6 @@ public sealed class RestrictedStartupTests
       {
         retained?.Dispose();
         if (shown is { IsVisible: true }) shown.Close();
-        if (!old.HasExited) await old.StopAsync();
         rootHandle.Dispose();
         Directory.Delete(parent, true);
       }
@@ -194,10 +172,6 @@ public sealed class RestrictedStartupTests
       File.Copy(path, Path.Combine(target, name), true);
     }
   }
-
-  private static string HelperPath() => Path.Combine(SolutionRoot(), "tests", "BookSplice.LeaseHost",
-    "bin", new DirectoryInfo(AppContext.BaseDirectory).Parent?.Name
-      ?? throw new DirectoryNotFoundException(), "net10.0-windows", "BookSplice.LeaseHost.exe");
 
   private static string SolutionRoot()
   {

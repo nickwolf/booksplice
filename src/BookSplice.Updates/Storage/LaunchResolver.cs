@@ -89,9 +89,7 @@ public static class LaunchResolver
           current.InstallationId != layout.InstallationId ||
           current.Current is null || !current.Current.IsValid())
         return LaunchDecision.Refuse("No committed launch target is available.");
-      var policy = RecoveryPolicy.Decide(snapshot,
-        new ProcessSnapshot(new Dictionary<BookSplice.Updates.Handover.ProcessIdentity,
-          ProcessLife>()));
+      var policy = RecoveryPolicy.Decide(snapshot);
       if (policy.Refused || policy.TargetPendingNativeValidation != current.Current)
         return LaunchDecision.Refuse(policy.Reason ?? "The committed mapping is inconsistent.");
       var target = current.Current;

@@ -12,10 +12,11 @@ public sealed record PersistedPromotion(OwnedDirectory Source, OwnedDirectory De
 public sealed record UpdateTransaction(int SchemaVersion, Guid InstallationId, Guid Id,
   UpdatePhase Phase, OwnedOrOriginalTarget OldTarget, OwnedOrOriginalTarget? NewTarget,
   string? SettingsSha256, bool SettingsAbsent, int ProtocolVersion, string Nonce,
-  IReadOnlyList<OwnedDirectory> OwnedPaths, ProcessIdentity? Coordinator,
-  ProcessIdentity? OldProcess, ProcessIdentity? NewProcess, PersistedPromotion? Promotion,
-  WriterFinalization? Finalization = null, CurrentTarget? PriorMapping = null)
+  IReadOnlyList<OwnedDirectory> OwnedPaths, ProcessIdentity? NewProcess,
+  PersistedPromotion? Promotion, CurrentTarget PriorMapping)
 {
+  public bool IsFinished() => Phase is UpdatePhase.Committed or UpdatePhase.Failed;
+
   public bool IsValid() => SchemaVersion == 1 && InstallationId != Guid.Empty && Id != Guid.Empty &&
     Enum.IsDefined(Phase) && OldTarget is not null && OldTarget.IsValid() &&
     (NewTarget is null || NewTarget.IsValid()) &&
@@ -27,18 +28,16 @@ public sealed record UpdateTransaction(int SchemaVersion, Guid InstallationId, G
       x.InstallationId == InstallationId && x.OperationId == Id &&
       RecoveryRecordValidation.Absolute(x.Path)) &&
     OwnedPaths.Select(x => x.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count() == OwnedPaths.Count &&
-    ValidProcess(Coordinator) && ValidProcess(OldProcess) && ValidProcess(NewProcess) &&
-    (PriorMapping is null ||
-     PriorMapping.SchemaVersion == 1 && PriorMapping.InstallationId == InstallationId &&
-     PriorMapping.Current is not null && PriorMapping.Current.IsValid() &&
-     SameTarget(PriorMapping.Current, OldTarget) &&
-     (PriorMapping.Previous is null || PriorMapping.Previous.IsValid() &&
+    ValidProcess(NewProcess) &&
+    PriorMapping is not null && PriorMapping.SchemaVersion == 1 &&
+    PriorMapping.InstallationId == InstallationId &&
+    PriorMapping.Current is not null && PriorMapping.Current.IsValid() &&
+    SameTarget(PriorMapping.Current, OldTarget) &&
+    (PriorMapping.Previous is null || PriorMapping.Previous.IsValid() &&
       !string.Equals(PriorMapping.Previous.ExecutablePath,
-        PriorMapping.Current.ExecutablePath, StringComparison.OrdinalIgnoreCase))) &&
+        PriorMapping.Current.ExecutablePath, StringComparison.OrdinalIgnoreCase)) &&
     (Promotion is null || ValidPromotion(Promotion)) &&
-    ValidFinalization(Finalization, Phase, OldProcess, NewProcess) &&
-    (Phase is UpdatePhase.Preparing or UpdatePhase.RollingBack or UpdatePhase.Failed ||
-     NewTarget is not null || Promotion is not null);
+    (Phase is UpdatePhase.Preparing or UpdatePhase.Failed || NewTarget is not null);
 
   internal static bool SameTarget(OwnedOrOriginalTarget? left,
     OwnedOrOriginalTarget? right) => left is null && right is null ||
@@ -82,28 +81,10 @@ public sealed record UpdateTransaction(int SchemaVersion, Guid InstallationId, G
     (process.Pid > 0 && process.StartTimeUtcTicks > 0 &&
      RecoveryRecordValidation.Absolute(process.ExecutablePath));
 
-  private static bool ValidFinalization(WriterFinalization? finalization, UpdatePhase phase,
-    ProcessIdentity? oldProcess, ProcessIdentity? newProcess) => finalization is null ||
-    (Enum.IsDefined(finalization.State) && finalization.ObservedAtUtcTicks > 0 &&
-     finalization.Process is not null && ValidProcess(finalization.Process) &&
-     (phase, finalization.State) switch
-     {
-       (UpdatePhase.Committed, WriterFinalizationState.CandidateActiveAfterOldExit) =>
-         finalization.Process == newProcess,
-       (UpdatePhase.Failed, WriterFinalizationState.OldRestoredAfterCandidateExit) =>
-         finalization.Process == oldProcess,
-       _ => false
-     });
-
   public static StateRecordDefinition<UpdateTransaction> Definition(string filename,
     Guid installationId) => new(filename, value => value.InstallationId == installationId &&
       value.IsValid(), 16 * 1024 * 1024);
 }
-
-public enum WriterFinalizationState { CandidateActiveAfterOldExit, OldRestoredAfterCandidateExit }
-
-public sealed record WriterFinalization(WriterFinalizationState State, long ObservedAtUtcTicks,
-  ProcessIdentity Process);
 
 [SupportedOSPlatform("windows")]
 public sealed class UpdateJournal : IPromotionJournal
@@ -128,66 +109,14 @@ public sealed class UpdateJournal : IPromotionJournal
   public UpdateTransaction Begin(UpdateTransaction transaction)
   {
     ArgumentNullException.ThrowIfNull(transaction);
-    if (transaction.InstallationId != _installationId || transaction.Phase != UpdatePhase.Preparing ||
-        transaction.Finalization is not null)
+    if (transaction.InstallationId != _installationId || transaction.Phase != UpdatePhase.Preparing)
       throw new InvalidDataException("The initial transaction is invalid.");
     return _store.Transition<UpdateTransaction>(_path, current =>
-      current.Kind == StateReadKind.Missing ? transaction :
-        throw new InvalidDataException("A prior update transaction still requires finalization."));
+      current.Kind == StateReadKind.Missing ||
+      current.Kind == StateReadKind.Valid && current.Value is { } prior && prior.IsFinished() &&
+        prior.InstallationId == _installationId && prior.Id != transaction.Id ? transaction :
+        throw new InvalidDataException("A prior update transaction is unfinished."));
   }
-
-  public UpdateTransaction Begin(UpdateTransaction transaction, Guid expectedPriorOperationId)
-  {
-    ArgumentNullException.ThrowIfNull(transaction);
-    if (expectedPriorOperationId == Guid.Empty || transaction.Id == expectedPriorOperationId ||
-        transaction.InstallationId != _installationId || transaction.Phase != UpdatePhase.Preparing ||
-        transaction.Finalization is not null)
-      throw new InvalidDataException("The replacement transaction is invalid.");
-    return _store.Transition<UpdateTransaction>(_path, current =>
-    {
-      if (current.Kind != StateReadKind.Valid || current.Value is not { } prior ||
-          prior.InstallationId != _installationId || prior.Id != expectedPriorOperationId ||
-          !CanReplace(prior))
-        throw new InvalidDataException("The exact prior transaction has not reached observed safe finalization.");
-      return transaction;
-    });
-  }
-
-  public UpdateTransaction RecordObservedFinalization(Guid id, UpdatePhase expected,
-    WriterFinalizationState state, ProcessIdentity observedProcess)
-  {
-    ArgumentNullException.ThrowIfNull(observedProcess);
-    return ChangeCore(id, expected, current => current with
-    {
-      Finalization = ValidateFinalization(current, expected, state, observedProcess)
-    }, allowFinalization: true);
-  }
-
-  private static WriterFinalization ValidateFinalization(UpdateTransaction current,
-    UpdatePhase expected, WriterFinalizationState state, ProcessIdentity observedProcess)
-  {
-    var matches = (expected, state) switch
-    {
-      (UpdatePhase.Committed, WriterFinalizationState.CandidateActiveAfterOldExit) =>
-        current.NewProcess == observedProcess,
-      (UpdatePhase.Failed, WriterFinalizationState.OldRestoredAfterCandidateExit) =>
-        current.OldProcess == observedProcess,
-      _ => false
-    };
-    if (!matches || !Enum.IsDefined(state) || observedProcess.Pid <= 0 ||
-        observedProcess.StartTimeUtcTicks <= 0 ||
-        !RecoveryRecordValidation.Absolute(observedProcess.ExecutablePath))
-      throw new InvalidDataException("The writer finalization observation does not match a terminal safe state.");
-    return new WriterFinalization(state, DateTime.UtcNow.Ticks, observedProcess);
-  }
-
-  private static bool CanReplace(UpdateTransaction transaction) => transaction.Finalization is { } final &&
-    (transaction.Phase == UpdatePhase.Committed &&
-       final.State == WriterFinalizationState.CandidateActiveAfterOldExit &&
-       transaction.NewProcess == final.Process ||
-     transaction.Phase == UpdatePhase.Failed &&
-       final.State == WriterFinalizationState.OldRestoredAfterCandidateExit &&
-       transaction.OldProcess == final.Process);
 
   public UpdateTransaction Transition(Guid id, UpdatePhase expected, UpdatePhase next) =>
     Change(id, expected, current =>
@@ -197,22 +126,8 @@ public sealed class UpdateJournal : IPromotionJournal
       return current with { Phase = next };
     });
 
-  public UpdateTransaction TransitionCommittedCandidateLoss(Guid id,
-    ProcessIdentity observedCandidate) =>
-    ChangeCore(id, UpdatePhase.Committed, current =>
-    {
-      if (current.Finalization is not null || current.NewProcess != observedCandidate)
-        throw new InvalidDataException("The committed candidate loss is not the active transfer.");
-      return current with { Phase = UpdatePhase.RollingBack };
-    }, allowFinalization: false, allowCommittedRollback: true);
-
   public UpdateTransaction Change(Guid id, UpdatePhase expected,
     Func<UpdateTransaction, UpdateTransaction> change)
-    => ChangeCore(id, expected, change, allowFinalization: false);
-
-  private UpdateTransaction ChangeCore(Guid id, UpdatePhase expected,
-    Func<UpdateTransaction, UpdateTransaction> change, bool allowFinalization,
-    bool allowCommittedRollback = false)
   {
     ArgumentNullException.ThrowIfNull(change);
     if (id == Guid.Empty) throw new ArgumentException("Operation ID is empty.", nameof(id));
@@ -223,17 +138,13 @@ public sealed class UpdateJournal : IPromotionJournal
         throw new InvalidDataException("The journal operation or phase changed.");
       var next = change(read.Value);
       if (next.Id != id || next.InstallationId != _installationId || !next.IsValid() ||
-          (next.Phase != expected && !Allowed(expected, next.Phase) &&
-           !(allowCommittedRollback && expected == UpdatePhase.Committed &&
-             next.Phase == UpdatePhase.RollingBack)) ||
+          (next.Phase != expected && !Allowed(expected, next.Phase)) ||
           next.OldTarget != read.Value.OldTarget ||
           next.SettingsSha256 != read.Value.SettingsSha256 ||
           next.SettingsAbsent != read.Value.SettingsAbsent ||
           next.ProtocolVersion != read.Value.ProtocolVersion ||
           next.Nonce != read.Value.Nonce ||
           !UpdateTransaction.SameMapping(next.PriorMapping, read.Value.PriorMapping) ||
-          (!allowFinalization && next.Finalization != read.Value.Finalization) ||
-          (allowFinalization && read.Value.Finalization is not null) ||
           (expected != UpdatePhase.Preparing && next.NewTarget != read.Value.NewTarget))
         throw new InvalidDataException("The journal mutation is invalid.");
       return next;
@@ -297,12 +208,9 @@ public sealed class UpdateJournal : IPromotionJournal
   {
     (UpdatePhase.Preparing, UpdatePhase.Prepared) or
     (UpdatePhase.Prepared, UpdatePhase.Starting) or
-    (UpdatePhase.Starting, UpdatePhase.Ready) or
-    (UpdatePhase.Ready, UpdatePhase.Committing) or
-    (UpdatePhase.Committing, UpdatePhase.Committed) or
-    (UpdatePhase.Preparing or UpdatePhase.Prepared or UpdatePhase.Starting or
-      UpdatePhase.Ready or UpdatePhase.Committing, UpdatePhase.RollingBack) or
-    (UpdatePhase.RollingBack, UpdatePhase.Failed) => true,
+    (UpdatePhase.Starting, UpdatePhase.Committed) or
+    (UpdatePhase.Preparing or UpdatePhase.Prepared or UpdatePhase.Starting,
+      UpdatePhase.Failed) => true,
     _ => false
   };
 }

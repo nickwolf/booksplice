@@ -6,7 +6,6 @@ namespace BookSplice.Updates.Handover;
 
 public sealed record CandidateStartupRequest(string PipeName, Guid TransactionId, string Nonce,
   ProcessIdentity Coordinator, FileIdentity CoordinatorImage, string CoordinatorSha256,
-  ProcessIdentity OldGui, FileIdentity OldGuiImage, string OldGuiSha256,
   string DataRoot, FileIdentity DataRootIdentity, string ExpectedSettingsSha256, string Version)
 {
   private static readonly JsonSerializerOptions StrictJson = new()
@@ -32,8 +31,8 @@ public sealed record CandidateStartupRequest(string PipeName, Guid TransactionId
     _ = new UTF8Encoding(false, true).GetString(bytes);
     using var document = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 8 });
     if (document.RootElement.ValueKind != JsonValueKind.Object ||
-        document.RootElement.EnumerateObject().Count() != 13 ||
-        document.RootElement.EnumerateObject().Select(x => x.Name).Distinct(StringComparer.Ordinal).Count() != 13)
+        document.RootElement.EnumerateObject().Count() != 10 ||
+        document.RootElement.EnumerateObject().Select(x => x.Name).Distinct(StringComparer.Ordinal).Count() != 10)
       throw new InvalidDataException("Candidate context shape is invalid.");
     var context = document.RootElement.Deserialize<CandidateStartupRequest>(StrictJson) ??
       throw new InvalidDataException("Candidate context is missing.");
@@ -46,16 +45,15 @@ public sealed record CandidateStartupRequest(string PipeName, Guid TransactionId
   private void Validate()
   {
     if (TransactionId == Guid.Empty || !ValidPipeName(PipeName) ||
-        Coordinator is null || OldGui is null ||
+        Coordinator is null ||
         Coordinator.Pid <= 0 || Coordinator.StartTimeUtcTicks <= 0 ||
-        OldGui.Pid <= 0 || OldGui.StartTimeUtcTicks <= 0 ||
         !string.Equals(Path.GetFileName(Coordinator.ExecutablePath),
           "BookSplice.Launcher.exe", StringComparison.OrdinalIgnoreCase) ||
         DataRoot is null || !Path.IsPathFullyQualified(DataRoot) ||
         Path.GetFullPath(DataRoot) != DataRoot ||
         !string.Equals(Path.GetFileName(DataRoot), "BookSplice", StringComparison.OrdinalIgnoreCase) ||
-        !DataRootIdentity.IsValid || !CoordinatorImage.IsValid || !OldGuiImage.IsValid ||
-        !ValidHash(CoordinatorSha256) || !ValidHash(OldGuiSha256) ||
+        !DataRootIdentity.IsValid || !CoordinatorImage.IsValid ||
+        !ValidHash(CoordinatorSha256) ||
         ExpectedSettingsSha256 != "absent" && !ValidHash(ExpectedSettingsSha256) ||
         Nonce is not { Length: 44 } || Convert.FromBase64String(Nonce).Length != 32 ||
         string.IsNullOrWhiteSpace(Version) || Version.Length > 128)

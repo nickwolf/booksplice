@@ -1,7 +1,6 @@
 using BookSplice.Updates.Handover;
 using BookSplice.Updates.Storage;
 using BookSplice.Updates.Windows;
-using BookSplice.Updates.Tests.Windows;
 
 namespace BookSplice.Updates.Tests.Storage;
 
@@ -9,7 +8,7 @@ namespace BookSplice.Updates.Tests.Storage;
 public sealed class CurrentTargetStoreTests
 {
   [Fact]
-  public async Task PostReplaceFailureRestoresExactPriorMappingOnlyAfterNativeCandidateExit()
+  public void CommitSwapsOnlyTheRecordedPriorMapping()
   {
     if (!OperatingSystem.IsWindows()) return;
     var root = Path.Combine(Path.GetTempPath(), "booksplice-pointer-" + Guid.NewGuid().ToString("N"));
@@ -53,12 +52,12 @@ public sealed class CurrentTargetStoreTests
       using (var captured = OriginalPackageInventory.Capture(versionPath,
         owned.Identity, "2.0.0"))
         package = PersistedPackage.FromSnapshot(captured.Snapshot);
-      using var inventory = PackageInventory.ReopenSnapshot(owned, package.Restore(),
-        directories, false);
       var executable = package.Files.Single(file => file.RelativePath == "BookSplice.Gui.exe");
       var newTarget = new OwnedOrOriginalTarget(TargetKind.Managed,
         Path.Combine(versionPath, "BookSplice.Gui.exe"), owned.Identity,
         executable.Identity, package, "2.0.0", 1, owned);
+      using var retained = VerifiedExecutable.FromManaged(PackageInventory.ReopenSnapshot(owned,
+        package.Restore(), directories, false), newTarget);
       var source = new OwnedDirectory(Path.Combine(staging.Path, "payload"),
         owned.Identity, installation, operation, "payload");
       var promotion = new PersistedPromotion(source, versions, leaf, versionPath,
@@ -89,13 +88,9 @@ public sealed class CurrentTargetStoreTests
         installation);
       var writer = new CurrentTargetStore(state, journal, layout);
       var recordedPrior = writer.CapturePriorMapping(oldTarget);
-      using var executableGuard = VerifiedExecutable.PinFile(ProcessSupervisorTests.HelperPath());
-      using var candidate = ProcessSupervisor.Start(executableGuard, ["hold"],
-        new Dictionary<string, string>());
       var initial = new UpdateTransaction(1, installation, operation,
         UpdatePhase.Preparing, oldTarget, null, null, true, 1,
-        new string('A', 64), [], null, null, candidate.Identity, promotion,
-        PriorMapping: recordedPrior);
+        new string('A', 64), [], null, promotion, recordedPrior);
       Assert.False((initial with
       {
         PriorMapping = recordedPrior with { InstallationId = Guid.NewGuid() }
@@ -113,32 +108,23 @@ public sealed class CurrentTargetStoreTests
       journal.Change(operation, UpdatePhase.Preparing,
         current => current with { NewTarget = newTarget });
       journal.Transition(operation, UpdatePhase.Preparing, UpdatePhase.Prepared);
+      Assert.Throws<InvalidDataException>(() => writer.Commit(operation, retained));
       journal.Transition(operation, UpdatePhase.Prepared, UpdatePhase.Starting);
-      journal.Transition(operation, UpdatePhase.Starting, UpdatePhase.Ready);
-      journal.Transition(operation, UpdatePhase.Ready, UpdatePhase.Committing);
-      Assert.Throws<InvalidDataException>(() => writer.Commit(Guid.NewGuid(), inventory));
+      Assert.Throws<InvalidDataException>(() => writer.Commit(Guid.NewGuid(), retained));
       Assert.True(LaunchResolver.SameTarget(oldTarget,
         state.Read<CurrentTarget>(pointerPath).Value!.Current));
       state.Write(pointerPath, originalMapping with
       {
         Previous = previous with { Version = "0.8.0" }
       });
-      Assert.Throws<InvalidDataException>(() => writer.Commit(operation, inventory));
+      Assert.Throws<InvalidDataException>(() => writer.Commit(operation, retained));
       state.Write(pointerPath, originalMapping);
       failAfterReplace = true;
-      Assert.Throws<IOException>(() => writer.Commit(operation, inventory));
+      Assert.Throws<IOException>(() => writer.Commit(operation, retained));
       var committed = state.Read<CurrentTarget>(pointerPath).Value!;
       Assert.True(LaunchResolver.SameTarget(newTarget, committed.Current));
       Assert.True(LaunchResolver.SameTarget(oldTarget, committed.Previous));
-      Assert.Throws<InvalidDataException>(() => writer.Commit(operation, inventory));
-      journal.Transition(operation, UpdatePhase.Committing, UpdatePhase.RollingBack);
-      Assert.Throws<InvalidDataException>(() => writer.RestoreAfterCandidateExit(operation,
-        candidate));
-      await candidate.StopAsync();
-      var restored = writer.RestoreAfterCandidateExit(operation, candidate);
-      Assert.True(LaunchResolver.SameTarget(oldTarget, restored.Current));
-      Assert.True(LaunchResolver.SameTarget(previous, restored.Previous));
-      Assert.True(UpdateTransaction.SameMapping(originalMapping, restored));
+      Assert.Throws<InvalidDataException>(() => writer.Commit(operation, retained));
     }
     finally { Directory.Delete(root, true); }
   }

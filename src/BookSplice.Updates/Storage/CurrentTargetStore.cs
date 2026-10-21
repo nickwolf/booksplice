@@ -30,65 +30,23 @@ public sealed class CurrentTargetStore
     return mapping;
   }
 
-  public CurrentTarget Commit(Guid operationId, PackageInventory retainedCandidate)
+  public CurrentTarget Commit(Guid operationId, VerifiedExecutable retainedCandidate)
   {
     ArgumentNullException.ThrowIfNull(retainedCandidate);
-    var transaction = RequireTransaction(operationId, Handover.UpdatePhase.Committing);
-    var oldTarget = transaction.OldTarget;
-    var prior = transaction.PriorMapping ??
-      throw new InvalidDataException("The pre-update launch mapping was not recorded.");
+    var transaction = RequireTransaction(operationId, Handover.UpdatePhase.Starting);
     var newTarget = transaction.NewTarget ??
-      throw new InvalidDataException("The committed update has no candidate target.");
-    ValidateNewTarget(newTarget, transaction, retainedCandidate);
+      throw new InvalidDataException("The handover has no candidate target.");
+    retainedCandidate.Revalidate();
+    if (retainedCandidate.Identity != newTarget.ExecutableIdentity ||
+        !string.Equals(retainedCandidate.Path, newTarget.ExecutablePath,
+          StringComparison.OrdinalIgnoreCase))
+      throw new InvalidDataException("The retained candidate differs from its recorded target.");
     return _state.Transition<CurrentTarget>(_path, read =>
     {
       if (read.Kind != StateReadKind.Valid || read.Value is not { } current ||
-          current.InstallationId != _layout.InstallationId ||
-          !UpdateTransaction.SameMapping(current, prior) ||
-          !LaunchResolver.SameTarget(current.Current, oldTarget))
+          !UpdateTransaction.SameMapping(current, transaction.PriorMapping))
         throw new InvalidDataException("The current launch target changed before commit.");
-      return new CurrentTarget(1, _layout.InstallationId, newTarget, oldTarget);
-    });
-  }
-
-  public CurrentTarget Restore(Guid operationId)
-  {
-    var transaction = RequireTransaction(operationId, Handover.UpdatePhase.RollingBack);
-    var oldTarget = transaction.OldTarget;
-    var newTarget = transaction.NewTarget;
-    var prior = transaction.PriorMapping ??
-      throw new InvalidDataException("The pre-update launch mapping was not recorded.");
-    return _state.Transition<CurrentTarget>(_path, read =>
-    {
-      if (read.Kind != StateReadKind.Valid || read.Value is not { } current ||
-          current.InstallationId != _layout.InstallationId ||
-          newTarget is null || !LaunchResolver.SameTarget(current.Current, newTarget) ||
-          !LaunchResolver.SameTarget(current.Previous, oldTarget))
-        throw new InvalidDataException("The committed candidate mapping changed before restore.");
-      return prior;
-    });
-  }
-
-  public CurrentTarget RestoreAfterCandidateExit(Guid operationId, SupervisedProcess candidate)
-  {
-    ArgumentNullException.ThrowIfNull(candidate);
-    var transaction = RequireTransaction(operationId, Handover.UpdatePhase.RollingBack);
-    if (transaction.NewProcess != candidate.Identity || !candidate.HasExited)
-      throw new InvalidDataException("The recorded candidate exit has not been observed.");
-    var prior = transaction.PriorMapping ??
-      throw new InvalidDataException("The pre-update launch mapping was not recorded.");
-    var newTarget = transaction.NewTarget ??
-      throw new InvalidDataException("The candidate target was not recorded.");
-    return _state.Transition<CurrentTarget>(_path, read =>
-    {
-      if (read.Kind != StateReadKind.Valid || read.Value is not { } current ||
-          current.InstallationId != _layout.InstallationId)
-        throw new InvalidDataException("The current launch mapping cannot be reconciled.");
-      if (UpdateTransaction.SameMapping(current, prior)) return prior;
-      if (!LaunchResolver.SameTarget(current.Current, newTarget) ||
-          !LaunchResolver.SameTarget(current.Previous, transaction.OldTarget))
-        throw new InvalidDataException("The current launch mapping differs from the recorded candidate.");
-      return prior;
+      return new CurrentTarget(1, _layout.InstallationId, newTarget, transaction.OldTarget);
     });
   }
 
@@ -101,27 +59,5 @@ public sealed class CurrentTargetStore
         transaction.Phase != phase)
       throw new InvalidDataException("The update operation or phase changed.");
     return transaction;
-  }
-
-  private void ValidateNewTarget(OwnedOrOriginalTarget target,
-    UpdateTransaction transaction, PackageInventory retainedCandidate)
-  {
-    if (target.Kind != TargetKind.Managed || target.OwnedDirectory is not { } owned ||
-        transaction.Promotion?.Promoted != owned ||
-        target.Package is null || retainedCandidate.Destination != owned ||
-        !string.Equals(Path.GetDirectoryName(owned.Path), _layout.Versions.Path,
-          StringComparison.OrdinalIgnoreCase))
-      throw new InvalidDataException("The candidate is not the recorded promoted version.");
-    retainedCandidate.Revalidate();
-    var snapshot = retainedCandidate.Snapshot();
-    if (target.Package.Sha256 != snapshot.Sha256 ||
-        target.Package.RootIdentity != snapshot.RootIdentity ||
-        !string.Equals(target.ExecutablePath,
-          Path.Combine(owned.Path, "BookSplice.Gui.exe"),
-          StringComparison.OrdinalIgnoreCase) ||
-        !snapshot.Files.Any(file => file.RelativePath == "BookSplice.Gui.exe" &&
-          file.Identity == target.ExecutableIdentity))
-      throw new InvalidDataException("The retained candidate differs from its recorded target.");
-    retainedCandidate.ValidatePackage(target.Version);
   }
 }

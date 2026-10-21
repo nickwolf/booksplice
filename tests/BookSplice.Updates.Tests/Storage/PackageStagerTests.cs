@@ -239,7 +239,7 @@ public sealed class PackageStagerTests
         Assert.False(child.HasExited);
         journal.Begin(new UpdateTransaction(1, fixture.Layout.InstallationId, fixture.Operation,
           UpdatePhase.Preparing, old, null, null, true, 1, new string('A', 64), [],
-          null, null, null, null));
+          null, null, new CurrentTarget(1, fixture.Layout.InstallationId, old, null)));
         journal.Change(fixture.Operation, UpdatePhase.Preparing, current => current);
         Assert.False(TrySetMountPoint(staged.Payload.Path, outside));
         Assert.ThrowsAny<IOException>(() => Directory.Move(staged.Payload.Path,
@@ -762,7 +762,7 @@ public sealed class PackageStagerTests
       if (beginJournal)
         journal.Begin(new UpdateTransaction(1, Layout.InstallationId, Operation,
           BookSplice.Updates.Handover.UpdatePhase.Preparing, old, null, null, true, 1,
-          new string('A', 64), [], null, null, null, null));
+          new string('A', 64), [], null, null, new CurrentTarget(1, Layout.InstallationId, old, null)));
       var stager = new PackageStager(new PackageDownloader(new FixedClient(Release), _transport),
         creator, journal, new SafeZipExtractor(creator), _ => long.MaxValue, 1024,
         () => Operation, afterPromotedRecord: afterPromotedRecord);

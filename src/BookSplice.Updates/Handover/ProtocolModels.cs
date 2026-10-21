@@ -10,10 +10,7 @@ public enum UpdatePhase
   Preparing,
   Prepared,
   Starting,
-  Ready,
-  Committing,
   Committed,
-  RollingBack,
   Failed
 }
 

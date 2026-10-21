@@ -13,10 +13,6 @@ public sealed class RecoveryDecisionTests
   private static readonly FileIdentity ExecutableIdentity = new(1, "33333333333333333333333333333333");
   private const string Root = @"C:\BookSplice";
   private const string Managed = @"C:\.booksplice-managed-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
-  private static readonly ProcessIdentity CandidateProcess = new(42, 100,
-    Managed + @"\versions\1.1.0\BookSplice.Gui.exe");
-  private static readonly ProcessIdentity OldProcess = new(43, 101,
-    Root + @"\BookSplice.Gui.exe");
 
   private static OwnedDirectory Owned(string path, FileIdentity identity, string kind) =>
     new(path, identity, InstallationId, OperationId, kind);
@@ -49,314 +45,25 @@ public sealed class RecoveryDecisionTests
   private static JournalSnapshot Snapshot(UpdatePhase phase, bool newPointer)
   {
     var fixture = Fixture();
+    var prior = new CurrentTarget(1, InstallationId, fixture.Old, null);
     var transaction = new UpdateTransaction(1, InstallationId, OperationId, phase,
-      fixture.Old, fixture.New, null, true, 1, new string('a', 64), [], null,
-      OldProcess, CandidateProcess, null);
-    var current = new CurrentTarget(1, InstallationId,
-      newPointer ? fixture.New : fixture.Old, newPointer ? fixture.Old : null);
+      fixture.Old, fixture.New, null, true, 1, new string('a', 64), [], null, null, prior);
+    var current = newPointer ? new CurrentTarget(1, InstallationId, fixture.New, fixture.Old) :
+      prior;
     return new(new(StateReadKind.Valid, fixture.Installation),
       new(StateReadKind.Valid, current), new(StateReadKind.Valid, transaction),
       new(StateReadKind.Valid, fixture.Ownership));
-  }
-
-  [Fact]
-  public void PointerChangedBeforeCommitRecordRollsBackAfterExactCandidateExit()
-  {
-    var decision = RecoveryPolicy.Decide(Snapshot(UpdatePhase.Committing, true),
-      new ProcessSnapshot(new Dictionary<ProcessIdentity, ProcessLife>
-      {
-        [CandidateProcess] = ProcessLife.Alive,
-        [OldProcess] = ProcessLife.Alive
-      }));
-    Assert.False(decision.Refused);
-    Assert.Equal(PointerAction.Keep, decision.MappingAction);
-    Assert.Equal(PointerAction.RestoreOld, decision.AfterObservedExitMappingAction);
-    Assert.Equal(RecoveryStop.Candidate, decision.Stop);
-    Assert.Equal(CandidateProcess, decision.ExactProcess);
-    Assert.True(decision.WaitForObservedExit);
-    Assert.Equal(OldAction.None, decision.Old);
-    Assert.False(decision.CandidateWritePermissionAfterValidation);
   }
 
   [Theory]
   [InlineData(UpdatePhase.Preparing)]
   [InlineData(UpdatePhase.Prepared)]
   [InlineData(UpdatePhase.Starting)]
-  [InlineData(UpdatePhase.Ready)]
-  [InlineData(UpdatePhase.Committing)]
-  [InlineData(UpdatePhase.RollingBack)]
-  [InlineData(UpdatePhase.Failed)]
-  public void EveryProvisionalPhaseRequiresCandidateExitBeforePointerRestore(UpdatePhase phase)
+  public void UnfinishedTransactionIsNeverResolvedByPolicy(UpdatePhase phase)
   {
-    var snapshot = Snapshot(phase, true);
-    var alive = RecoveryPolicy.Decide(snapshot, new ProcessSnapshot(
-      new Dictionary<ProcessIdentity, ProcessLife>
-      { [CandidateProcess] = ProcessLife.Alive, [OldProcess] = ProcessLife.Alive }));
-    Assert.False(alive.Refused);
-    Assert.Equal(RecoveryStop.Candidate, alive.Stop);
-    Assert.Equal(PointerAction.Keep, alive.MappingAction);
-    Assert.Equal(PointerAction.RestoreOld, alive.AfterObservedExitMappingAction);
-    Assert.True(alive.WaitForObservedExit);
-    Assert.Equal(OldAction.None, alive.Old);
-    Assert.False(alive.CandidateWritePermissionAfterValidation);
-
-    var exited = RecoveryPolicy.Decide(snapshot, new ProcessSnapshot(
-      new Dictionary<ProcessIdentity, ProcessLife>
-      { [CandidateProcess] = ProcessLife.Exited, [OldProcess] = ProcessLife.Alive }));
-    Assert.False(exited.Refused);
-    Assert.Equal(PointerAction.RestoreOld, exited.MappingAction);
-    Assert.Equal(OldAction.ResumeExisting, exited.Old);
-    Assert.Equal(OldProcess, exited.ExactProcess);
-    Assert.False(exited.CandidateWritePermissionAfterValidation);
-  }
-
-  [Theory]
-  [InlineData(ProcessLife.Alive)]
-  [InlineData(ProcessLife.Unknown)]
-  public void UnsettledCoordinatorRefusesDuplicateRecovery(ProcessLife life)
-  {
-    var snapshot = Snapshot(UpdatePhase.Committing, true);
-    var coordinator = new ProcessIdentity(45, 200,
-      Managed + @"\BookSplice.Launcher.exe");
-    snapshot = snapshot with
-    {
-      Transaction = snapshot.Transaction with
-      { Value = snapshot.Transaction.Value! with { Coordinator = coordinator } }
-    };
-    var decision = RecoveryPolicy.Decide(snapshot, new ProcessSnapshot(
-      new Dictionary<ProcessIdentity, ProcessLife>
-      {
-        [coordinator] = life,
-        [CandidateProcess] = ProcessLife.Exited,
-        [OldProcess] = ProcessLife.Exited
-      }));
-    Assert.True(decision.Refused);
-  }
-
-  [Fact]
-  public void CommittedOldUnknownNeverEnablesCandidateWrites()
-  {
-    var decision = RecoveryPolicy.Decide(Snapshot(UpdatePhase.Committed, true),
-      new ProcessSnapshot(new Dictionary<ProcessIdentity, ProcessLife>
-      { [CandidateProcess] = ProcessLife.Alive }));
-    Assert.True(decision.Refused);
-    Assert.False(decision.CandidateWritePermissionAfterValidation);
-  }
-
-  [Fact]
-  public void ContradictoryCurrentVersionRefusesPromotion()
-  {
-    var snapshot = Snapshot(UpdatePhase.Committed, true);
-    snapshot = snapshot with
-    {
-      Current = snapshot.Current with
-      {
-        Value = snapshot.Current.Value! with
-        { Current = snapshot.Current.Value.Current with { Version = "9.9.9" } }
-      }
-    };
-    var decision = RecoveryPolicy.Decide(snapshot, new ProcessSnapshot(
-      new Dictionary<ProcessIdentity, ProcessLife>
-      { [CandidateProcess] = ProcessLife.Alive, [OldProcess] = ProcessLife.Exited }));
-    Assert.True(decision.Refused);
-  }
-
-  [Fact]
-  public void MissingCandidateInPreparingCanResumeRecordedOld()
-  {
-    var snapshot = Snapshot(UpdatePhase.Preparing, false);
-    snapshot = snapshot with
-    {
-      Transaction = snapshot.Transaction with
-      { Value = snapshot.Transaction.Value! with { NewTarget = null, NewProcess = null } }
-    };
-    var decision = RecoveryPolicy.Decide(snapshot, new ProcessSnapshot(
-      new Dictionary<ProcessIdentity, ProcessLife> { [OldProcess] = ProcessLife.Alive }));
-    Assert.False(decision.Refused);
-    Assert.Equal(RecoveryStop.None, decision.Stop);
-    Assert.Equal(OldAction.ResumeExisting, decision.Old);
-  }
-
-  [Theory]
-  [InlineData(UpdatePhase.Starting, false)]
-  [InlineData(UpdatePhase.Starting, true)]
-  [InlineData(UpdatePhase.Ready, false)]
-  [InlineData(UpdatePhase.Ready, true)]
-  [InlineData(UpdatePhase.Committing, false)]
-  [InlineData(UpdatePhase.Committing, true)]
-  [InlineData(UpdatePhase.Committed, false)]
-  [InlineData(UpdatePhase.Committed, true)]
-  public void MissingCandidateIdentityAfterLaunchBoundaryRefusesWithoutActions(
-    UpdatePhase phase, bool newPointer)
-  {
-    var snapshot = Snapshot(phase, newPointer);
-    snapshot = snapshot with
-    {
-      Transaction = snapshot.Transaction with
-      { Value = snapshot.Transaction.Value! with { NewProcess = null } }
-    };
-
-    var decision = RecoveryPolicy.Decide(snapshot,
-      new ProcessSnapshot(new Dictionary<ProcessIdentity, ProcessLife>
-      { [OldProcess] = ProcessLife.Alive }));
-
+    var decision = RecoveryPolicy.Decide(Snapshot(phase, false));
     Assert.True(decision.Refused);
     Assert.Null(decision.TargetPendingNativeValidation);
-    Assert.Equal(PointerAction.Keep, decision.MappingAction);
-    Assert.Equal(PointerAction.Keep, decision.AfterObservedExitMappingAction);
-    Assert.Equal(RecoveryStop.None, decision.Stop);
-    Assert.Null(decision.ExactProcess);
-    Assert.False(decision.WaitForObservedExit);
-    Assert.Equal(OldAction.None, decision.Old);
-    Assert.False(decision.CandidateWritePermissionAfterValidation);
-  }
-
-  [Theory]
-  [InlineData(UpdatePhase.RollingBack, false)]
-  [InlineData(UpdatePhase.RollingBack, true)]
-  [InlineData(UpdatePhase.Failed, false)]
-  [InlineData(UpdatePhase.Failed, true)]
-  public void MissingCandidateIdentityInRollbackHistoryRefusesWithoutFinalization(
-    UpdatePhase phase, bool newPointer)
-  {
-    var snapshot = Snapshot(phase, newPointer);
-    snapshot = snapshot with
-    {
-      Transaction = snapshot.Transaction with
-      { Value = snapshot.Transaction.Value! with { NewProcess = null } }
-    };
-
-    var decision = RecoveryPolicy.Decide(snapshot,
-      new ProcessSnapshot(new Dictionary<ProcessIdentity, ProcessLife>
-      { [OldProcess] = ProcessLife.Exited }));
-
-    Assert.True(decision.Refused);
-    Assert.Null(decision.TargetPendingNativeValidation);
-    Assert.Equal(PointerAction.Keep, decision.MappingAction);
-    Assert.Equal(RecoveryStop.None, decision.Stop);
-    Assert.Equal(OldAction.None, decision.Old);
-    Assert.False(decision.CandidateWritePermissionAfterValidation);
-  }
-
-  [Theory]
-  [InlineData(UpdatePhase.Preparing)]
-  [InlineData(UpdatePhase.Prepared)]
-  public void MissingCandidateIdentityBeforeLaunchRemainsUsable(UpdatePhase phase)
-  {
-    var snapshot = Snapshot(phase, false);
-    snapshot = snapshot with
-    {
-      Transaction = snapshot.Transaction with
-      {
-        Value = snapshot.Transaction.Value! with
-        {
-          NewTarget = phase == UpdatePhase.Preparing ? null : snapshot.Transaction.Value!.NewTarget,
-          NewProcess = null
-        }
-      }
-    };
-    Assert.True(snapshot.Transaction.Value!.IsValid());
-
-    var decision = RecoveryPolicy.Decide(snapshot, new ProcessSnapshot(
-      new Dictionary<ProcessIdentity, ProcessLife> { [OldProcess] = ProcessLife.Alive }));
-
-    Assert.False(decision.Refused);
-    Assert.Equal(OldAction.ResumeExisting, decision.Old);
-    Assert.False(decision.CandidateWritePermissionAfterValidation);
-  }
-
-  [Fact]
-  public void FinalizedPrelaunchFailureWithMissingCandidateRemainsUsable()
-  {
-    var snapshot = Snapshot(UpdatePhase.Failed, false);
-    snapshot = snapshot with
-    {
-      Transaction = snapshot.Transaction with
-      {
-        Value = snapshot.Transaction.Value! with
-        {
-          NewProcess = null,
-          Finalization = new WriterFinalization(
-            WriterFinalizationState.OldRestoredAfterCandidateExit,
-            DateTime.UtcNow.Ticks, OldProcess)
-        }
-      }
-    };
-
-    var decision = RecoveryPolicy.Decide(snapshot, new ProcessSnapshot(
-      new Dictionary<ProcessIdentity, ProcessLife> { [OldProcess] = ProcessLife.Alive }));
-
-    Assert.False(decision.Refused);
-    Assert.Equal(PointerAction.Keep, decision.MappingAction);
-    Assert.Equal(RecoveryStop.None, decision.Stop);
-    Assert.Equal(OldAction.ResumeExisting, decision.Old);
-    Assert.False(decision.CandidateWritePermissionAfterValidation);
-  }
-
-  [Fact]
-  public void InvalidFinalizationCannotResolveMissingCandidate()
-  {
-    var snapshot = Snapshot(UpdatePhase.Failed, false);
-    snapshot = snapshot with
-    {
-      Transaction = snapshot.Transaction with
-      {
-        Value = snapshot.Transaction.Value! with
-        {
-          NewProcess = null,
-          Finalization = new WriterFinalization(
-            WriterFinalizationState.OldRestoredAfterCandidateExit, 0, OldProcess)
-        }
-      }
-    };
-
-    var decision = RecoveryPolicy.Decide(snapshot, new ProcessSnapshot(
-      new Dictionary<ProcessIdentity, ProcessLife> { [OldProcess] = ProcessLife.Alive }));
-
-    Assert.True(decision.Refused);
-    Assert.Null(decision.TargetPendingNativeValidation);
-    Assert.False(decision.CandidateWritePermissionAfterValidation);
-  }
-
-  [Fact]
-  public void ExitedOriginalRequiresManualRecoveryUntilFullInventoryExists()
-  {
-    var decision = RecoveryPolicy.Decide(Snapshot(UpdatePhase.Committing, true),
-      new ProcessSnapshot(new Dictionary<ProcessIdentity, ProcessLife>
-      { [CandidateProcess] = ProcessLife.Exited, [OldProcess] = ProcessLife.Exited }));
-    Assert.False(decision.Refused);
-    Assert.Equal(OldAction.ManualRecoveryOnly, decision.Old);
-    Assert.Equal(PointerAction.RestoreOld, decision.MappingAction);
-  }
-
-  [Fact]
-  public void ProcessEvidenceIsCopiedBeforeUse()
-  {
-    var evidence = new Dictionary<ProcessIdentity, ProcessLife>
-    { [CandidateProcess] = ProcessLife.Alive };
-    var snapshot = new ProcessSnapshot(evidence);
-    evidence[CandidateProcess] = ProcessLife.Exited;
-    Assert.Equal(ProcessLife.Alive, snapshot.For(CandidateProcess));
-  }
-
-  [Fact]
-  public void MissingIdentityStatusNeverMeansExited()
-  {
-    var decision = RecoveryPolicy.Decide(Snapshot(UpdatePhase.Committing, true),
-      new ProcessSnapshot(new Dictionary<ProcessIdentity, ProcessLife>
-      { [OldProcess] = ProcessLife.Alive }));
-    Assert.True(decision.Refused);
-  }
-
-  [Fact]
-  public void DurableCommitWaitsForOldExitBeforeCandidateWrites()
-  {
-    var decision = RecoveryPolicy.Decide(Snapshot(UpdatePhase.Committed, true),
-      new ProcessSnapshot(new Dictionary<ProcessIdentity, ProcessLife>
-      { [CandidateProcess] = ProcessLife.Alive, [OldProcess] = ProcessLife.Alive }));
-    Assert.Equal(RecoveryStop.OldGracefully, decision.Stop);
-    Assert.Equal(OldProcess, decision.ExactProcess);
-    Assert.False(decision.CandidateWritePermissionAfterValidation);
   }
 
   [Fact]
@@ -364,23 +71,32 @@ public sealed class RecoveryDecisionTests
   {
     var snapshot = Snapshot(UpdatePhase.Committed, true) with
     { Transaction = new StateRead<UpdateTransaction>(StateReadKind.Missing) };
-    var decision = RecoveryPolicy.Decide(snapshot,
-      new ProcessSnapshot(new Dictionary<ProcessIdentity, ProcessLife>()));
+    var decision = RecoveryPolicy.Decide(snapshot);
     Assert.False(decision.Refused);
     Assert.Equal(Fixture().New.ExecutablePath,
       decision.TargetPendingNativeValidation!.ExecutablePath);
   }
 
   [Fact]
+  public void UnownedManagedTargetRefuses()
+  {
+    var snapshot = Snapshot(UpdatePhase.Committed, true) with
+    {
+      Transaction = new StateRead<UpdateTransaction>(StateReadKind.Missing),
+      Ownership = new StateRead<OwnershipState>(StateReadKind.Valid,
+        new OwnershipState(1, InstallationId, ManagedIdentity, []))
+    };
+    Assert.True(RecoveryPolicy.Decide(snapshot).Refused);
+  }
+
+  [Fact]
   public void InvalidTransactionRefusesLaunchAndCleanup()
   {
-    var snapshot = Snapshot(UpdatePhase.Committing, true) with
+    var snapshot = Snapshot(UpdatePhase.Committed, true) with
     { Transaction = new StateRead<UpdateTransaction>(StateReadKind.Invalid) };
-    var decision = RecoveryPolicy.Decide(snapshot,
-      new ProcessSnapshot(new Dictionary<ProcessIdentity, ProcessLife>()));
+    var decision = RecoveryPolicy.Decide(snapshot);
     Assert.True(decision.Refused);
     Assert.Null(decision.TargetPendingNativeValidation);
-    Assert.Equal(RecoveryStop.None, decision.Stop);
   }
 
   [Fact]
@@ -391,12 +107,10 @@ public sealed class RecoveryDecisionTests
       Current = new StateRead<CurrentTarget>(StateReadKind.Invalid),
       Transaction = new StateRead<UpdateTransaction>(StateReadKind.Missing)
     };
-    var decision = RecoveryPolicy.Decide(snapshot,
-      new ProcessSnapshot(new Dictionary<ProcessIdentity, ProcessLife>()));
+    var decision = RecoveryPolicy.Decide(snapshot);
     Assert.False(decision.Refused);
     Assert.Equal(TargetKind.Original, decision.TargetPendingNativeValidation!.Kind);
     Assert.Equal(Root + @"\BookSplice.Gui.exe",
       decision.TargetPendingNativeValidation.ExecutablePath);
-    Assert.False(decision.CandidateWritePermissionAfterValidation);
   }
 }

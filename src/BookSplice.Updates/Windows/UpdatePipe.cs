@@ -12,7 +12,7 @@ using Microsoft.Win32.SafeHandles;
 
 namespace BookSplice.Updates.Windows;
 
-public enum UpdateMessageKind { Ready, Commit, Abort, OldExited, Activated }
+public enum UpdateMessageKind { Ready, Commit, Abort }
 
 public sealed record UpdateMessage(UpdateMessageKind Kind, Guid TransactionId, int ProtocolVersion,
   ProcessIdentity Sender, ProcessIdentity Recipient);
@@ -128,11 +128,9 @@ public sealed class UpdateSession : IDisposable
       "Ready" => UpdateMessageKind.Ready,
       "Commit" => UpdateMessageKind.Commit,
       "Abort" => UpdateMessageKind.Abort,
-      "OldExited" => UpdateMessageKind.OldExited,
-      "Activated" => UpdateMessageKind.Activated,
       _ => default
     };
-    return name is "Ready" or "Commit" or "Abort" or "OldExited" or "Activated";
+    return name is "Ready" or "Commit" or "Abort";
   }
 
   private static void ValidateUniqueProperties(JsonElement element)

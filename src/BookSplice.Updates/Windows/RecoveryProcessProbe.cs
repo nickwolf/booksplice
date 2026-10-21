@@ -2,9 +2,10 @@ using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.Security.Principal;
 using BookSplice.Updates.Handover;
-using BookSplice.Updates.Storage;
 
 namespace BookSplice.Updates.Windows;
+
+public enum ProcessLife { Alive, Exited, Unknown }
 
 [SupportedOSPlatform("windows")]
 public sealed class RecoveryProcessObservation : IDisposable

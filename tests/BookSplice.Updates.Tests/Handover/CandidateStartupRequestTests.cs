@@ -12,9 +12,7 @@ public sealed class CandidateStartupRequestTests
     var request = new CandidateStartupRequest(UpdatePipe.NewPipeName(),
       Guid.NewGuid(), Convert.ToBase64String(UpdatePipe.NewNonce()),
       new ProcessIdentity(42, 123, @"C:\BookSplice\BookSplice.Launcher.exe"),
-      identity, new string('a', 64),
-      new ProcessIdentity(43, 124, @"C:\BookSplice\BookSplice.Gui.exe"),
-      identity, new string('b', 64), @"C:\Data\BookSplice", identity,
+      identity, new string('a', 64), @"C:\Data\BookSplice", identity,
       "absent", "2.0.0");
     var encoded = request.Encode();
     Assert.Equal(request, CandidateStartupRequest.Parse(encoded, version => version == "2.0.0"));

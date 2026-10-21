@@ -77,7 +77,7 @@ public sealed class LaunchResolverTests
           new UpdateTransaction(1, installationId, Guid.NewGuid(),
             BookSplice.Updates.Handover.UpdatePhase.Preparing, current.Current, null,
             null, true, BookSplice.Updates.Handover.UpdateProtocol.ProtocolVersion,
-            new string('a', 64), [], null, null, null, null))
+            new string('a', 64), [], null, null, current))
       };
       Assert.Equal(LaunchDecisionKind.RecoveryRequired,
         LaunchResolver.Resolve(layout, provisional).Kind);
