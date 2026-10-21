@@ -121,6 +121,7 @@ public static class InstallationOpener
     CurrentTarget.Definition("current.json", id),
     UpdateTransaction.Definition("journal.json", id),
     OwnershipState.Definition("ownership.json", records, managed),
+    TrashJournal.Definition("trash.json", id, Path.Combine(managed.Path, "trash")),
     ShortcutOwnershipRecord.Definition("shortcut.json", id,
       Path.Combine(Path.TrimEndingDirectorySeparator(Path.GetFullPath(programsDirectory ??
         Environment.GetFolderPath(Environment.SpecialFolder.Programs))), "BookSplice.lnk"),

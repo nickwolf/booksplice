@@ -273,6 +273,23 @@ public sealed class SafeDirectoryHandle : IDisposable
     finally { Marshal.FreeHGlobal(buffer); }
   }
 
+  // Deletes exactly this directory when the handle closes; it fails unless the directory is empty.
+  internal void MarkForDeletion()
+  {
+    var buffer = Marshal.AllocHGlobal(1);
+    try
+    {
+      Marshal.WriteByte(buffer, 1);
+      var status = NtSetInformationFile(Handle, out _, buffer, 1, 13);
+      if (status < 0)
+      {
+        var error = (int)RtlNtStatusToDosError(status);
+        throw new Win32Exception(error, $"The directory could not be marked for deletion ({error}, NT 0x{status:X8}).");
+      }
+    }
+    finally { Marshal.FreeHGlobal(buffer); }
+  }
+
   internal SafeFileHandle CreateNewFile(string name) => OpenChild(Handle, name,
     FileReadData | FileWriteData | FileReadAttributes, FileCreate, FileNonDirectoryFile);
 

@@ -749,7 +749,8 @@ public sealed class PackageStagerTests
         [OwnershipState.Definition("ownership.json", records, managed),
          UpdateTransaction.Definition("journal.json", Layout.InstallationId),
          CurrentTarget.Definition("current.json", Layout.InstallationId),
-         InstallationRecord.Definition("installation.json", Layout.InstallationId)], writeFault);
+         InstallationRecord.Definition("installation.json", Layout.InstallationId),
+         TrashJournal.Definition("trash.json", Layout.InstallationId, Layout.Trash.Path)], writeFault);
       state.Write(ownershipPath, new OwnershipState(1, Layout.InstallationId,
         records.Identity,
         new[] { managed, records, Layout.Versions, Layout.Staging, Layout.Trash }

@@ -20,11 +20,13 @@ public static class LauncherApplication
           int.Parse(pid, NumberStyles.None, CultureInfo.InvariantCulture),
           long.Parse(startTicks, NumberStyles.None, CultureInfo.InvariantCulture));
       if (args.Length != 0) throw new ArgumentException("Unsupported launcher command.");
-      var (layout, _, state, _, journal) = OpenInstallation();
+      var installation = OpenInstallation();
+      var (layout, _, state, _, journal) = installation;
       if (new RecoveryCoordinator(journal, new ActivityLeaseStore(layout.DataRoot)).Recover() ==
           RecoveryOutcomeKind.UpdateInProgress)
         throw new InvalidOperationException(
           "A BookSplice update is in progress. Try again when it finishes.");
+      Cleanup(installation);
       var decision = LaunchResolver.LaunchCurrent(layout, state);
       if (decision.Kind != LaunchDecisionKind.Ready)
         throw new InvalidDataException(decision.Reason ?? "Launch recovery is required.");
@@ -51,6 +53,7 @@ public static class LauncherApplication
       string? notice = null;
       try { notice = CommittedFollowUp.Run(installation); }
       catch (Exception) { }
+      Cleanup(installation);
       if (notice is not null) _ = MessageBoxW(0, notice, "BookSplice update", 0x40);
       return 0;
     }
@@ -58,6 +61,17 @@ public static class LauncherApplication
       "\n\nThe previous version was started instead." :
       "\n\nOpen the original BookSplice folder for manual recovery."));
     return 1;
+  }
+
+  // Best effort: cleanup never blocks or fails a launch, and skips quietly while an update or job is active.
+  private static void Cleanup(OpenedInstallation installation)
+  {
+    try
+    {
+      _ = new UpdateCleanup(installation.State, installation.Journal, installation.Directories,
+        new ActivityLeaseStore(installation.Layout.DataRoot)).Run(installation.Layout);
+    }
+    catch (Exception) { }
   }
 
   private static void ShowError(string message) =>
