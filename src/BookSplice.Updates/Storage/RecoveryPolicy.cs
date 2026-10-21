@@ -2,9 +2,17 @@ using System.Runtime.Versioning;
 
 namespace BookSplice.Updates.Storage;
 
+[SupportedOSPlatform("windows")]
 public sealed record JournalSnapshot(StateRead<InstallationRecord> Installation,
   StateRead<CurrentTarget> Current, StateRead<UpdateTransaction> Transaction,
-  StateRead<OwnershipState> Ownership);
+  StateRead<OwnershipState> Ownership)
+{
+  public static JournalSnapshot Read(AtomicStateStore state, string recordsPath) => new(
+    state.Read<InstallationRecord>(Path.Combine(recordsPath, "installation.json")),
+    state.Read<CurrentTarget>(Path.Combine(recordsPath, "current.json")),
+    state.Read<UpdateTransaction>(Path.Combine(recordsPath, "journal.json")),
+    state.Read<OwnershipState>(Path.Combine(recordsPath, "ownership.json")));
+}
 
 [SupportedOSPlatform("windows")]
 public sealed record RecoveryDecision(bool Refused, string? Reason,

@@ -5,6 +5,7 @@ using BookSplice.Updates.Windows;
 
 namespace BookSplice.Updates.Tests.Handover;
 
+[Collection("WindowsOwnedStorage")]
 public sealed class UpdatePreparationTests
 {
   private static readonly FileIdentity Identity = new(1, "0123456789ABCDEF0123456789ABCDEF");
@@ -35,6 +36,54 @@ public sealed class UpdatePreparationTests
       {
         OldTarget = old with { Version = "1.3.0" }
       })!.Kind);
+  }
+
+  [Fact]
+  public async Task PreparationFailuresBeforePreparedNeverChangeTheMapping()
+  {
+    using var h = new HandoverHarness();
+    var mapping = File.ReadAllBytes(h.MappingPath);
+
+    var deferred = await h.Preparation(new TrackingLeaseStore(() => true))
+      .PrepareUpdateAsync(h.Update(), h.Layout, CancellationToken.None);
+    Assert.Equal(UpdateOutcomeKind.Deferred, deferred.Outcome.Kind);
+    Assert.Equal(StateReadKind.Missing, h.Journal.Read().Kind);
+
+    var changed = await h.Preparation().PrepareUpdateAsync(h.Update() with
+    {
+      ManifestSha256 = new string('b', 64)
+    }, h.Layout, CancellationToken.None);
+    Assert.Equal(UpdateOutcomeKind.Deferred, changed.Outcome.Kind);
+    Assert.Equal(StateReadKind.Missing, h.Journal.Read().Kind);
+
+    using var cancellation = new CancellationTokenSource();
+    var cancelled = await h.Preparation(reader: new FixedManifestReader(h.Fixture.Manifest,
+      cancellation.Cancel)).PrepareUpdateAsync(h.Update(), h.Layout, cancellation.Token);
+    Assert.Equal(UpdateOutcomeKind.Cancelled, cancelled.Outcome.Kind);
+    Assert.Null(cancelled.Admission);
+    Assert.Equal(UpdatePhase.Failed, h.Transaction!.Phase);
+
+    File.WriteAllText(h.SettingsPath, "{\"schemaVersion\":1,\"changed\":true}");
+    var settings = await h.Preparation(reader: new FixedManifestReader(h.Fixture.Manifest,
+      () => File.WriteAllText(h.SettingsPath, "{\"schemaVersion\":1}")))
+      .PrepareUpdateAsync(h.Update(), h.Layout, CancellationToken.None);
+    Assert.Equal(UpdateOutcomeKind.Failed, settings.Outcome.Kind);
+    Assert.Equal(UpdatePhase.Failed, h.Transaction!.Phase);
+    Assert.Equal(mapping, File.ReadAllBytes(h.MappingPath));
+    Assert.Equal(h.Admission.Entered, h.Admission.Released);
+  }
+
+  [Fact]
+  public async Task PreparationRequiresTheRecordedStableLauncher()
+  {
+    using var h = new HandoverHarness(installLauncher: false);
+    var update = await h.Preparation().PrepareUpdateAsync(h.Update(), h.Layout,
+      CancellationToken.None);
+    var rollback = await h.Preparation().PrepareRollbackAsync(h.Layout, CancellationToken.None);
+    Assert.Equal(UpdateOutcomeKind.Failed, update.Outcome.Kind);
+    Assert.Equal(UpdateOutcomeKind.Failed, rollback.Outcome.Kind);
+    Assert.Equal(StateReadKind.Missing, h.Journal.Read().Kind);
+    Assert.Equal(h.Admission.Entered, h.Admission.Released);
   }
 
   private static ReleaseCandidate Candidate(string tag)

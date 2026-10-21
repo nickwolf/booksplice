@@ -101,8 +101,23 @@ public sealed class LaunchResolverTests
           }
         }
       }).Kind);
-      Assert.Equal(LaunchDecisionKind.Refused, LaunchResolver.Resolve(layout,
-        committed with { Current = new StateRead<CurrentTarget>(StateReadKind.Invalid) }).Kind);
+      var corrupt = committed with { Current = new StateRead<CurrentTarget>(StateReadKind.Invalid) };
+      var fallback = LaunchResolver.Resolve(layout, corrupt);
+      Assert.Equal(LaunchDecisionKind.Ready, fallback.Kind);
+      Assert.True(LaunchResolver.SameTarget(current.Current, fallback.Target));
+      Assert.Equal(LaunchDecisionKind.Ready, LaunchResolver.Resolve(layout, failed with
+      {
+        Current = new StateRead<CurrentTarget>(StateReadKind.Invalid)
+      }).Kind);
+      Assert.Equal(LaunchDecisionKind.Refused, LaunchResolver.Resolve(layout, corrupt with
+      {
+        Installation = new StateRead<InstallationRecord>(StateReadKind.Valid, installation with
+        {
+          OriginalPackage = null,
+          OriginalParentIdentity = null,
+          OriginalPackageBindingSha256 = null
+        })
+      }).Kind);
       Assert.Equal(LaunchDecisionKind.Refused, LaunchResolver.Resolve(layout,
         committed with
         {

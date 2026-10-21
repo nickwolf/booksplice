@@ -91,6 +91,8 @@ if (args.Length > 0 && args[0] == "pipe-ready")
   await session.SendAsync(UpdateMessageKind.Ready);
   Console.WriteLine("sent");
   Console.Out.Flush();
+  if (args.Length > 11 && (await session.ReceiveAsync()).Kind == UpdateMessageKind.Commit)
+    File.WriteAllText(args[11], "written after commit");
   await Task.Delay(TimeSpan.FromSeconds(30));
   return 0;
 }

@@ -748,7 +748,8 @@ public sealed class PackageStagerTests
       var state = new AtomicStateStore(records,
         [OwnershipState.Definition("ownership.json", records, managed),
          UpdateTransaction.Definition("journal.json", Layout.InstallationId),
-         CurrentTarget.Definition("current.json", Layout.InstallationId)], writeFault);
+         CurrentTarget.Definition("current.json", Layout.InstallationId),
+         InstallationRecord.Definition("installation.json", Layout.InstallationId)], writeFault);
       state.Write(ownershipPath, new OwnershipState(1, Layout.InstallationId,
         records.Identity,
         new[] { managed, records, Layout.Versions, Layout.Staging, Layout.Trash }

@@ -85,52 +85,73 @@ public static class LaunchResolver
           return new LaunchDecision(LaunchDecisionKind.RecoveryRequired, null,
             "A recorded update requires recovery.");
       }
-      if (snapshot.Current.Kind != StateReadKind.Valid ||
-          snapshot.Current.Value is not { } current ||
-          current.InstallationId != layout.InstallationId ||
-          current.Current is null || !current.Current.IsValid())
+      if (snapshot.Current.Kind == StateReadKind.Missing ||
+          snapshot.Current.Kind == StateReadKind.Valid &&
+          (snapshot.Current.Value is not { } recorded ||
+           recorded.InstallationId != layout.InstallationId ||
+           recorded.Current is null || !recorded.Current.IsValid()))
         return LaunchDecision.Refuse("No committed launch target is available.");
       var policy = RecoveryPolicy.Decide(snapshot);
-      if (policy.Refused || policy.TargetPendingNativeValidation != current.Current)
+      if (policy.Refused || policy.TargetPendingNativeValidation is not { } target ||
+          snapshot.Current.Value is { } current && target != current.Current)
         return LaunchDecision.Refuse(policy.Reason ?? "The committed mapping is inconsistent.");
-      var target = current.Current;
       if (target.ProtocolVersion != BookSplice.Updates.Handover.UpdateProtocol.ProtocolVersion)
         return LaunchDecision.Refuse("This application requires a manual upgrade.");
-      if (target.Kind == TargetKind.Original)
-      {
-        if (target.Package is null || installation.OriginalPackage is null ||
-            target.Package.Sha256 != installation.OriginalPackage.Sha256 ||
-            target.DirectoryIdentity != installation.OriginalIdentity ||
-            target.ExecutableIdentity != installation.OriginalExecutableIdentity ||
-            !string.Equals(target.ExecutablePath, installation.OriginalExecutablePath,
-              StringComparison.OrdinalIgnoreCase) ||
-            installation.OriginalParentIdentity is not { } parent)
-          return LaunchDecision.Refuse("The original target is not bound to this installation.");
-        using var inventory = OriginalPackageInventory.Reopen(layout.OriginalApplicationPath,
-          parent, target.Package, target.Version);
-        using var verified = VerifiedExecutable.FromOriginal(inventory, target);
-        return new LaunchDecision(LaunchDecisionKind.Ready, target, null);
-      }
-      if (target.Kind != TargetKind.Managed || target.OwnedDirectory is not { } owned ||
-          target.Package is null || owned.InstallationId != layout.InstallationId ||
-          !string.Equals(Path.GetDirectoryName(owned.Path), layout.Versions.Path,
-            StringComparison.OrdinalIgnoreCase) ||
+      if (target.Kind == TargetKind.Managed && (target.OwnedDirectory is not { } owned ||
           !ownership.Entries.Any(entry => entry.Path.Equals(owned.Path,
               StringComparison.OrdinalIgnoreCase) && entry.Identity == owned.Identity &&
-              entry.Kind == "version" && entry.UpdaterCreatedMarker == OwnershipEntry.Marker))
+              entry.Kind == "version" && entry.UpdaterCreatedMarker == OwnershipEntry.Marker)))
         return LaunchDecision.Refuse("The managed target is not owned by this installation.");
-      var store = new OwnedDirectoryStore(Path.GetDirectoryName(layout.OriginalApplicationPath)!,
-        _ => throw new InvalidOperationException("Launch resolution cannot create directories."));
-      using var package = PackageInventory.ReopenSnapshot(owned, target.Package.Restore(),
-        store, false);
-      using var executable = VerifiedExecutable.FromManaged(package, target);
+      using var executable = OpenTarget(layout, installation, target);
       return new LaunchDecision(LaunchDecisionKind.Ready, target, null);
     }
-    catch (Exception error) when (error is IOException or UnauthorizedAccessException or
-      ArgumentException or NotSupportedException or System.ComponentModel.Win32Exception)
+    catch (Exception error) when (error is IOException or InvalidDataException or
+      UnauthorizedAccessException or ArgumentException or NotSupportedException or
+      System.ComponentModel.Win32Exception)
     {
       return LaunchDecision.Refuse("Native launch validation failed: " + error.Message);
     }
+  }
+
+  internal static VerifiedExecutable OpenTarget(InstallationLayout layout,
+    InstallationRecord installation, OwnedOrOriginalTarget target)
+  {
+    if (target.Kind == TargetKind.Original)
+    {
+      if (target.Package is null || installation.OriginalPackage is null ||
+          target.Package.Sha256 != installation.OriginalPackage.Sha256 ||
+          target.DirectoryIdentity != installation.OriginalIdentity ||
+          target.ExecutableIdentity != installation.OriginalExecutableIdentity ||
+          !string.Equals(target.ExecutablePath, installation.OriginalExecutablePath,
+            StringComparison.OrdinalIgnoreCase) ||
+          installation.OriginalParentIdentity is not { } parent)
+        throw new InvalidDataException("The original target is not bound to this installation.");
+      var inventory = OriginalPackageInventory.Reopen(layout.OriginalApplicationPath,
+        parent, target.Package, target.Version);
+      try { return VerifiedExecutable.FromOriginal(inventory, target); }
+      catch { inventory.Dispose(); throw; }
+    }
+    if (target.Kind != TargetKind.Managed || target.OwnedDirectory is not { } owned ||
+        target.Package is null || owned.InstallationId != layout.InstallationId ||
+        !string.Equals(Path.GetDirectoryName(owned.Path), layout.Versions.Path,
+          StringComparison.OrdinalIgnoreCase))
+      throw new InvalidDataException("The managed target is not owned by this installation.");
+    var store = new OwnedDirectoryStore(Path.GetDirectoryName(layout.OriginalApplicationPath)!,
+      _ => throw new InvalidOperationException("Launch resolution cannot create directories."));
+    var package = PackageInventory.ReopenSnapshot(owned, target.Package.Restore(), store, false);
+    try { return VerifiedExecutable.FromManaged(package, target); }
+    catch { package.Dispose(); throw; }
+  }
+
+  public static LaunchDecision LaunchCurrent(InstallationLayout layout, AtomicStateStore state)
+  {
+    ArgumentNullException.ThrowIfNull(layout);
+    ArgumentNullException.ThrowIfNull(state);
+    var decision = Resolve(layout, JournalSnapshot.Read(state, layout.Records.Path));
+    if (decision.Kind != LaunchDecisionKind.Ready) return decision;
+    using var child = StartVerified(layout, JournalSnapshot.Read(state, layout.Records.Path),
+      decision, [], ChildEnvironment(layout.DataRoot, layout.DataIdentity));
+    return decision;
   }
 
   internal static SupervisedProcess StartVerified(InstallationLayout layout,
@@ -143,21 +164,7 @@ public static class LaunchResolver
     var again = Resolve(layout, snapshot);
     if (again.Kind != LaunchDecisionKind.Ready || !SameTarget(again.Target, target))
       throw new InvalidDataException("The committed launch target changed.");
-    var store = new OwnedDirectoryStore(Path.GetDirectoryName(layout.OriginalApplicationPath)!,
-      _ => throw new InvalidOperationException("Launch cannot create directories."));
-    if (target.Kind == TargetKind.Original)
-    {
-      using var inventory = OriginalPackageInventory.Reopen(layout.OriginalApplicationPath,
-        snapshot.Installation.Value!.OriginalParentIdentity ??
-          throw new InvalidDataException("The recorded original parent is missing."),
-        target.Package ?? throw new InvalidDataException("Missing package inventory."),
-        target.Version);
-      using var executable = VerifiedExecutable.FromOriginal(inventory, target);
-      return ProcessSupervisor.Start(executable, args, environment);
-    }
-    using var package = PackageInventory.ReopenSnapshot(target.OwnedDirectory!,
-      target.Package!.Restore(), store, false);
-    using var verified = VerifiedExecutable.FromManaged(package, target);
-    return ProcessSupervisor.Start(verified, args, environment);
+    using var executable = OpenTarget(layout, snapshot.Installation.Value!, target);
+    return ProcessSupervisor.Start(executable, args, environment);
   }
 }

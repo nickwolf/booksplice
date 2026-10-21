@@ -92,6 +92,14 @@ public static class StableLauncherBootstrap
     return updated;
   }
 
+  internal static void RequireRecorded(InstallationLayout layout, InstallationRecord installation)
+  {
+    if (installation.StableLauncherIdentity is not { } identity ||
+        installation.StableLauncherSha256 is not { } sha256)
+      throw new InvalidDataException("The stable launcher has not been installed.");
+    RevalidateCopy(layout, identity, sha256);
+  }
+
   private static void RevalidateCopy(InstallationLayout layout, FileIdentity identity,
     string sha256)
   {

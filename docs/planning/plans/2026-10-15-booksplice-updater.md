@@ -30,7 +30,7 @@
 
 These implied failure cases are assigned explicit tests below rather than left to review intuition.
 
-1. GUI closes or machine restarts after pointer replacement but before the commit record: recovery must select the previous app and preserve settings (tasks 6, 9, 13).
+1. Launcher or machine restarts after pointer replacement but before the Committed record: recovery records Failed, launches the target the mapping names (the verified candidate) and preserves settings (tasks 6, 9, 13).
 2. A file or folder is replaced at a formerly owned path, including the exact trash path: replacement survives cleanup (tasks 4, 11, 13).
 3. An asynchronous file-drop/cover/preview callback arrives after queue emptiness was checked: no new work starts during staging (tasks 5, 10).
 4. Release metadata changes while the confirmation is open: stop and obtain fresh confirmation, never install unseen bytes (tasks 2, 3, 10).
