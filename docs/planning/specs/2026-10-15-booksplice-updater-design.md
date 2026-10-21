@@ -144,21 +144,19 @@ Update preferences are persisted atomically in their own file and do not change 
 
 ## Handover and crash recovery
 
-The stable launcher runs as a separate transaction coordinator and supervises both GUI processes. It holds the update and exclusive activity leases through transfer. Use a current-user-only named pipe and an unpredictable 256-bit transaction nonce for IPC. Bind messages to transaction ID, expected executable identity/version, and recorded process ID plus start time. Keep process handles; do not identify a process by PID alone. An acknowledgement file existing at a guessed path is insufficient.
+The old application exits before the new version starts, so only one BookSplice GUI writes settings or runs jobs at a time. The GUI instance lock lives in the data root, so every version contends for the same lock, including the original extracted folder.
 
-| Phase | Durable state and behavior |
-| --- | --- |
-| Preparing | Current pointer still names the old app. Create and record staging, authenticate, extract, and self-check. Cancellation is allowed. |
-| Prepared | Promote to a new exclusive version directory and record its identity, old target, settings hash, protocol, nonce, and process identities before launching it. |
-| Starting | Old GUI freezes and hides, releases the GUI instance lock under the reserved handover, and stays alive. Candidate obtains that lock in restricted startup mode. |
-| Ready | Candidate reports that the real main window has rendered, Dispatcher responds, settings are readable, bundled tools initialized, and the expected lock is held. It remains read-only. |
-| Committing | Coordinator revalidates the child is alive, settings unchanged, and target identities valid, then journals commit intent and atomically changes current/previous pointers. |
-| Committed | Coordinator permits old GUI exit. Only after old-process exit is observed does it release the candidate for ordinary work and release the exclusive activity lease. |
-| Rolling back | Stop and observe exit of the exact candidate, restore old pointer if changed, let the old GUI reacquire its instance lock and restore its window, then record the failed transaction. |
+1. The GUI holds exclusive update admission, rechecks the empty queue, captures the settings snapshot, then downloads, verifies, stages, self-checks and promotes the release (Preparing, then Prepared). Explicit rollback skips the download and records the previous working version as its target. Cancellation is allowed until step 2.
+2. The GUI starts the stable launcher with the transaction ID and its own process identity, then exits.
+3. The launcher waits until it observes the exact old process exit, takes update admission, revalidates the journal, target identities and settings hash, records Starting with the candidate's process identity, and launches the candidate.
+4. The candidate starts restricted: it reads settings without writing them and sends an authenticated Ready message over a current-user-only named pipe. Messages bind the transaction ID, a 256-bit nonce, and recorded process IDs plus start times. Ready means the real main window rendered, a later Dispatcher turn completed, settings were readable, bundled tools initialized, and the candidate holds the instance lock. A launch, `Show()` call, offscreen self-check or timer tick is not readiness.
+5. The launcher rechecks the settings hash and target identities, atomically writes the new current/previous mapping, records Committed, and sends Commit. Only then does the candidate enable ordinary work. If the pipe closes before Commit, the candidate exits without writing.
 
-Allow 60 seconds for candidate readiness. Require the expected main window to be visible and a completed WPF render plus a subsequent Dispatcher round trip. A process launch, `Show()` call, offscreen self-check, or timer tick alone is not readiness. Late acknowledgements from aborted transactions are rejected. If the candidate cannot be stopped, keep work frozen and report recovery failure; do not run both versions as active writers.
+If Ready does not arrive within 60 seconds, the candidate exits early, or any check fails, the launcher stops the exact candidate, observes its exit, records Failed, and launches the target the mapping still names. The mapping only changes in step 5, so a failed handover never restores a pointer. If the candidate cannot be stopped, the launcher reports a recovery failure and does not start the old version beside it.
 
-Recovery reads the journal before resolving a launch target. A phase before committed success restores the old mapping and stops any positively identified candidate before launching/resuming the old app. If the coordinator died after pointer replacement but before a durable committed record, treat the candidate as provisional and roll back. A candidate that loses its coordinator before completion exits restricted mode without writing settings. A committed record with the old process still present finishes the supervised exit before enabling work. Recovery never infers success from elapsed time, candidate presence, or version ordering.
+Recovery reads the journal before resolving a launch target. When a transaction is unfinished, the launcher takes update admission; if another launcher holds it, it says an update is in progress and stops. Otherwise it records any transaction short of Committed as Failed and launches whatever the mapping names. Committed means the mapping already names the verified candidate. Recovery never infers success from elapsed time, candidate presence, or version ordering, and a Committed or Failed transaction never blocks a normal launch.
+
+The design approved on 2026-10-15 kept the old GUI alive, frozen and hidden until the candidate committed. That needed old-host RPC, coordinator reattachment after a crash, and an activation handshake after old-process exit. It was replaced on 2026-10-21 by the sequence above because it cost far more than the failures it covered. Do not reintroduce those mechanisms.
 
 If current metadata is corrupt, the launcher may use only an independently validated recorded previous target or original target. If neither can be validated, show recovery instructions and leave all directories untouched. No arbitrary path from malformed metadata may be executed.
 
