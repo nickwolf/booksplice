@@ -10,9 +10,11 @@ using BookSplice.Updates.Windows;
 
 namespace BookSplice.Gui;
 
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1001", Justification = "OnExit disposes the update composition and lease.")]
 public partial class App : Application
 {
-  private GuiInstanceLease? _candidateLease;
+  private GuiInstanceLease? _lease;
+  private UpdateComposition? _updates;
 
   protected override async void OnStartup(StartupEventArgs e)
   {
@@ -34,7 +36,7 @@ public partial class App : Application
           var request = CandidateStartupRequest.Parse(encoded, PackagedIdentity.Matches);
           var active = await RestrictedStartup.RunCandidateAsync(request,
             window => { MainWindow = window; window.Show(); },
-            lease => _candidateLease = lease, CancellationToken.None);
+            lease => _lease = lease, CancellationToken.None);
           MainWindow = active;
           ShutdownMode = ShutdownMode.OnMainWindowClose;
           return;
@@ -48,6 +50,12 @@ public partial class App : Application
     {
       var root = Environment.GetEnvironmentVariable("BOOKSPLICE_LOCAL_APP_DATA");
       if (string.IsNullOrWhiteSpace(root)) root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+      var dataRoot = System.IO.Path.Combine(System.IO.Path.GetFullPath(root), "BookSplice");
+      _updates = new UpdateComposition(dataRoot, AppContext.BaseDirectory, PackagedIdentity.Version);
+      if (_updates.TryForwardDirectLaunch()) { Shutdown(); return; }
+      _lease = GuiStartup.AcquireLease(dataRoot, message =>
+        MessageBox.Show(message, "BookSplice", MessageBoxButton.OK, MessageBoxImage.Information));
+      if (_lease is null) { Shutdown(); return; }
       var host = new AppHost(root);
       var store = host.Settings;
       var startup = await new StartupService(store).LoadAsync();
@@ -81,7 +89,8 @@ public partial class App : Application
 
   protected override void OnExit(ExitEventArgs e)
   {
-    _candidateLease?.Dispose();
+    _updates?.Dispose();
+    _lease?.Dispose();
     base.OnExit(e);
   }
 }

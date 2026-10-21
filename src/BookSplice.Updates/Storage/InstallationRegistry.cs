@@ -30,6 +30,17 @@ public sealed record InstallationRegistryState(int SchemaVersion,
 [SupportedOSPlatform("windows")]
 public sealed class InstallationRegistry(AtomicStateStore store, string path)
 {
+  // The registry lives in <data root>/updates so an original executable can find it.
+  public static InstallationRegistry? Open(string dataRoot, bool create)
+  {
+    var directory = Path.Combine(dataRoot, "updates");
+    if (!create && !Directory.Exists(directory)) return null;
+    using var handle = SafeDirectoryHandle.OpenPath(directory, false, createMissing: create);
+    var root = new OwnedDirectory(directory, handle.Identity, Guid.NewGuid(), Guid.NewGuid(), "updates");
+    return new InstallationRegistry(new AtomicStateStore(root,
+      [InstallationRegistryState.Definition("registry.json")]), Path.Combine(directory, "registry.json"));
+  }
+
   public StateRead<InstallationRegistryState> Read() => store.Read<InstallationRegistryState>(path);
 
   public InstallationBinding? Resolve(string executablePath, FileIdentity directoryIdentity,

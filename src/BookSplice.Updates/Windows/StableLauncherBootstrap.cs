@@ -92,6 +92,17 @@ public static class StableLauncherBootstrap
     return updated;
   }
 
+  // Starts the recorded stable launcher after checking the image against the installation record.
+  public static SupervisedProcess Start(InstallationLayout layout, InstallationRecord installation,
+    IReadOnlyList<string> arguments)
+  {
+    RequireRecorded(layout, installation);
+    using var launcher = VerifiedExecutable.PinFile(layout.StableLauncherPath);
+    if (launcher.Identity != installation.StableLauncherIdentity)
+      throw new InvalidDataException("The stable launcher was replaced.");
+    return ProcessSupervisor.Start(launcher, arguments, new Dictionary<string, string>());
+  }
+
   internal static void RequireRecorded(InstallationLayout layout, InstallationRecord installation)
   {
     if (installation.StableLauncherIdentity is not { } identity ||
