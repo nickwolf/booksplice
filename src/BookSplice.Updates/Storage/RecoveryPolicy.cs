@@ -30,8 +30,11 @@ public static class RecoveryPolicy
         !OwnershipState.Definition("ownership.json", installation.Records,
           installation.ManagedRoot).Validate(ownership))
       return RecoveryDecision.Refuse("Ownership is bound to another installation.");
-    if (snapshot.Transaction.Kind != StateReadKind.Missing)
-      return RecoveryDecision.Refuse("A recorded update transaction must be resolved first.");
+    var transaction = snapshot.Transaction.Value;
+    if (snapshot.Transaction.Kind == StateReadKind.Valid &&
+        (transaction is null || !transaction.IsValid() ||
+         transaction.InstallationId != installation.InstallationId || !transaction.IsFinished()))
+      return RecoveryDecision.Refuse("An unfinished update transaction must be recovered first.");
 
     if (snapshot.Current.Kind == StateReadKind.Invalid)
     {
@@ -48,7 +51,18 @@ public static class RecoveryPolicy
         (current.Previous is not null &&
          !TargetBelongs(current.Previous, installation, ownership)))
       return RecoveryDecision.Refuse("No validated launch mapping is recorded.");
+    if (transaction is not null && !MatchesFinished(transaction, current))
+      return RecoveryDecision.Refuse("The launch mapping differs from the finished update.");
     return new RecoveryDecision(false, null, current.Current);
+  }
+
+  private static bool MatchesFinished(UpdateTransaction transaction, CurrentTarget current)
+  {
+    var committed = transaction.NewTarget is not null &&
+      LaunchResolver.SameTarget(current.Current, transaction.NewTarget) &&
+      LaunchResolver.SameTarget(current.Previous, transaction.OldTarget);
+    return transaction.Phase == Handover.UpdatePhase.Committed ? committed :
+      committed || UpdateTransaction.SameMapping(current, transaction.PriorMapping);
   }
 
   internal static bool TargetBelongs(OwnedOrOriginalTarget target,

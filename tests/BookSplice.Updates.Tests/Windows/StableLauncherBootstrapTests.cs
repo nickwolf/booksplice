@@ -8,7 +8,7 @@ namespace BookSplice.Updates.Tests.Windows;
 public sealed class StableLauncherBootstrapTests
 {
   [Fact]
-  public void CopiesOnlyRecordedCurrentPayloadAndPreservesCollision()
+  public void CopiesOnlyRecordedCurrentPayloadAfterFinishedJournalAndPreservesCollision()
   {
     var root = Path.Combine(Path.GetTempPath(), "booksplice-bootstrap-" + Guid.NewGuid().ToString("N"));
     Directory.CreateDirectory(root);
@@ -44,11 +44,22 @@ public sealed class StableLauncherBootstrapTests
       var state = new AtomicStateStore(records,
         [InstallationRecord.Definition("installation.json", id)]);
       state.Write(recordPath, installation);
+      var failed = new UpdateTransaction(1, id, Guid.NewGuid(),
+        BookSplice.Updates.Handover.UpdatePhase.Failed, current.Current, null, null, true, 1,
+        new string('a', 64), [], null, null, current);
+      var transaction = new StateRead<UpdateTransaction>(StateReadKind.Valid, failed with
+      {
+        Phase = BookSplice.Updates.Handover.UpdatePhase.Prepared,
+        NewTarget = current.Current
+      });
       JournalSnapshot Snapshot() => new(
         state.Read<InstallationRecord>(recordPath),
-        new StateRead<CurrentTarget>(StateReadKind.Valid, current),
-        new StateRead<UpdateTransaction>(StateReadKind.Missing),
+        new StateRead<CurrentTarget>(StateReadKind.Valid, current), transaction,
         new StateRead<OwnershipState>(StateReadKind.Valid, ownership));
+      Assert.Throws<InvalidDataException>(() => StableLauncherBootstrap.Ensure(layout,
+        Snapshot(), state, recordPath));
+      Assert.False(File.Exists(layout.StableLauncherPath));
+      transaction = new StateRead<UpdateTransaction>(StateReadKind.Valid, failed);
       File.WriteAllText(layout.StableLauncherPath, "unowned");
       Assert.Throws<IOException>(() => StableLauncherBootstrap.Ensure(layout, Snapshot(),
         state, recordPath));

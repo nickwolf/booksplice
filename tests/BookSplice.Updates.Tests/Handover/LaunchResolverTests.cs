@@ -81,6 +81,26 @@ public sealed class LaunchResolverTests
       };
       Assert.Equal(LaunchDecisionKind.RecoveryRequired,
         LaunchResolver.Resolve(layout, provisional).Kind);
+      var failed = provisional with
+      {
+        Transaction = provisional.Transaction with
+        {
+          Value = provisional.Transaction.Value! with
+          { Phase = BookSplice.Updates.Handover.UpdatePhase.Failed }
+        }
+      };
+      Assert.Equal(LaunchDecisionKind.Ready, LaunchResolver.Resolve(layout, failed).Kind);
+      Assert.Equal(LaunchDecisionKind.Refused, LaunchResolver.Resolve(layout, failed with
+      {
+        Transaction = failed.Transaction with
+        {
+          Value = failed.Transaction.Value! with
+          {
+            Phase = BookSplice.Updates.Handover.UpdatePhase.Committed,
+            NewTarget = current.Current
+          }
+        }
+      }).Kind);
       Assert.Equal(LaunchDecisionKind.Refused, LaunchResolver.Resolve(layout,
         committed with { Current = new StateRead<CurrentTarget>(StateReadKind.Invalid) }).Kind);
       Assert.Equal(LaunchDecisionKind.Refused, LaunchResolver.Resolve(layout,

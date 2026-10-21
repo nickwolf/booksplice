@@ -81,8 +81,9 @@ public static class LaunchResolver
       {
         if (snapshot.Transaction.Value is null || !snapshot.Transaction.Value.IsValid())
           return LaunchDecision.Refuse("The update transaction is invalid.");
-        return new LaunchDecision(LaunchDecisionKind.RecoveryRequired, null,
-          "A recorded update requires supervised recovery.");
+        if (!snapshot.Transaction.Value.IsFinished())
+          return new LaunchDecision(LaunchDecisionKind.RecoveryRequired, null,
+            "A recorded update requires recovery.");
       }
       if (snapshot.Current.Kind != StateReadKind.Valid ||
           snapshot.Current.Value is not { } current ||

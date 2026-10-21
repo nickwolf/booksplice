@@ -113,4 +113,48 @@ public sealed class RecoveryDecisionTests
     Assert.Equal(Root + @"\BookSplice.Gui.exe",
       decision.TargetPendingNativeValidation.ExecutablePath);
   }
+
+  [Theory]
+  [InlineData(UpdatePhase.Committed, true, false)]
+  [InlineData(UpdatePhase.Committed, false, true)]
+  [InlineData(UpdatePhase.Failed, false, false)]
+  [InlineData(UpdatePhase.Failed, true, false)]
+  public void FinishedTransactionResolvesOnlyItsConsistentMapping(UpdatePhase phase,
+    bool newPointer, bool refused)
+  {
+    var decision = RecoveryPolicy.Decide(Snapshot(phase, newPointer));
+    Assert.Equal(refused, decision.Refused);
+    if (!refused)
+      Assert.Equal(newPointer ? Fixture().New.ExecutablePath : Fixture().Old.ExecutablePath,
+        decision.TargetPendingNativeValidation!.ExecutablePath);
+  }
+
+  [Theory]
+  [InlineData(UpdatePhase.Committed)]
+  [InlineData(UpdatePhase.Failed)]
+  public void FinishedTransactionRefusesAnUnrelatedMapping(UpdatePhase phase)
+  {
+    var snapshot = Snapshot(phase, true);
+    var fixture = Fixture();
+    snapshot = snapshot with
+    {
+      Current = new StateRead<CurrentTarget>(StateReadKind.Valid,
+        new CurrentTarget(1, InstallationId, fixture.New, null))
+    };
+    Assert.True(RecoveryPolicy.Decide(snapshot).Refused);
+  }
+
+  [Theory]
+  [InlineData(UpdatePhase.Committed)]
+  [InlineData(UpdatePhase.Failed)]
+  public void CorruptCurrentAfterFinishedTransactionFallsBackToRecordedOriginal(UpdatePhase phase)
+  {
+    var snapshot = Snapshot(phase, true) with
+    {
+      Current = new StateRead<CurrentTarget>(StateReadKind.Invalid)
+    };
+    var decision = RecoveryPolicy.Decide(snapshot);
+    Assert.False(decision.Refused);
+    Assert.Equal(TargetKind.Original, decision.TargetPendingNativeValidation!.Kind);
+  }
 }
