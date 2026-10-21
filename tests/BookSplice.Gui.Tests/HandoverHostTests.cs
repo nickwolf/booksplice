@@ -1,136 +1,82 @@
-using System.Windows;
-using System.Windows.Threading;
 using System.Diagnostics;
-using BookSplice.Gui.Updates;
-using BookSplice.Updates.Windows;
 
 namespace BookSplice.Gui.Tests;
 
-[Collection("WPF")]
 public sealed class HandoverHostTests
 {
   [Fact]
-  public void RealWindowAndNativeLeaseRemainSafeAcrossHandover()
+  public async Task RealWindowAndNativeLeaseRemainSafeAcrossHandoverInIsolatedProcess()
   {
     Assert.True(Environment.UserInteractive,
       "The handover host test requires an interactive Windows desktop.");
-    var parent = Path.Combine(Path.GetTempPath(), "booksplice-host-" + Guid.NewGuid().ToString("N"));
-    var root = Path.Combine(parent, "BookSplice");
-    Directory.CreateDirectory(root);
+
+    var helper = Path.Combine(AppContext.BaseDirectory, "HandoverProbe",
+      "BookSplice.Gui.HandoverProbe.exe");
+    Assert.True(File.Exists(helper), $"The built WPF handover probe is missing: {helper}");
+
+    using var process = new Process
+    {
+      StartInfo = new ProcessStartInfo(helper)
+      {
+        UseShellExecute = false,
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+        CreateNoWindow = true,
+      },
+      EnableRaisingEvents = true,
+    };
+
+    Assert.True(process.Start(), "The WPF handover probe could not be started.");
+    var stdout = ReadBoundedAsync(process.StandardOutput, 16 * 1024);
+    var stderr = ReadBoundedAsync(process.StandardError, 16 * 1024);
     try
     {
-      OnSta(() =>
-      {
-        Application? app = null;
-        Window? window = null;
-        WpfHandoverHost? host = null;
-        GuiInstanceLease? lease = null;
-        try
-        {
-          using var dataRoot = SafeDirectoryHandle.OpenCanonical(root);
-          lease = GuiInstanceLease.TryAcquire(root)!;
-          app = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
-          window = new Window { Width = 16, Height = 16, ShowInTaskbar = false };
-          app.MainWindow = window;
-          window.Show();
-          var gate = new GuiOperationGate(app.Dispatcher);
-          var queueCount = 1;
-          host = new WpfHandoverHost(app, window, gate, () => queueCount,
-            root, dataRoot.Identity, lease);
-          lease = null;
-
-          Assert.False(host.FreezeAsync().GetAwaiter().GetResult());
-          queueCount = 0;
-          using (var active = gate.Enter("convert"))
-            Assert.False(host.FreezeAsync().GetAwaiter().GetResult());
-          Assert.True(host.FreezeAsync().GetAwaiter().GetResult());
-          Assert.True(gate.IsFrozen);
-          Assert.Throws<InvalidOperationException>(() => gate.Enter("late add"));
-          window.Close();
-          Assert.True(window.IsVisible);
-          queueCount = 1;
-          Assert.False(host.HideAndReleaseGuiAsync().GetAwaiter().GetResult());
-          Assert.True(window.IsVisible);
-          queueCount = 0;
-          Assert.True(host.HideAndReleaseGuiAsync().GetAwaiter().GetResult());
-          Assert.False(window.IsVisible);
-          Assert.True(window.IsLoaded);
-          Assert.False(app.Dispatcher.HasShutdownStarted);
-          Assert.Equal(ShutdownMode.OnExplicitShutdown, app.ShutdownMode);
-
-          using (var contender = GuiInstanceLease.TryAcquire(root)!)
-          {
-            Assert.False(host.RestoreAndAcquireGuiAsync().GetAwaiter().GetResult());
-            Assert.False(window.IsVisible);
-            Assert.True(gate.IsFrozen);
-          }
-          var displaced = root + "-displaced";
-          dataRoot.Dispose();
-          Directory.Move(root, displaced);
-          Directory.CreateDirectory(root);
-          Assert.False(host.RestoreAndAcquireGuiAsync().GetAwaiter().GetResult());
-          Assert.False(window.IsVisible);
-          Assert.True(gate.IsFrozen);
-          Directory.Delete(root);
-          Directory.Move(displaced, root);
-          var offThreadRestore = Task.Run(() => host.RestoreAndAcquireGuiAsync());
-          PumpUntil(offThreadRestore, app.Dispatcher);
-          Assert.True(offThreadRestore.GetAwaiter().GetResult());
-          Assert.True(window.IsVisible);
-          Assert.False(gate.IsFrozen);
-          Assert.Equal(ShutdownMode.OnMainWindowClose, app.ShutdownMode);
-          Assert.Null(GuiInstanceLease.TryAcquire(root));
-
-          var offThreadFreeze = Task.Run(() => host.FreezeAsync());
-          PumpUntil(offThreadFreeze, app.Dispatcher);
-          Assert.True(offThreadFreeze.GetAwaiter().GetResult());
-          Assert.True(host.HideAndReleaseGuiAsync().GetAwaiter().GetResult());
-          Assert.True(gate.IsFrozen);
-          Assert.False(app.Dispatcher.HasShutdownStarted);
-          var applicationExitObserved = false;
-          app.Exit += (_, _) => applicationExitObserved = true;
-          var exitRequest = host.ExitAsync();
-          Assert.True(exitRequest.IsCompletedSuccessfully);
-          exitRequest.GetAwaiter().GetResult();
-          var exitFrame = new DispatcherFrame();
-          app.Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle,
-            new Action(() => exitFrame.Continue = false));
-          Dispatcher.PushFrame(exitFrame);
-          Assert.True(applicationExitObserved);
-          Assert.False(Process.GetCurrentProcess().HasExited);
-        }
-        finally
-        {
-          host?.Dispose();
-          lease?.Dispose();
-          if (window is { IsVisible: true }) window.Close();
-          app?.Shutdown();
-        }
-      });
+      using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+      await process.WaitForExitAsync(timeout.Token);
+      var output = await stdout;
+      var error = await stderr;
+      Assert.True(process.ExitCode == 0,
+        $"WPF handover probe exited with code {process.ExitCode}.\nstdout:\n{output}\nstderr:\n{error}");
+      Assert.Contains("PASS: real WPF/native handover assertions completed", output);
     }
-    finally { Directory.Delete(parent, recursive: true); }
-  }
-
-  private static void PumpUntil(Task task, Dispatcher dispatcher)
-  {
-    if (task.IsCompleted) return;
-    var frame = new DispatcherFrame();
-    task.ContinueWith(_ => dispatcher.BeginInvoke(() => frame.Continue = false),
-      TaskScheduler.Default);
-    Dispatcher.PushFrame(frame);
-  }
-
-  private static void OnSta(Action action)
-  {
-    Exception? failure = null;
-    var thread = new Thread(() =>
+    catch (OperationCanceledException)
     {
-      try { action(); }
-      catch (Exception exception) { failure = exception; }
-    });
-    thread.SetApartmentState(ApartmentState.STA);
-    thread.Start();
-    thread.Join();
-    if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+      await StopAndWaitAsync(process);
+      var diagnostics = $"WPF handover probe exceeded the 60 second limit.\n" +
+        $"stdout:\n{await stdout}\nstderr:\n{await stderr}";
+      Assert.Fail(diagnostics);
+    }
+    catch
+    {
+      await StopAndWaitAsync(process);
+      throw;
+    }
+  }
+
+  private static async Task<string> ReadBoundedAsync(StreamReader reader, int maxChars)
+  {
+    var buffer = new char[1024];
+    var result = new System.Text.StringBuilder(Math.Min(maxChars, 4096));
+    var truncated = false;
+    int count;
+    while ((count = await reader.ReadAsync(buffer)) > 0)
+    {
+      var keep = Math.Min(count, maxChars - result.Length);
+      if (keep > 0) result.Append(buffer, 0, keep);
+      if (keep < count) truncated = true;
+    }
+    if (truncated) result.Append("\n[output truncated]");
+    return result.ToString();
+  }
+  private static async Task StopAndWaitAsync(Process process)
+  {
+    try
+    {
+      if (!process.HasExited) process.Kill(entireProcessTree: true);
+    }
+    catch (InvalidOperationException) { }
+    catch (System.ComponentModel.Win32Exception) { }
+    try { await process.WaitForExitAsync(); }
+    catch (InvalidOperationException) { }
   }
 }

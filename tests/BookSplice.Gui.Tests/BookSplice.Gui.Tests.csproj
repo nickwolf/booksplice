@@ -17,6 +17,16 @@
     <Using Include="Xunit" />
     <ProjectReference Include="..\..\src\BookSplice.Gui\BookSplice.Gui.csproj" />
     <ProjectReference Include="..\BookSplice.LeaseHost\BookSplice.LeaseHost.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\BookSplice.Gui.HandoverProbe\BookSplice.Gui.HandoverProbe.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
+
+  <Target Name="CopyGuiHandoverProbe" AfterTargets="Build">
+    <ItemGroup>
+      <GuiHandoverProbeOutput Include="..\BookSplice.Gui.HandoverProbe\bin\$(Configuration)\net10.0-windows\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(GuiHandoverProbeOutput)"
+      DestinationFiles="@(GuiHandoverProbeOutput->'$(OutDir)HandoverProbe\%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>
