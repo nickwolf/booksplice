@@ -19,6 +19,7 @@ public sealed class UpdateComposition : IUpdateBackend, IDisposable
   private readonly GitHubReleaseClient _client;
   private readonly ValidatedHttpTransport _transport;
   private readonly UpdateCheckService _checks;
+  private readonly object _openGate = new();
   private IDisposable? _admission;
 
   public UpdateComposition(string dataRoot, string applicationDirectory, string? packagedVersion,
@@ -131,16 +132,26 @@ public sealed class UpdateComposition : IUpdateBackend, IDisposable
   private OpenedInstallation Create()
   {
     if (_version is null) throw new InvalidDataException("This build cannot update itself.");
-    return InstallationOpener.Create(_applicationDirectory, _dataRoot, _version);
+    lock (_openGate) return InstallationOpener.Create(_applicationDirectory, _dataRoot, _version);
   }
 
   // Null only when this executable has no installation yet; any other problem throws.
   private OpenedInstallation? FindInstallation()
   {
-    using var directory = SafeDirectoryHandle.OpenCanonical(_applicationDirectory);
-    using var self = SupervisedProcess.CaptureCurrent();
-    var binding = InstallationRegistry.Open(_dataRoot, create: false)?.Resolve(
-      self.Identity.ExecutablePath, directory.Identity, self.ImageIdentity);
+    // Opening walks the shared parent folder with write access, so two opens at once in this process
+    // (startup forwarding, the rollback check, an install) would fail each other with a sharing violation.
+    lock (_openGate) return FindInstallationUnlocked();
+  }
+
+  private OpenedInstallation? FindInstallationUnlocked()
+  {
+    InstallationBinding? binding;
+    // Release these handles before opening: the installation store walks the shared parent folder
+    // with write access, which a retained read-only handle on the same ancestors would block.
+    using (var directory = SafeDirectoryHandle.OpenCanonical(_applicationDirectory))
+    using (var self = SupervisedProcess.CaptureCurrent())
+      binding = InstallationRegistry.Open(_dataRoot, create: false)?.Resolve(
+        self.Identity.ExecutablePath, directory.Identity, self.ImageIdentity);
     return binding is null ? null : InstallationOpener.Open(binding.ManagedRootPath, canCreate: true);
   }
 
