@@ -21,6 +21,21 @@ public sealed class BuildFlavorTests
   }
 
   [Fact]
+  public void ReleaseIgnoresRehearsalHooksButTestHonorsThem()
+  {
+    var directory = Path.GetTempPath();
+    string? Environment(string name) => name is "BOOKSPLICE_TEST_RELEASE_DIR" or "BOOKSPLICE_TEST_PROGRAMS_DIR" ? directory : null;
+    Assert.Null(global::BookSplice.Updates.Transport.TestReleaseSource.Create(BuildFlavor.Release, Environment));
+    Assert.NotNull(global::BookSplice.Updates.Transport.TestReleaseSource.Create(BuildFlavor.Test, Environment));
+    Assert.Null(global::BookSplice.Updates.Transport.TestReleaseSource.Create(BuildFlavor.Test, _ => null));
+    Assert.NotEqual(directory, UpdateBuild.ProgramsDirectory(BuildFlavor.Release, Environment));
+    Assert.Equal(directory, UpdateBuild.ProgramsDirectory(BuildFlavor.Test, Environment));
+    Assert.False(UpdateBuild.PassesToChildren(BuildFlavor.Release, "BOOKSPLICE_TEST_NO_READY"));
+    Assert.True(UpdateBuild.PassesToChildren(BuildFlavor.Test, "BOOKSPLICE_TEST_NO_READY"));
+    Assert.False(UpdateBuild.PassesToChildren(BuildFlavor.Test, "BOOKSPLICE_LOCAL_APP_DATA"));
+  }
+
+  [Fact]
   public void NonReleaseBuildsTrustNoProductionKey()
   {
     // This test project references the default (Test) flavor of the updater, which embeds no production key.

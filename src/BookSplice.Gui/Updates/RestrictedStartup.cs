@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using BookSplice.Core.Settings;
 using BookSplice.Gui.Bootstrap;
+using BookSplice.Updates;
 using BookSplice.Updates.Handover;
 using BookSplice.Updates.Storage;
 using BookSplice.Updates.Windows;
@@ -53,6 +54,9 @@ public static class RestrictedStartup
       restricted.Closed += cancelOnClose;
       show(restricted);
       await ready;
+      // Test builds only: a candidate that never reports readiness, to rehearse the launcher's fallback.
+      if (UpdateBuild.TestSetting("BOOKSPLICE_TEST_NO_READY") == "1")
+        await Task.Delay(Timeout.Infinite, token);
       await session.SendAsync(UpdateMessageKind.Ready, deadline.Token);
       var commit = await session.ReceiveAsync(deadline.Token);
       if (commit.Kind != UpdateMessageKind.Commit) throw new IOException("Candidate commit was refused.");

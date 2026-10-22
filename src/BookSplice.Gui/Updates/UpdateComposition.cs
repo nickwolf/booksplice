@@ -29,8 +29,11 @@ public sealed class UpdateComposition : IUpdateBackend, IDisposable
     _applicationDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(applicationDirectory));
     _version = packagedVersion;
     clock ??= TimeProvider.System;
-    _client = new GitHubReleaseClient(clock);
-    _transport = ValidatedHttpTransport.CreateProduction(clock);
+    // Test builds with BOOKSPLICE_TEST_RELEASE_DIR read releases from a local directory; Release builds never do.
+    var local = TestReleaseSource.CreateHandler();
+    _client = local is null ? new GitHubReleaseClient(clock) : new GitHubReleaseClient(local, clock);
+    _transport = local is null ? ValidatedHttpTransport.CreateProduction(clock) :
+      new ValidatedHttpTransport(TestReleaseSource.CreateHandler()!, clock);
     Reader = new SignedReleaseReader(_client, _transport, new ManifestVerifier());
     _checks = new UpdateCheckService(_client, checkState, clock);
   }

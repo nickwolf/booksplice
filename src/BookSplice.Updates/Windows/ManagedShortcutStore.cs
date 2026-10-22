@@ -37,7 +37,7 @@ public sealed class ManagedShortcutStore
     _state = state ?? throw new ArgumentNullException(nameof(state));
     _recordPath = recordPath ?? throw new ArgumentNullException(nameof(recordPath));
     _programs = Path.TrimEndingDirectorySeparator(Path.GetFullPath(programsDirectory ??
-      Environment.GetFolderPath(Environment.SpecialFolder.Programs)));
+      UpdateBuild.ProgramsDirectory()));
   }
 
   public ShortcutResult EnsureRecordedShortcut(InstallationLayout layout)

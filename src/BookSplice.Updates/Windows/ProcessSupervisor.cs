@@ -405,7 +405,8 @@ public static class ProcessSupervisor
     };
     foreach (var argument in arguments) start.ArgumentList.Add(argument);
     foreach (var key in start.Environment.Keys.ToArray())
-      if (key.StartsWith("BOOKSPLICE_", StringComparison.OrdinalIgnoreCase) ||
+      if (UpdateBuild.PassesToChildren(UpdateBuild.Flavor, key)) continue;
+      else if (key.StartsWith("BOOKSPLICE_", StringComparison.OrdinalIgnoreCase) ||
           key.StartsWith("FFMPEG_", StringComparison.OrdinalIgnoreCase) ||
           key.StartsWith("FFPROBE_", StringComparison.OrdinalIgnoreCase) ||
           key.StartsWith("DOTNET_", StringComparison.OrdinalIgnoreCase) ||

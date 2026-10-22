@@ -124,7 +124,7 @@ public static class InstallationOpener
     TrashJournal.Definition("trash.json", id, Path.Combine(managed.Path, "trash")),
     ShortcutOwnershipRecord.Definition("shortcut.json", id,
       Path.Combine(Path.TrimEndingDirectorySeparator(Path.GetFullPath(programsDirectory ??
-        Environment.GetFolderPath(Environment.SpecialFolder.Programs))), "BookSplice.lnk"),
+        UpdateBuild.ProgramsDirectory())), "BookSplice.lnk"),
       launcherPath)
   ];
 }
