@@ -131,13 +131,14 @@ public static class UpdateSelfCheck
       throw new InvalidDataException();
   }
 
-  private static async Task<string> ReadBoundedAsync(StreamReader reader)
+  internal static async Task<string> ReadBoundedAsync(StreamReader reader)
   {
     var result = new System.Text.StringBuilder();
     var buffer = new char[4096];
     while (true)
     {
-      var count = await reader.ReadAsync(buffer.AsMemory());
+      // The caller blocks the UI thread on this task, so it must not resume there.
+      var count = await reader.ReadAsync(buffer.AsMemory()).ConfigureAwait(false);
       if (count == 0) return result.ToString();
       if (result.Length + count > 65536) throw new InvalidDataException("Tool output exceeds its limit.");
       result.Append(buffer, 0, count);
