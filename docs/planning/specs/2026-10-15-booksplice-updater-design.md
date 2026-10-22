@@ -1,6 +1,6 @@
 # BookSplice Windows updater
 
-Date: 2026-10-15. Issue: [#77](https://github.com/nickwolf/booksplice/issues/77). Target: v0.2.0. Status: specification and implementation plan approved. Implementation is underway; version/protocol contracts, release checks, manifest/download authentication, and native directory ownership are complete. Installation and handover remain unfinished.
+Date: 2026-10-15. Issue: [#77](https://github.com/nickwolf/booksplice/issues/77). Target: v0.2.0. Status: specification and implementation plan approved. Implemented on `codex/updater` and rehearsed locally with a disposable key; the production key, hosted CI and clean-machine gates are open (see `docs/ACCEPTANCE.md`).
 
 ## Purpose and scope
 
@@ -201,6 +201,17 @@ Existing build, unit tests, formatting, generated-fixture/package smoke, accepta
 The next artifact is an implementation plan after approval of this written specification. Implementation may be divided into trust/check policy, Windows staging/ownership, launcher/recovery, WPF integration, and packaged rehearsal, but all acceptance paths above are required for #77.
 
 Local implementation and disposable-key rehearsals do not authorize production signing-key provisioning, a public PR, merge, tag, or release. Show complete public drafts before posting. Before shipping, provision the production key, embed its reviewed public key, exercise the exact signed production package, and record genuine manual checks separately from automated evidence.
+
+## Accepted simplifications
+
+These differ from the text above and are what the implementation does.
+
+- Progress is indeterminate. The window shows a progress bar and the phases Preparing and Restarting, not byte counts or per-stage percentages.
+- GUI jobs do not take the cross-process job lease. A single GUI is guaranteed by the instance lease, and installation requires an empty queue, so no GUI job can be running during handover.
+- The Start Menu shortcut and the registry bind happen only after a Committed apply, never during staging.
+- The previous target's settings schema is not recorded. Candidate readiness (settings readable without writing) is the only compatibility gate for rollback.
+- Manifests describe stable `X.Y.Z` releases only. Tags and manifest versions with a prerelease suffix are rejected.
+- A Release updater accepts a `Test` flavor line in `VERSION.txt`, because the manifest signature is the guard and a Test package cannot satisfy it.
 
 ## References
 

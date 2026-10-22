@@ -35,6 +35,16 @@ if ($actual -ne $expected) { throw 'BookSplice checksum mismatch.' }
 
 The package is self-contained and does not require the .NET SDK. It includes the pinned LGPL FFmpeg tools. Windows may show a SmartScreen warning because version 0.1.1 is not code signed.
 
+## Updates
+
+Check for updates opens the Updates window, which compares the running version with the stable releases on GitHub. Each release carries a signed update manifest, and BookSplice installs only a ZIP that matches the manifest and verifies against the public key built into the app. Prereleases and drafts are ignored. A daily check is on by default and can be turned off in the same window.
+
+Install and restart is available only while the queue is empty, because the app restarts and the queue is not saved. BookSplice downloads and verifies the release, unpacks it into a new folder next to the current one, checks that the new version starts, and then restarts into it. If the new version does not report that it started within 60 seconds, the previous version is started again and the Updates window reports the failure. Roll back to previous version switches back to the version that was running before the last update, with the same empty-queue rule. Settings are not changed by an update or a rollback.
+
+A build from before the updater existed cannot update itself. Replace it once by hand with the first release that includes the updater. After that, updates are applied from the Updates window.
+
+The first update creates a managed folder named `.booksplice-managed-<id>` beside the folder you extracted, holding a small launcher (`BookSplice.Launcher.exe`), the installed versions, and the update records. The folder you extracted is never modified or deleted, so it stays as a manual fallback. BookSplice adds a Start Menu shortcut named `BookSplice` that starts the launcher. If a shortcut with that name already exists and BookSplice did not create it, it is left alone and the Updates window shows the launcher path to start instead. Update preferences are stored in `%LOCALAPPDATA%\BookSplice\updates`.
+
 ## First launch and settings
 
 First launch asks where completed M4B files should go, which audio quality profile to use, and whether to create chapters from source-file boundaries. Advanced settings expose channel handling, parallel jobs, metadata profile, lightweight or full-decode validation, and logging level.

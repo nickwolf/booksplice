@@ -99,3 +99,19 @@ The earlier `0.1.0-acceptance.4`, `0.1.0-acceptance.7`, and local `0.1.0` packag
 The third-party inventory for the source-built FFmpeg is generated at `licenses/FFmpeg-components.md` by `scripts/Get-FFmpegLicenseInventory.ps1`. The package includes the exact FFmpeg and zlib source archives, build recipe, and licenses. The project owner approved proceeding with the 0.1.0 release after review of the unresolved codec patent question; no patent clearance or legal opinion is claimed. Record only anonymous outcomes. Do not commit titles, source paths, media, or command output containing private paths.
 
 The final clean-machine gate uses the unpublished draft GitHub release. On a Windows x64 machine without the development SDK, authenticate to GitHub and download the draft ZIP, checksum, `Test-Release.ps1`, and `ReleaseOwnedDirectory.ps1` assets into one directory. Run the downloaded script against the downloaded ZIP and checksum, then compare its digest with the release workflow result. The 2026-10-03 hosted Windows 2022 runs `37129308832` and `37151830432` passed this gate for the exact `v0.1.0` and `v0.1.1` drafts, respectively, after removing and verifying the absence of preinstalled .NET SDKs. The `v0.1.1` private CLI and Mp3tag gates were not completed for that exact ZIP; the owner accepted that coverage gap for publication.
+
+## Updater evidence (issue #77)
+
+Evidence for the updater on branch `codex/updater`, recorded 2026-10-22. Every package below is a `Test` flavor build signed with a disposable key. None of it covers a production-signed package.
+
+| Gate | Evidence | State |
+| --- | --- | --- |
+| Generated test suite | `dotnet test BookSplice.slnx -c Release --no-build`: 798 passed, 0 failed, 0 skipped (Core 162, Gui 101, Acceptance 2, Cli 70, Updates 333, FFmpeg 130). The first run failed 12 `FFmpegOutputValidatorTests` with a file-in-use `IOException` in the test's temporary-file move; the rerun with no change passed all 130 | Local automated pass |
+| Formatting | `dotnet format BookSplice.slnx --verify-no-changes --no-restore` exit 0 | Local automated pass |
+| Acceptance harness and update tooling | `Test-AcceptanceHarness.ps1` and `Test-UpdateTooling.ps1` exit 0 | Local automated pass |
+| Test package | `Build-Release.ps1 -Version 0.2.0 -Flavor Test` and `Test-Release.ps1` exit 0, ZIP SHA-256 `037949858c7b7387b77f05f0239f0ba6f986dd6368604aa6e415f0e83d464629` | Local automated pass |
+| Packaged update rehearsal | `Test-UpdateRehearsal.ps1` on an interactive Windows desktop: 6 of 6 scenarios passed (upgrade, rollback, no-ready, launcher-killed, bad-release, cleanup), no stray processes, real user state unchanged. It built its own `Test` packages 0.9.0 (`17465e9501712539d86f963de19aa71e6c87ffba9c9ff94a2ff9ec0d98e27646`) and 0.9.1 (`d00c54f24d71b68d343eb5c147f35ab22ca4bb3cc44fad2b76c8e9b546544017`) | Run locally 2026-10-22, not in CI |
+| Production-key package | No production public key is in the repository, so no `Release` package exists | Not yet run |
+| Hosted CI on the branch | Branch not pushed | Not yet run |
+| Clean-machine run of the signed draft | Needs a published draft with a production signature | Not yet run |
+| Manual DPI, keyboard and screen-reader checks of the Updates window | Automation names and access keys are set in XAML; nobody has used the window with those tools | Not yet run |
