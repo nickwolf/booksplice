@@ -66,12 +66,15 @@ public static class RecoveryPolicy
 
   private static bool MatchesFinished(UpdateTransaction transaction, CurrentTarget current)
   {
-    var committed = transaction.NewTarget is not null &&
-      LaunchResolver.SameTarget(current.Current, transaction.NewTarget) &&
-      LaunchResolver.SameTarget(current.Previous, transaction.OldTarget);
+    var committed = PointsAtNewTarget(transaction, current);
     return transaction.Phase == Handover.UpdatePhase.Committed ? committed :
       committed || UpdateTransaction.SameMapping(current, transaction.PriorMapping);
   }
+
+  internal static bool PointsAtNewTarget(UpdateTransaction transaction, CurrentTarget? current) =>
+    current is not null && transaction.NewTarget is not null &&
+    LaunchResolver.SameTarget(current.Current, transaction.NewTarget) &&
+    LaunchResolver.SameTarget(current.Previous, transaction.OldTarget);
 
   internal static bool TargetBelongs(OwnedOrOriginalTarget target,
     InstallationRecord installation, OwnershipState ownership)

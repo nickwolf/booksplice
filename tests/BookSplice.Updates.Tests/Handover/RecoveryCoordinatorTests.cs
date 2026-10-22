@@ -33,6 +33,24 @@ public sealed class RecoveryCoordinatorTests
     });
   }
 
+  [Fact]
+  public void ACandidateThatCannotBeEndedBlocksRecovery()
+  {
+    WithJournal(UpdatePhase.Starting, journal =>
+    {
+      UpdateTransaction? seen = null;
+      var admission = new TrackingLeaseStore();
+      var recovery = new RecoveryCoordinator(journal, admission)
+      {
+        EndCandidate = transaction => { seen = transaction; return false; }
+      };
+      Assert.Equal(RecoveryOutcomeKind.CandidateStillRunning, recovery.Recover());
+      Assert.Equal(UpdatePhase.Starting, seen!.Phase);
+      Assert.Equal(UpdatePhase.Starting, journal.Read().Value!.Phase);
+      Assert.Equal(1, admission.Released);
+    });
+  }
+
   [Theory]
   [InlineData(UpdatePhase.Committed)]
   [InlineData(UpdatePhase.Failed)]

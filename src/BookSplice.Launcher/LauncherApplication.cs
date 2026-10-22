@@ -22,10 +22,14 @@ public static class LauncherApplication
       if (args.Length != 0) throw new ArgumentException("Unsupported launcher command.");
       var installation = OpenInstallation();
       var (layout, _, state, _, journal) = installation;
-      if (new RecoveryCoordinator(journal, new ActivityLeaseStore(layout.DataRoot)).Recover() ==
-          RecoveryOutcomeKind.UpdateInProgress)
+      var recovery = new RecoveryCoordinator(journal, new ActivityLeaseStore(layout.DataRoot),
+        new CurrentTargetStore(state, journal, layout)).Recover();
+      if (recovery == RecoveryOutcomeKind.UpdateInProgress)
         throw new InvalidOperationException(
           "A BookSplice update is in progress. Try again when it finishes.");
+      if (recovery == RecoveryOutcomeKind.CandidateStillRunning)
+        throw new InvalidOperationException(
+          "The new BookSplice version from an interrupted update is still running. Close it, then start BookSplice again.");
       Cleanup(installation);
       var decision = LaunchResolver.LaunchCurrent(layout, state);
       if (decision.Kind != LaunchDecisionKind.Ready)

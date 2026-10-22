@@ -19,6 +19,10 @@ public sealed class CurrentTargetStore
     _path = Path.Combine(layout.Records.Path, "current.json");
   }
 
+  public CurrentTarget? Read() =>
+    _state.Read<CurrentTarget>(_path) is { Kind: StateReadKind.Valid, Value: { } mapping } &&
+    mapping.InstallationId == _layout.InstallationId ? mapping : null;
+
   public CurrentTarget CapturePriorMapping(OwnedOrOriginalTarget expectedOld)
   {
     ArgumentNullException.ThrowIfNull(expectedOld);

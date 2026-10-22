@@ -47,7 +47,7 @@ public sealed class LaunchHandoverTests
   }
 
   [Fact]
-  public async Task PointerSwapWithoutCommittedRecordLaunchesTheMappedCandidate()
+  public async Task PointerSwapWithoutCommittedRecordFinishesAsCommitted()
   {
     using var h = new HandoverHarness();
     var id = await h.PrepareUpdateAsync();
@@ -62,15 +62,49 @@ public sealed class LaunchHandoverTests
     var outcome = await h.RunAsync(h.Handover(afterReady: () => armed = true), id,
       await h.ExitedOldAsync());
 
-    Assert.Equal(UpdateOutcomeKind.Failed, outcome.Kind);
+    Assert.Equal(UpdateOutcomeKind.Committed, outcome.Kind);
     Assert.True(outcome.FallbackLaunched);
-    Assert.Equal(UpdatePhase.Failed, h.Transaction!.Phase);
+    Assert.Equal(UpdatePhase.Committed, h.Transaction!.Phase);
     Assert.True(LaunchResolver.SameTarget(prepared.NewTarget, h.Mapping!.Current));
     Assert.True(LaunchResolver.SameTarget(h.OldTarget, h.Mapping.Previous));
     Assert.True(h.CandidateExited(0));
     var fallback = Assert.Single(h.FallbackLaunches);
     Assert.Equal(LaunchDecisionKind.Ready, fallback.Kind);
     Assert.True(LaunchResolver.SameTarget(prepared.NewTarget, fallback.Target));
+  }
+
+  [Fact]
+  public async Task RecoveryCommitsATransactionWhosePointerAlreadyMoved()
+  {
+    using var h = new HandoverHarness();
+    var id = await h.PrepareUpdateAsync();
+    var prepared = h.Transaction!;
+    var armed = false;
+    var writes = 0;
+    h.WriteFault = point =>
+    {
+      if (armed && point == StateWritePoint.BeforeReplace && ++writes >= 2)
+        throw new IOException("Injected crash after the pointer moved.");
+    };
+    var outcome = await h.RunAsync(h.Handover(afterReady: () => armed = true), id,
+      await h.ExitedOldAsync());
+
+    Assert.Equal(UpdateOutcomeKind.Failed, outcome.Kind);
+    Assert.Equal(UpdatePhase.Starting, h.Transaction!.Phase);
+    Assert.True(LaunchResolver.SameTarget(prepared.NewTarget, h.Mapping!.Current));
+    Assert.True(h.CandidateExited(0));
+
+    h.WriteFault = null;
+    var recovery = new RecoveryCoordinator(h.Journal, h.Admission, h.Targets)
+    {
+      EndCandidate = _ => true
+    };
+    Assert.Equal(RecoveryOutcomeKind.Recovered, recovery.Recover());
+    Assert.Equal(UpdatePhase.Committed, h.Transaction!.Phase);
+    var resolved = LaunchResolver.Resolve(h.Layout,
+      JournalSnapshot.Read(h.State, h.Layout.Records.Path));
+    Assert.Equal(LaunchDecisionKind.Ready, resolved.Kind);
+    Assert.True(LaunchResolver.SameTarget(prepared.NewTarget, resolved.Target));
   }
 
   [Fact]

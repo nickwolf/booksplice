@@ -61,6 +61,7 @@ public sealed class LaunchHandover(
         "The update was already finished by another BookSplice launcher.");
 
     var phase = UpdatePhase.Prepared;
+    var pointerCommitted = false;
     SupervisedProcess? candidate = null;
     UnverifiedChild? unverifiedChild = null;
     VerifiedExecutable? executable = null;
@@ -111,6 +112,7 @@ public sealed class LaunchHandover(
       if (candidate.HasExited)
         throw new IOException("The new version exited before the update was committed.");
       targets.Commit(transactionId, executable);
+      pointerCommitted = true;
       journal.Transition(transactionId, UpdatePhase.Starting, UpdatePhase.Committed);
       phase = UpdatePhase.Committed;
       await session.SendAsync(UpdateMessageKind.Commit, CancellationToken.None)
@@ -120,13 +122,21 @@ public sealed class LaunchHandover(
     catch (Exception error)
     {
       if (error is UnverifiedChildException failedStart) unverifiedChild = failedStart.Child;
+      // The pointer moves only after an authenticated Ready, so once it has moved the update has
+      // taken effect: finish it as Committed, never as Failed with the new version mapped.
+      if (pointerCommitted && phase == UpdatePhase.Starting &&
+          TryFinish(transactionId, UpdatePhase.Starting, UpdatePhase.Committed))
+        phase = UpdatePhase.Committed;
       var stopped = await StopAsync(candidate, unverifiedChild).ConfigureAwait(false);
-      if (phase != UpdatePhase.Committed) TryFail(transactionId, phase);
+      if (!pointerCommitted) TryFinish(transactionId, phase, UpdatePhase.Failed);
       if (!stopped)
         return new UpdateOutcome(UpdateOutcomeKind.Failed, error.Message +
           " The new version could not be stopped, so the previous version was not started.");
       executable?.Dispose();
-      return new UpdateOutcome(UpdateOutcomeKind.Failed, error.Message, Launch(layout));
+      var launched = Launch(layout);
+      return phase == UpdatePhase.Committed && launched ?
+        new UpdateOutcome(UpdateOutcomeKind.Committed, null, true) :
+        new UpdateOutcome(UpdateOutcomeKind.Failed, error.Message, launched);
     }
     finally
     {
@@ -204,11 +214,14 @@ public sealed class LaunchHandover(
     return (child is null || child.HasExited) && (candidate is null || candidate.HasExited);
   }
 
-  private bool TryFail(Guid transactionId, UpdatePhase phase)
+  private bool TryFail(Guid transactionId, UpdatePhase phase) =>
+    TryFinish(transactionId, phase, UpdatePhase.Failed);
+
+  private bool TryFinish(Guid transactionId, UpdatePhase phase, UpdatePhase next)
   {
     try
     {
-      journal.Transition(transactionId, phase, UpdatePhase.Failed);
+      journal.Transition(transactionId, phase, next);
       return true;
     }
     catch (Exception error) when (error is IOException or InvalidDataException or

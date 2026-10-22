@@ -82,7 +82,7 @@ public sealed class RecoveryProcessProbe
         return new RecoveryProcessObservation(ProcessLife.Unknown);
       }
 
-      var image = ProcessSupervisor.ImageFingerprint(actualPath);
+      var image = ProcessSupervisor.ImageFingerprintOrDirect(actualPath);
       if (image.Identity != expectedImageIdentity ||
           !string.Equals(image.Sha256, expectedImageSha256, StringComparison.OrdinalIgnoreCase))
       {
