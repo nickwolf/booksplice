@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - v*
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
     inputs:
       tag:
@@ -50,7 +50,7 @@ jobs:
           BOOKSPLICE_REQUESTED_TAG: ${{ inputs.tag }}
         run: |
           $releaseTag = if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $env:BOOKSPLICE_REQUESTED_TAG } else { $env:GITHUB_REF_NAME }
-          if ($releaseTag -notmatch '^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') { throw "Invalid release tag '$releaseTag'." }
+          if ($releaseTag -notmatch '^v\d+\.\d+\.\d+$') { throw "Invalid release tag '$releaseTag'." }
           $version = $releaseTag.Substring(1)
           git fetch --force origin "refs/tags/$($releaseTag):refs/tags/$releaseTag"
           if ($LASTEXITCODE -ne 0) { throw "Could not fetch release tag '$releaseTag'." }
@@ -67,7 +67,6 @@ jobs:
           "BOOKSPLICE_TAG=$releaseTag" | Out-File -FilePath $env:GITHUB_ENV -Append
           "BOOKSPLICE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
           "BOOKSPLICE_RELEASE_NOTES=$notes" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "BOOKSPLICE_PRERELEASE=$($version.Contains('-').ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Require signing configuration
         shell: pwsh
         env:
@@ -119,7 +118,6 @@ jobs:
         with:
           tag_name: ${{ env.BOOKSPLICE_TAG }}
           body_path: ${{ env.BOOKSPLICE_RELEASE_NOTES }}
-          prerelease: ${{ env.BOOKSPLICE_PRERELEASE }}
           draft: true
           overwrite_files: false
           fail_on_unmatched_files: true
