@@ -106,7 +106,7 @@ Evidence for the updater on branch `codex/updater`, recorded 2026-10-22. Every p
 
 | Gate | Evidence | State |
 | --- | --- | --- |
-| Generated test suite | `dotnet test BookSplice.slnx -c Release --no-build`: 798 passed, 0 failed, 0 skipped (Core 162, Gui 101, Acceptance 2, Cli 70, Updates 333, FFmpeg 130). The first run failed 12 `FFmpegOutputValidatorTests` with a file-in-use `IOException` in the test's temporary-file move; the rerun with no change passed all 130 | Local automated pass |
+| Generated test suite | `dotnet test BookSplice.slnx -c Release --no-build` with both FFmpeg directories set: 800 passed, 0 skipped (Core 162, Gui 101, Acceptance 2, Cli 70, Updates 335, FFmpeg 130). FFmpeg tests are flaky under the full solution run, with no FFmpeg code changed on this branch: one run failed 12 `FFmpegOutputValidatorTests` with a file-in-use `IOException` in the test's temporary-file move, another failed `ValidateAsyncConvertsPacketInspectorLaunchFailureToStructuredCheck` once, and each passed on rerun | Local automated pass |
 | Formatting | `dotnet format BookSplice.slnx --verify-no-changes --no-restore` exit 0 | Local automated pass |
 | Acceptance harness and update tooling | `Test-AcceptanceHarness.ps1` and `Test-UpdateTooling.ps1` exit 0 | Local automated pass |
 | Test package | `Build-Release.ps1 -Version 0.2.0 -Flavor Test` and `Test-Release.ps1` exit 0, ZIP SHA-256 `037949858c7b7387b77f05f0239f0ba6f986dd6368604aa6e415f0e83d464629` | Local automated pass |
