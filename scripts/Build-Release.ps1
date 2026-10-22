@@ -95,6 +95,7 @@ $commonPublish = @(
     '/p:DebugType=None',
     '/p:DebugSymbols=false',
     '/p:ContinuousIntegrationBuild=true',
+    "/p:BookSplicePackageVersion=$Version",
     "/p:BookSpliceFlavor=$Flavor"
 )
 if ($Flavor -eq 'Test' -and $TestPublicKeyPath) {
@@ -138,7 +139,7 @@ Media tools: source-built FFmpeg $($mediaManifest.release), LGPL 2.1 or later; z
 Media license SHA-256: $expectedLicenseSha256
 Build flavor: $Flavor
 "@
-[IO.File]::WriteAllText((Join-Path $resolvedStaging 'VERSION.txt'), $manifest.Replace("`n", "`r`n"), [Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText((Join-Path $resolvedStaging 'VERSION.txt'), $manifest.Replace("`r`n", "`n").Replace("`n", "`r`n"), [Text.UTF8Encoding]::new($false))
 
 Add-Type -AssemblyName System.IO.Compression
 $archive = [IO.Compression.ZipFile]::Open($archivePath, [IO.Compression.ZipArchiveMode]::Create)

@@ -578,6 +578,9 @@ public sealed class SafeZipTests
   [InlineData("duplicate-property")]
   [InlineData("wrong-type")]
   [InlineData("bad-version")]
+  [InlineData("flavor-line")]
+  [InlineData("bad-flavor-line")]
+  [InlineData("doubled-carriage-return")]
   public async Task FlatPackageLayoutAndHashesAreValidated(string scenario)
   {
     var fixture = CreateDestination();
@@ -629,6 +632,10 @@ public sealed class SafeZipTests
           (entry.Name, "wrong") : entry).ToArray(),
         "bad-version" => entries.Select(entry => entry.Name == "VERSION.txt" ?
           (entry.Name, entry.Data.Replace("BookSplice 0.2.0", "BookSplice 0.2.1", StringComparison.Ordinal)) : entry).ToArray(),
+        "flavor-line" or "bad-flavor-line" => entries.Select(entry => entry.Name == "VERSION.txt" ?
+          (entry.Name, entry.Data + (scenario == "flavor-line" ? "Build flavor: Test\r\n" : "Build flavor: Other\r\n")) : entry).ToArray(),
+        "doubled-carriage-return" => entries.Select(entry => entry.Name == "VERSION.txt" ?
+          (entry.Name, entry.Data.Replace("\r\n", "\r\r\n", StringComparison.Ordinal)) : entry).ToArray(),
         _ => entries
       };
       using var archive = Archive(entries);
@@ -637,7 +644,7 @@ public sealed class SafeZipTests
       var manifest = new VerifiedManifest(1, "BookSplice", "nickwolf/booksplice", "v0.2.0", "0.2.0",
         "win-x64", "BookSplice-0.2.0-win-x64.zip", archive.Length, "", 1, 1, 1,
         new ReleaseIdentity(1, "v0.2.0", new Uri("https://example.test"), "", []));
-      if (scenario == "valid") inventory.ValidatePackage(manifest);
+      if (scenario is "valid" or "flavor-line") inventory.ValidatePackage(manifest);
       else Assert.Throws<PackageException>(() => inventory.ValidatePackage(manifest));
     }
     finally { Directory.Delete(fixture.Root, true); }

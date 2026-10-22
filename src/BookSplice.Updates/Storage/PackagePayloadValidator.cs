@@ -36,9 +36,11 @@ internal static class PackagePayloadValidator
 
     var version = readText("VERSION.txt", 4096);
     var lines = version.Replace("\r\n", "\n", StringComparison.Ordinal).TrimEnd('\n').Split('\n');
-    if (lines.Length != 4 || lines[0] != "BookSplice " + expectedVersion ||
+    // The fifth line, "Build flavor: Test|Release", was added by the packaging script; it is optional here.
+    if (lines.Length is not (4 or 5) || lines[0] != "BookSplice " + expectedVersion ||
         lines[1] != "Runtime: Windows x64, self-contained .NET 10" ||
-        !lines[3].StartsWith("Media license SHA-256: ", StringComparison.Ordinal))
+        !lines[3].StartsWith("Media license SHA-256: ", StringComparison.Ordinal) ||
+        lines.Length == 5 && lines[4] is not ("Build flavor: Test" or "Build flavor: Release"))
       throw new PackageException("VERSION.txt does not match the expected release.");
     var versionLicense = lines[3]["Media license SHA-256: ".Length..];
     if (!IsHash(versionLicense)) throw new PackageException("VERSION.txt has an invalid license hash.");
