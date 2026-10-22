@@ -18,18 +18,22 @@ public sealed class VerifiedExecutable : IDisposable
   private bool _disposed;
 
   private VerifiedExecutable(string path, FileIdentity identity, IDisposable inventory,
-    Action revalidate, string? retainedSha256 = null)
+    Action revalidate, string? retainedSha256 = null, string? pinnedSha256 = null)
   {
     Path = path;
     Identity = identity;
     _inventory = inventory;
     _revalidate = revalidate;
     RetainedSha256 = retainedSha256;
+    PinnedSha256 = pinnedSha256;
   }
 
   public string Path { get; }
   public FileIdentity Identity { get; }
   internal string? RetainedSha256 { get; }
+  // Hash of the image, already verified through handles this object retains; lets Start skip
+  // re-walking the directory path, which would conflict with those retained handles.
+  internal string? PinnedSha256 { get; }
 
   internal static VerifiedExecutable FromStaged(StagedPackage package)
   {
@@ -67,7 +71,7 @@ public sealed class VerifiedExecutable : IDisposable
           StringComparison.OrdinalIgnoreCase))
       throw new PackageException("The managed executable differs from the launch target.");
     return new VerifiedExecutable(System.IO.Path.Combine(inventory.Destination.Path, file.RelativePath),
-      file.Identity, inventory, inventory.Revalidate);
+      file.Identity, inventory, inventory.Revalidate, pinnedSha256: file.Sha256);
   }
 
   public static VerifiedExecutable FromOriginal(OriginalPackageInventory inventory,
@@ -176,7 +180,9 @@ public sealed class SupervisedProcess : IDisposable
       var handle = process.SafeHandle;
       var native = ProcessSupervisor.NativeIdentity(handle);
       var path = ProcessSupervisor.ImagePath(handle);
-      var image = ProcessSupervisor.ImageFingerprint(path);
+      // A candidate runs from a directory its launcher still pins, so the ancestor walk can hit a
+      // sharing violation (Win32 32); the running image itself can still be read directly.
+      var image = ProcessSupervisor.ImageFingerprintOrDirect(path);
       return new SupervisedProcess(process,
         new ProcessIdentity(native.Pid, native.StartTimeUtcTicks, path),
         image.Identity, image.Sha256,
@@ -218,7 +224,7 @@ public sealed class SupervisedProcess : IDisposable
       throw new IOException("The pipe peer is not the retained process.");
     if (_retainedImageRevalidate is null)
     {
-      var image = ProcessSupervisor.ImageFingerprint(Identity.ExecutablePath);
+      var image = ProcessSupervisor.ImageFingerprintOrDirect(Identity.ExecutablePath);
       if (image.Identity != _imageIdentity ||
           !string.Equals(image.Sha256, _imageSha256, StringComparison.OrdinalIgnoreCase))
         throw new IOException("The pipe peer image changed.");
@@ -355,6 +361,18 @@ public static class ProcessSupervisor
     return actual;
   }
 
+  internal static (FileIdentity Identity, string Sha256) ImageFingerprintOrDirect(string path)
+  {
+    try { return ImageFingerprint(path); }
+    catch (Win32Exception error) when (error.NativeErrorCode == 32)
+    {
+      using var file = File.OpenHandle(path, FileMode.Open, FileAccess.Read,
+        FileShare.ReadWrite | FileShare.Delete);
+      SafeDirectoryHandle.RejectReparseFile(file);
+      return (NativeFileIdentity.Read(file), PackageInventory.HashHandle(file));
+    }
+  }
+
   internal static (FileIdentity Identity, string Sha256) ImageFingerprint(string path)
   {
     using var directory = SafeDirectoryHandle.OpenPath(System.IO.Path.GetDirectoryName(path)!, false);
@@ -405,8 +423,8 @@ public static class ProcessSupervisor
     try
     {
       var identity = Identity(process.SafeHandle);
-      var image = verifiedExecutable.RetainedSha256 is { } retainedSha256
-        ? (verifiedExecutable.Identity, Sha256: retainedSha256)
+      var image = (verifiedExecutable.RetainedSha256 ?? verifiedExecutable.PinnedSha256) is { } knownSha256
+        ? (verifiedExecutable.Identity, Sha256: knownSha256)
         : ImageFingerprint(identity.ExecutablePath);
       if (!string.Equals(identity.ExecutablePath, verifiedExecutable.Path,
           StringComparison.OrdinalIgnoreCase) ||

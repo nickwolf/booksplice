@@ -39,8 +39,24 @@ public static class LauncherApplication
     }
   }
 
+  // The old window still holds directory handles while it shuts down, which would make opening the
+  // installation fail with a sharing violation; the handover re-checks the exit exactly afterwards.
+  private static void WaitForOldWindow(int pid, long startTicks)
+  {
+    try
+    {
+      using var old = System.Diagnostics.Process.GetProcessById(pid);
+      if (Math.Abs(old.StartTime.ToUniversalTime().Ticks - startTicks) < TimeSpan.TicksPerSecond * 2)
+        _ = old.WaitForExit(TimeSpan.FromSeconds(60));
+    }
+    catch (Exception error) when (error is ArgumentException or InvalidOperationException or
+      System.ComponentModel.Win32Exception)
+    { }
+  }
+
   private static int Apply(Guid transactionId, int oldGuiPid, long oldGuiStartTicks)
   {
+    WaitForOldWindow(oldGuiPid, oldGuiStartTicks);
     var installation = OpenInstallation();
     var (layout, _, state, directories, journal) = installation;
     using var self = SupervisedProcess.CaptureCurrent();
