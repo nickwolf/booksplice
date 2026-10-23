@@ -152,10 +152,10 @@ public sealed class RestrictedStartupTests
 
   private static void PrepareVerifiedTools()
   {
-    var repository = Directory.GetParent(Directory.GetParent(SolutionRoot())!.FullName)!.FullName;
-    var root = Path.Combine(repository, "releases", "v0.1.1-public", "app");
-    var source = Path.Combine(root, "sources", "manifest.json");
-    Assert.True(File.Exists(source), "The pinned public media tool fixture is required.");
+    var source = Path.Combine(SolutionRoot(), "tools", "ffmpeg", "manifest.json");
+    var tools = Environment.GetEnvironmentVariable("BOOKSPLICE_FFMPEG_DIR");
+    Assert.False(string.IsNullOrWhiteSpace(tools),
+      "Set BOOKSPLICE_FFMPEG_DIR to the pinned media tools to run this test.");
     using var manifest = JsonDocument.Parse(File.ReadAllBytes(source));
     var manifestTarget = Path.Combine(AppContext.BaseDirectory, "sources");
     Directory.CreateDirectory(manifestTarget);
@@ -165,7 +165,7 @@ public sealed class RestrictedStartupTests
     foreach (var (name, field) in new[] { ("ffmpeg.exe", "ffmpegSha256"),
       ("ffprobe.exe", "ffprobeSha256") })
     {
-      var path = Path.Combine(root, "tools", "ffmpeg", name);
+      var path = Path.Combine(tools!, name);
       using var file = File.OpenRead(path);
       Assert.Equal(manifest.RootElement.GetProperty(field).GetString(),
         Convert.ToHexString(SHA256.HashData(file)), ignoreCase: true);
