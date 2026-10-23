@@ -130,11 +130,11 @@ $env:BOOKSPLICE_FIXTURE_FFMPEG_DIR = Join-Path $fixtureRoot $fixtureRelease
 
 dotnet restore
 dotnet build --configuration Release --no-restore
-dotnet test --configuration Release --no-build -m:1
+dotnet test --configuration Release --no-build
 dotnet format --verify-no-changes --no-restore
 ```
 
-The tests use generated fixtures and disposable directories. They do not require private audiobook media. `-m:1` runs the test projects one at a time, because the updater tests hold read-only handles on shared temporary folders that make renames in other test projects fail. See [`ARCHITECTURE.md`](ARCHITECTURE.md), [`docs/METADATA.md`](docs/METADATA.md), [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md), [`BENCHMARK.md`](BENCHMARK.md), and [`docs/RELEASE.md`](docs/RELEASE.md) for the implementation and release contracts.
+The tests use generated fixtures and disposable directories. They do not require private audiobook media. See [`ARCHITECTURE.md`](ARCHITECTURE.md), [`docs/METADATA.md`](docs/METADATA.md), [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md), [`BENCHMARK.md`](BENCHMARK.md), and [`docs/RELEASE.md`](docs/RELEASE.md) for the implementation and release contracts.
 
 ## License
 

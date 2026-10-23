@@ -76,8 +76,11 @@ public sealed class OriginalPackageInventory : IDisposable
     string expectedVersion)
   {
     ValidatePath(path);
-    using var parent = SafeDirectoryHandle.OpenPath(Path.GetDirectoryName(path)!, false);
-    var inventory = Open(path, parent.Identity, expectedRoot, null);
+    // Only the identity is kept: holding the parent would block renames in it (e.g. Downloads) during the scan.
+    FileIdentity parentIdentity;
+    using (var parent = SafeDirectoryHandle.OpenPath(Path.GetDirectoryName(path)!, false))
+      parentIdentity = parent.Identity;
+    var inventory = Open(path, parentIdentity, expectedRoot, null);
     try
     {
       inventory.ValidatePackage(expectedVersion);

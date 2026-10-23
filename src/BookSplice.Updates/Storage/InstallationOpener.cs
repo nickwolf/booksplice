@@ -15,7 +15,7 @@ public sealed record OpenedInstallation(InstallationLayout Layout, InstallationR
 [SupportedOSPlatform("windows")]
 public static class InstallationOpener
 {
-  private const string Prefix = ".booksplice-managed-";
+  internal const string Prefix = ".booksplice-managed-";
 
   public static OpenedInstallation Open(string managedRootPath, bool canCreate = false,
     string? programsDirectory = null)

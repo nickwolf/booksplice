@@ -27,6 +27,8 @@ public sealed class SafeDirectoryHandle : IDisposable
   private const uint FileOpenIf = 3;
   private const uint FileWriteThrough = 0x2;
   private const uint ObjCaseInsensitive = 0x40;
+  private const uint ShareRead = 1;
+  private const uint ShareReadWrite = 3;
   private readonly List<SafeFileHandle> _ancestry;
   private readonly SafeDirectoryHandle? _parent;
   private bool _disposed;
@@ -109,7 +111,7 @@ public sealed class SafeDirectoryHandle : IDisposable
     var handles = new List<SafeFileHandle>();
     try
     {
-      var current = CreateFileW(root, FileReadAttributes | FileTraverse, 1,
+      var current = CreateFileW(root, FileReadAttributes | FileTraverse, ShareReadWrite,
         0, 3, FileFlagBackupSemantics | FileFlagOpenReparsePoint, 0);
       if (current.IsInvalid)
       {
@@ -128,18 +130,25 @@ public sealed class SafeDirectoryHandle : IDisposable
       var components = full[root.Length..].Split(System.IO.Path.DirectorySeparatorChar,
         StringSplitOptions.RemoveEmptyEntries);
       var walkedPath = root;
+      var owned = false;
       for (var index = 0; index < components.Length; index++)
       {
+        var last = index == components.Length - 1;
+        owned |= components[index].StartsWith(BookSplice.Updates.Storage.InstallationOpener.Prefix,
+          StringComparison.OrdinalIgnoreCase);
         var access = FileReadAttributes | FileTraverse |
-          (permitChildren && index == components.Length - 1 ? FileAddSubdirectory : 0) |
-          (permitRename && index == components.Length - 1 ? Delete : 0);
+          (permitChildren && last ? FileAddSubdirectory : 0) |
+          (permitRename && last ? Delete : 0);
+        // Folders above BookSplice's own stay open to other programs' edits but never to delete.
+        var share = last ? (allowEntryMutation || destinationForRename ? ShareReadWrite : ShareRead) :
+          owned ? ShareRead : ShareReadWrite;
         walkedPath = System.IO.Path.Combine(walkedPath, components[index]);
         current = createMissing ?
-          OpenChild(handles[^1], components[index], access, FileOpenIf, FileDirectoryFile) :
-          destinationForRename && index == components.Length - 1 ?
-          OpenChild(handles[^1], components[index], access, FileOpen, FileDirectoryFile, 3) :
-          CreateFileW(walkedPath, access,
-            allowEntryMutation && index == components.Length - 1 ? 3u : 1u, 0, 3,
+          OpenChild(handles[^1], components[index], access, FileOpenIf, FileDirectoryFile,
+            last ? ShareRead : share) :
+          destinationForRename && last ?
+          OpenChild(handles[^1], components[index], access, FileOpen, FileDirectoryFile, share) :
+          CreateFileW(walkedPath, access, share, 0, 3,
             FileFlagBackupSemantics | FileFlagOpenReparsePoint, 0);
         if (current.IsInvalid)
         {
