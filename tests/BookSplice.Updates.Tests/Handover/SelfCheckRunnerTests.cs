@@ -127,13 +127,5 @@ public sealed class SelfCheckRunnerTests
     Assert.Throws<InvalidDataException>(() => SelfCheckReport.Parse(System.Text.Encoding.UTF8.GetBytes(duplicate), "0.2.0"));
   }
 
-  private static string HelperPath()
-  {
-    var root = new DirectoryInfo(AppContext.BaseDirectory);
-    while (root is not null && !File.Exists(Path.Combine(root.FullName, "BookSplice.slnx")))
-      root = root.Parent;
-    Assert.NotNull(root);
-    return Path.Combine(root.FullName, "tests", "BookSplice.LeaseHost", "bin", "Debug",
-      "net10.0-windows", "BookSplice.LeaseHost.exe");
-  }
+  private static string HelperPath() => Tests.Windows.ProcessSupervisorTests.HelperPath();
 }
