@@ -14,7 +14,8 @@ public sealed class ConversionPlanner : IConversionPlanner
   public const decimal SafetyMargin = 1.10m;
   private readonly OutputNamePlanner _outputNames;
   private readonly IStorageSpaceProvider _storage;
-  public ConversionPlanner(OutputNamePlanner outputNames, IStorageSpaceProvider storage) => (_outputNames, _storage) = (outputNames, storage);
+  private readonly MetadataProfileCatalog _profiles;
+  public ConversionPlanner(OutputNamePlanner outputNames, IStorageSpaceProvider storage, MetadataProfileCatalog? profiles = null) => (_outputNames, _storage, _profiles) = (outputNames, storage, profiles ?? MetadataProfileCatalog.BuiltIn);
 
   public Task<ConversionPlanningResult> CreateAsync(BookAnalysis analysis, ConversionOptions options, CancellationToken cancellationToken)
   {
@@ -40,10 +41,10 @@ public sealed class ConversionPlanner : IConversionPlanner
     var chapters = analysis.Chapters.Entries.Select(chapter => options.ChapterTitles.TryGetValue(chapter.SourceRelativePath, out var title)
       ? chapter with { Title = string.IsNullOrWhiteSpace(title) ? chapter.Title : title.Trim() } : chapter).ToArray();
     var jobs = options.Settings.ConversionJobs ?? 6;
-    var metadataProfileId = options.Settings.MetadataProfileId;
-    if (metadataProfileId != MetadataProfiles.GenericMp4.Name) return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.metadata-profile-unknown", AnalysisDiagnosticSeverity.Error, "The selected metadata profile is unavailable.")]));
+    var metadataProfile = _profiles.Find(options.Settings.MetadataProfileId);
+    if (metadataProfile is null) return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.metadata-profile-unknown", AnalysisDiagnosticSeverity.Error, "The selected metadata profile is unavailable.")]));
     var format = SelectAudioFormat(analysis, options.Settings.ChannelPolicy);
-    var plan = new ConversionPlan(analysis.OrderedFiles.Select(file => file.FullPath).ToArray(), metadata, cover, chapters, options.QualityProfile, options.Settings.ValidationLevel, options.CollisionPolicy, output, strategy, reasons, space, jobs, options.Settings.ConversionJobs is null ? "benchmark-host-automatic-6" : "explicit-setting", metadataProfileId, format.SampleRate, format.Channels);
+    var plan = new ConversionPlan(analysis.OrderedFiles.Select(file => file.FullPath).ToArray(), metadata, cover, chapters, options.QualityProfile, options.Settings.ValidationLevel, options.CollisionPolicy, output, strategy, reasons, space, jobs, options.Settings.ConversionJobs is null ? "benchmark-host-automatic-6" : "explicit-setting", metadataProfile, format.SampleRate, format.Channels);
     return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Ready, plan, diagnostics));
   }
 

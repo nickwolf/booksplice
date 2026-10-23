@@ -110,6 +110,7 @@ public sealed partial class JsonJobLogWriter : IJobLogWriter
         plan.ConversionJobs,
         plan.JobsReason,
         plan.MetadataProfileId,
+        MetadataProfileVersion = plan.MetadataProfile.Version,
         plan.SampleRate,
         plan.Channels,
       },

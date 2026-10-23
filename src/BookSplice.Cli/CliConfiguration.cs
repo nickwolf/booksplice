@@ -1,3 +1,4 @@
+using BookSplice.Core.Metadata;
 using BookSplice.Core.Naming;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Settings;
@@ -11,7 +12,7 @@ public sealed record CliConfigurationResult(AppSettings? Settings, QualityProfil
 
 public static class CliConfiguration
 {
-  public static CliConfigurationResult Resolve(CliOptions options, SettingsLoadResult loaded)
+  public static CliConfigurationResult Resolve(CliOptions options, SettingsLoadResult loaded, MetadataProfileCatalog? catalog = null)
   {
     ArgumentNullException.ThrowIfNull(options);
     ArgumentNullException.ThrowIfNull(loaded);
@@ -27,10 +28,14 @@ public static class CliConfiguration
     if (profile is null) return Failure("configuration.quality-profile", "The selected quality profile is unavailable.");
     if (options.BitrateKbps is { } bitrate) profile = profile with { Id = "custom", DisplayName = "Custom", AudioBitrateKbps = bitrate };
 
+    catalog ??= MetadataProfileCatalog.BuiltIn;
+    var metadataProfileId = options.MetadataProfileId ?? loaded.Settings.MetadataProfileId;
+    if (catalog.Find(metadataProfileId) is null) return Failure("configuration.metadata-profile-unavailable", DescribeMissingProfile(metadataProfileId, catalog));
+
     var settings = loaded.Settings with
     {
       OutputDirectory = Path.GetFullPath(output),
-      MetadataProfileId = options.MetadataProfileId ?? loaded.Settings.MetadataProfileId,
+      MetadataProfileId = metadataProfileId,
       ValidationLevel = options.Validation ?? loaded.Settings.ValidationLevel,
       ChannelPolicy = options.ChannelPolicy ?? loaded.Settings.ChannelPolicy,
       QualityProfileId = profile.Id,
@@ -39,6 +44,16 @@ public static class CliConfiguration
       CollisionPolicy = options.Overwrite ? CollisionPolicy.Overwrite : CollisionPolicy.AvoidCollision,
     };
     return new(settings, profile, []);
+  }
+
+  private static string DescribeMissingProfile(string id, MetadataProfileCatalog catalog)
+  {
+    var text = new System.Text.StringBuilder(FormattableString.Invariant($"The metadata profile '{id}' is not available. "));
+    var rejected = catalog.Errors.FirstOrDefault(error => string.Equals(error.ProfileId, id, StringComparison.OrdinalIgnoreCase));
+    text.Append(rejected is null ? "No such profile is installed." : FormattableString.Invariant($"The file {rejected.FileName} was rejected: {rejected.Reason}"));
+    text.Append(FormattableString.Invariant($" Available profiles: {string.Join(", ", catalog.Profiles.Select(profile => profile.Name))}."));
+    text.Append(" Run 'booksplice --help' to see the profiles folder.");
+    return text.ToString();
   }
 
   private static CliConfigurationResult Failure(string code, string message) => new(null, null, [new(code, message)]);

@@ -32,7 +32,7 @@ public partial class MainWindow : Window
     _services = services;
     _settings = settings;
     _gate = new GuiOperationGate(Dispatcher);
-    if (services is not null) DataContext = _model = new MainWindowViewModel(services.Analyzer, services.Conversion, settings, services.Planner, _gate);
+    if (services is not null) DataContext = _model = new MainWindowViewModel(services.Analyzer, services.Conversion, settings, services.Planner, _gate, services.Profiles);
     Destination.Text = $"Output folder: {settings.OutputDirectory}";
   }
 
@@ -76,7 +76,7 @@ public partial class MainWindow : Window
       MessageBox.Show(this, "Wait for active jobs before changing settings.", "BookSplice settings");
       return;
     }
-    var model = new FirstLaunchViewModel(new FirstLaunchService(_store), _settings);
+    var model = new FirstLaunchViewModel(new FirstLaunchService(_store, profiles: _services?.Profiles), _settings, _services?.Profiles);
     var window = new FirstLaunchWindow(model) { Owner = this, Title = "BookSplice settings" };
     if (window.ShowDialog() != true) return;
     _settings = model.SavedSettings!;

@@ -6,6 +6,7 @@ using BookSplice.Core.Metadata;
 using BookSplice.Core.Ordering;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Settings;
+using BookSplice.Gui.Diagnostics;
 using BookSplice.Gui.ViewModels;
 
 namespace BookSplice.Gui.Tests;
@@ -135,6 +136,31 @@ public sealed class QueueTests
     Assert.DoesNotContain("128 kbps", item.Details);
   }
   [Fact]
+  public async Task PreviewDetailsAndPublicDiagnosticsDoNotNameACustomProfile()
+  {
+    var catalog = MetadataProfileCatalog.BuiltIn;
+    using var directory = new TemporaryProfiles();
+    directory.Write("custom.json", """{"schemaVersion":1,"name":"SyntheticCustom","version":"1","mappings":[{"field":"BookTitle","keys":["TITLE"]}]}""");
+    catalog = MetadataProfileCatalog.Load(directory.Root);
+    using var model = new MainWindowViewModel(new Analyzer(), new Converter(), AppSettings.Defaults, new RecordingPlanner(), profiles: catalog);
+    await model.AddAsync(Path.GetFullPath("book"));
+    var item = model.Items[0];
+    await model.ResolveOrderAsync(item, OrderCandidateId.NaturalPath);
+    item.MetadataProfileId = "SyntheticCustom";
+
+    await model.PreviewAsync(item);
+
+    Assert.Contains("Metadata: Custom", item.Details);
+    Assert.DoesNotContain("SyntheticCustom", item.Details);
+    Assert.DoesNotContain("SyntheticCustom", DiagnosticsTextBuilder.Build(item));
+  }
+  private sealed class TemporaryProfiles : IDisposable
+  {
+    public string Root { get; } = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), $"BookSplice-{Guid.NewGuid():N}")).FullName;
+    public void Write(string name, string content) => File.WriteAllText(Path.Combine(Root, name), content);
+    public void Dispose() => Directory.Delete(Root, recursive: true);
+  }
+  [Fact]
   public async Task QueueLimitsConcurrentBooksAndContinuesAfterOneFailure()
   {
     var converter = new BoundedConverter();
@@ -203,7 +229,7 @@ public sealed class QueueTests
       var channels = options.Settings.ChannelPolicy == ChannelPolicy.ForceMono ? 1 : 2;
       var plan = new ConversionPlan([], analysis.BookMetadata, null, [], options.QualityProfile, options.Settings.ValidationLevel,
         options.CollisionPolicy, Path.Combine(options.DestinationDirectory, "Preview.m4b"), strategy, [],
-        new SpaceEstimate(1, 1, 2, 3, 1), options.Settings.ConversionJobs ?? 6, "test", options.Settings.MetadataProfileId, 44_100, channels);
+        new SpaceEstimate(1, 1, 2, 3, 1), options.Settings.ConversionJobs ?? 6, "test", options.Settings.MetadataProfileId == MetadataProfiles.GenericMp4.Name ? MetadataProfiles.GenericMp4 : new MetadataProfile(options.Settings.MetadataProfileId, "1", [new(SemanticField.BookTitle, "TITLE")]), 44_100, channels);
       return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Ready, plan, []));
     }
   }

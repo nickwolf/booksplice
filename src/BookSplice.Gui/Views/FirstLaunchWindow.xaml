@@ -16,6 +16,17 @@
       <ComboBox x:Name="Quality" ItemsSource="{Binding QualityProfiles}" DisplayMemberPath="DisplayName" SelectedValuePath="Id" SelectedValue="{Binding QualityProfileId}" AutomationProperties.Name="Audio quality" Margin="0,0,0,12"/>
       <TextBlock Text="Source channels are preserved by default. Advanced settings can force mono or stereo output." TextWrapping="Wrap" Margin="0,0,0,12"/>
       <CheckBox Content="_Create chapters from source file boundaries" IsChecked="{Binding CreateChapters}" Margin="0,0,0,16"/>
+      <TextBlock Text="{Binding ProfileNotice}" TextWrapping="Wrap" Margin="0,0,0,12">
+        <TextBlock.Style>
+          <Style TargetType="TextBlock">
+            <Style.Triggers>
+              <Trigger Property="Text" Value="">
+                <Setter Property="Visibility" Value="Collapsed"/>
+              </Trigger>
+            </Style.Triggers>
+          </Style>
+        </TextBlock.Style>
+      </TextBlock>
       <Expander Header="_Advanced settings" Margin="0,0,0,12">
         <StackPanel>
           <Label Content="Parallel encoding _jobs (blank uses Automatic)" Target="{Binding ElementName=Jobs}" Margin="0,8,0,4"/>

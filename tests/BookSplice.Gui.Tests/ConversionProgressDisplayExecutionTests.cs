@@ -23,7 +23,7 @@ public sealed class ConversionProgressDisplayExecutionTests
         new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>());
       var plan = new ConversionPlan(sources, metadata, null, [], QualityProfileCatalog.Version1[2],
         ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, Path.Combine(root, "finished.m4b"),
-        AudioStrategy.SegmentedTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "test", "GenericMp4");
+        AudioStrategy.SegmentedTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "test", MetadataProfiles.GenericMp4);
       var executor = new FFmpegConversionExecutor(new ReportingRunner(),
         new FFmpegCommandFactory(new MediaToolSet("ffmpeg.exe", "ffprobe.exe", "pinned", "pinned")),
         new MetadataWriter(), Path.Combine(root, "jobs"));

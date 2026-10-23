@@ -19,7 +19,7 @@ public static class DiagnosticsTextBuilder
     text.Append("Channels: ").AppendLine(item.Settings.ChannelPolicy.ToString());
     text.Append("Validation: ").AppendLine(item.Result?.ValidationText ?? item.Settings.ValidationLevel.ToString());
     if (item.Result is { } result) text.AppendLine(result.DecodeText);
-    text.Append("Metadata profile: ").AppendLine(item.Settings.MetadataProfileId);
+    text.Append("Metadata profile: ").AppendLine(BookSplice.Core.Metadata.MetadataProfileCatalog.PublicLabel(item.Settings.MetadataProfileId));
     text.Append("Create chapters: ").AppendLine(item.Settings.CreateChapters.ToString(CultureInfo.InvariantCulture));
 
     if (!string.IsNullOrWhiteSpace(item.Details))

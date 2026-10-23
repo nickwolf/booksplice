@@ -86,7 +86,7 @@ booksplice <source> [options]
   --bitrate <32-320>                Custom AAC bitrate in kbps
   --jobs <1-32>                     Parallel segment encoders
   --order <natural|metadata>        Explicit source ordering candidate
-  --metadata-profile <name>         GenericMp4
+  --metadata-profile <name>         Metadata profile ID (see below)
   --validation <lightweight|full>   Output validation level
   --channels <preserve|mono|stereo> Output channel handling
   --chapters | --no-chapters        Chapter creation
@@ -96,6 +96,8 @@ booksplice <source> [options]
 ```
 
 An interactive terminal prompts when ordering needs a decision. Redirected input and JSON mode never prompt. Command-line overrides apply to that run and are not saved.
+
+`booksplice --help` lists the metadata profiles that are installed, and any profile files that were skipped with the reason.
 
 Exit codes are 0 for success, 1 for unexpected failure, 2 for usage error, 3 for invalid input or configuration, 4 for an unresolved ordering decision, 5 for conversion failure, 6 for validation failure, 7 for publication failure, and 8 for cancellation.
 

@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using BookSplice.Core.Metadata;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Settings;
 
@@ -7,7 +8,7 @@ namespace BookSplice.Gui.ViewModels;
 
 public sealed record ChannelPolicyOption(ChannelPolicy Value, string DisplayName);
 
-public sealed class FirstLaunchViewModel(FirstLaunchService service, AppSettings initial) : INotifyPropertyChanged
+public sealed class FirstLaunchViewModel(FirstLaunchService service, AppSettings initial, MetadataProfileCatalog? profiles = null) : INotifyPropertyChanged
 {
   private string _outputDirectory = initial.OutputDirectory;
   private string _qualityProfileId = initial.QualityProfileId;
@@ -21,10 +22,11 @@ public sealed class FirstLaunchViewModel(FirstLaunchService service, AppSettings
   public bool CreateChapters { get => _createChapters; set { _createChapters = value; Changed(); } }
   public bool IsBusy { get => _isBusy; private set { _isBusy = value; Changed(); Changed(nameof(CanEdit)); } }
   public bool CanEdit => !IsBusy;
+  public string ProfileNotice { get; } = ProfileNoticeText(profiles ?? MetadataProfileCatalog.BuiltIn);
   public string ErrorMessage { get => _errorMessage; private set { _errorMessage = value; Changed(); } }
   public int? ConversionJobs { get; set; } = initial.ConversionJobs;
   public ChannelPolicy ChannelPolicy { get; set; } = initial.ChannelPolicy;
-  public string MetadataProfileId { get; set; } = initial.MetadataProfileId;
+  public string MetadataProfileId { get; set; } = (profiles ?? MetadataProfileCatalog.BuiltIn).Find(initial.MetadataProfileId) is not null ? initial.MetadataProfileId : Core.Metadata.MetadataProfiles.GenericMp4.Name;
   public ValidationLevel ValidationLevel { get; set; } = initial.ValidationLevel;
   public LogLevel LogLevel { get; set; } = initial.LogLevel;
   public IReadOnlyList<ChannelPolicyOption> ChannelPolicies { get; } =
@@ -33,7 +35,7 @@ public sealed class FirstLaunchViewModel(FirstLaunchService service, AppSettings
     new(ChannelPolicy.ForceMono, "Force mono"),
     new(ChannelPolicy.ForceStereo, "Force stereo"),
   ];
-  public IReadOnlyList<string> MetadataProfiles { get; } = ["GenericMp4"];
+  public IReadOnlyList<string> MetadataProfiles { get; } = (profiles ?? MetadataProfileCatalog.BuiltIn).Profiles.Select(profile => profile.Name).ToArray();
   public IReadOnlyList<ValidationLevel> ValidationLevels { get; } = Enum.GetValues<ValidationLevel>();
   public IReadOnlyList<LogLevel> LogLevels { get; } = Enum.GetValues<LogLevel>();
   public IReadOnlyList<int?> JobChoices { get; } = new int?[] { null }.Concat(Enumerable.Range(1, 32).Select(value => (int?)value)).ToArray();
@@ -63,6 +65,9 @@ public sealed class FirstLaunchViewModel(FirstLaunchService service, AppSettings
     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return false; }
     finally { IsBusy = false; }
   }
+
+  public static string ProfileNoticeText(MetadataProfileCatalog catalog)
+    => catalog.Errors.Count == 0 ? "" : $"{catalog.Errors.Count} metadata profile file(s) were skipped: " + string.Join("; ", catalog.Errors.Select(error => $"{error.FileName} ({error.Reason})"));
 
   private void Changed([CallerMemberName] string? property = null) => PropertyChanged?.Invoke(this, new(property));
 }

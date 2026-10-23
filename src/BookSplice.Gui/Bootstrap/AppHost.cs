@@ -19,6 +19,7 @@ namespace BookSplice.Gui.Bootstrap;
 public sealed class AppHost(string localAppDataRoot)
 {
   public ISettingsStore Settings { get; } = new JsonSettingsStore(localAppDataRoot);
+  public MetadataProfileCatalog Profiles { get; } = MetadataProfileCatalog.Load(Path.Combine(Path.GetFullPath(localAppDataRoot), "BookSplice", "profiles"));
 
   public GuiServices CreateServices(string mediaToolDirectory)
   {
@@ -27,7 +28,7 @@ public sealed class AppHost(string localAppDataRoot)
     var probe = new FFprobeMediaProbe(runner, tools);
     var analyzer = new BookAnalyzer(new SourceDiscoverer(probe, Math.Clamp(Environment.ProcessorCount, 1, 8)),
       new OrderResolver(), new MetadataAggregator(), new CoverDiscoverer(new BookSplice.FFmpeg.Covers.MediaCoverPayloadOpener(tools)), new ChapterPlanner());
-    var planner = new ConversionPlanner(new OutputNamePlanner(), new StorageSpaceProvider());
+    var planner = new ConversionPlanner(new OutputNamePlanner(), new StorageSpaceProvider(), Profiles);
     var localDirectory = Path.Combine(Path.GetFullPath(localAppDataRoot), "BookSplice");
     var temporaryRoot = Path.Combine(localDirectory, "temp");
     var service = new ConversionService(analyzer, planner,
@@ -35,7 +36,7 @@ public sealed class AppHost(string localAppDataRoot)
       new FFmpegOutputValidator(probe, runner, tools, new CoverPayloadValidator()),
       new AtomicPublisher(), new TemporaryArtifactCleaner(temporaryRoot),
       new JsonJobLogWriter(Path.Combine(localDirectory, "logs")));
-    return new(analyzer, planner, service, new BookSplice.FFmpeg.Covers.MediaCoverPayloadOpener(tools));
+    return new(analyzer, planner, service, new BookSplice.FFmpeg.Covers.MediaCoverPayloadOpener(tools), Profiles);
   }
 
   private sealed class StorageSpaceProvider : IStorageSpaceProvider
@@ -52,4 +53,4 @@ public sealed class AppHost(string localAppDataRoot)
   }
 }
 
-public sealed record GuiServices(IBookAnalyzer Analyzer, IConversionPlanner Planner, IConversionService Conversion, ICoverPayloadOpener CoverPayloads);
+public sealed record GuiServices(IBookAnalyzer Analyzer, IConversionPlanner Planner, IConversionService Conversion, ICoverPayloadOpener CoverPayloads, MetadataProfileCatalog? Profiles = null);

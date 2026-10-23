@@ -79,7 +79,7 @@ public sealed class AtomicPublisherFaultTests
   }
 
   private static ConversionPlan Plan(string outputPath, CollisionPolicy policy = CollisionPolicy.AvoidCollision)
-    => new([], new BookMetadata(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>()), null, [], QualityProfileCatalog.Version1[0], ValidationLevel.Lightweight, policy, outputPath, AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "test", "GenericMp4", planId: TestPlanId);
+    => new([], new BookMetadata(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>()), null, [], QualityProfileCatalog.Version1[0], ValidationLevel.Lightweight, policy, outputPath, AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "test", MetadataProfiles.GenericMp4, planId: TestPlanId);
 
   private sealed class HookedOperations : IAtomicPublisherFileOperations
   {

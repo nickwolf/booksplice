@@ -121,6 +121,6 @@ public sealed class FFmpegCommandFactoryTests
   {
     var sources = Enumerable.Range(0, count).Select(index => index == 0 ? @"C:\input\one.mp3" : $@"C:\input\later{index}.mp3").ToArray();
     var chapters = sources.Select((_, index) => new ChapterEntry(index * 1_000_000L, (index + 1) * 1_000_000L, $"Chapter {index + 1}", "", sources[index])).ToArray();
-    return new ConversionPlan(sources, new BookMetadata(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>()), cover, chapters, QualityProfileCatalog.Version1[2], ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, @"C:\destination\book.m4b", strategy, Array.Empty<string>(), new SpaceEstimate(1, 1, 1, 1, 0), 1, "test", "GenericMp4", sampleRate, channels);
+    return new ConversionPlan(sources, new BookMetadata(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>()), cover, chapters, QualityProfileCatalog.Version1[2], ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, @"C:\destination\book.m4b", strategy, Array.Empty<string>(), new SpaceEstimate(1, 1, 1, 1, 0), 1, "test", MetadataProfiles.GenericMp4, sampleRate, channels);
   }
 }

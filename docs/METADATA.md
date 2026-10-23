@@ -29,6 +29,32 @@ Input tags not mapped by a profile are retained using their original key spellin
 
 `SERIESPART` is an observed compatibility alias. It is not written. `DISCNUMBER` is not part of either profile contract and is not written.
 
+## Local profile files
+
+BookSplice reads each `*.json` file in `%LOCALAPPDATA%\BookSplice\profiles\` once at startup, one profile per file. `BOOKSPLICE_LOCAL_APP_DATA` moves that root the same way it moves `settings.json`. Subfolders are not read. Loaded profiles are listed after `GenericMp4` in first-launch settings, the Settings window, and each book's output controls, and `--metadata-profile` accepts their names. `booksplice --help` prints the profile list, the folder, and the reason each skipped file was rejected. Files added while BookSplice is running are picked up on the next start.
+
+```json
+{
+  "schemaVersion": 1,
+  "name": "MyProfile",
+  "version": "1",
+  "mappings": [
+    { "field": "BookTitle", "keys": ["TITLE", "ALBUM"] },
+    { "field": "Author", "keys": ["ARTIST", "ALBUMARTIST"] },
+    { "field": "Series", "keys": ["SERIES"] },
+    { "field": "SeriesPart", "keys": ["SERIES-PART"] }
+  ]
+}
+```
+
+`name` is the profile ID: 1 to 64 letters, digits, dots, underscores, or hyphens. It must not match `GenericMp4` or another file's name, ignoring case. When two files use the same name, both are skipped. `version` is free text up to 32 characters and is recorded in the job audit log. `field` must be one of `BookTitle`, `Author`, `Narrator`, `Subtitle`, `AlbumSort`, `Series`, `SeriesPart`, `Genre`, `Year`, `ReleaseTime`, `Comment`, `Description`, `Publisher`, `Copyright`, `Asin`, `AudioFileUrl`, `Isbn`, `Language`, `ItunesMediaType`, `RatingWmp`, `ContentGroup`, `MovementName`, `Movement`, `ItunesGapless`, `AudibleAsin`, `AudibleAlbumArtistId`, `AudibleAcr`, `AudibleLocale`, `Format`, `Explicit`, `Rating`, `Track`, or `Disc`, spelled exactly. Each field may appear once. Each key is 1 to 64 characters with no control characters or leading or trailing spaces, and may appear once per profile ignoring case. `ALBUMARTIST` and `album_artist` count as the same key because both write the MP4 album-artist atom.
+
+A file is skipped when it is not valid JSON, repeats a property, has a property not shown above, is larger than 64 KiB, or is a link or reparse point. A skipped file does not affect the other profiles. Unmapped input tags are preserved as described above, so a profile only lists the fields it writes.
+
+`TITLE`, `ALBUM`, `ARTIST`, `ALBUMARTIST`, and `COMPOSER` are written as native MP4 fields and every other key as a `com.apple.iTunes` freeform atom. Full validation compares the output against the plan's profile. Because ffprobe reports the album-artist atom as `album_artist`, validation reads `ALBUMARTIST` under that name for every profile.
+
+Each job keeps the profile it was planned with, so editing or removing a file never changes a job that is already running. If the profile saved in `settings.json` is missing at startup, the GUI keeps the file unchanged and opens settings to choose another profile. The CLI exits with code 3 and lists the available profiles. A valid `--metadata-profile` still works in that case. Public diagnostics print `Custom` instead of a local profile's name. Profile files live outside the install folder, so updates leave them in place, and release packages never contain them.
+
 ## FFmetadata
 
 `FFmetadataWriter` emits the `;FFMETADATA1` header and escapes `\\`, `=`, `;`, `#`, CR, and LF. A CRLF pair becomes one escaped LF, matching FFmpeg's line-continuation syntax. This writer stays in the FFmpeg project so Core remains format-independent.

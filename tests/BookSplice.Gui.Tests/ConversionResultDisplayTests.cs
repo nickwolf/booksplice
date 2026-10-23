@@ -68,7 +68,7 @@ public sealed class ConversionResultDisplayTests
   {
     var plan = new ConversionPlan(["source.wav"], new BookMetadata(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(),
       new Dictionary<SemanticField, IReadOnlyList<string>>()), null, [], QualityProfileCatalog.Version1[0], ValidationLevel.Full, CollisionPolicy.AvoidCollision,
-      "finished.m4b", AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "test", "GenericMp4");
+      "finished.m4b", AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "test", MetadataProfiles.GenericMp4);
     var report = ValidationReport.Passed(Path.GetFullPath("temporary.m4b"), [new("container.parse", true, "")]);
     var result = Result(ConversionTerminalStatus.Cancelled, report) with { Planning = new(BookAnalysisStatus.Ready, plan, []) };
     var display = ConversionResultDisplay.Create(result, TimeSpan.Zero, ValidationLevel.Lightweight);

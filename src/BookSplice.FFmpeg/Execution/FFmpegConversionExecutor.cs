@@ -115,7 +115,7 @@ public sealed class FFmpegConversionExecutor : IConversionExecutor
       if ((File.GetAttributes(job) & FileAttributes.ReparsePoint) != 0) throw new IOException("The temporary job directory is a reparse point.");
       output = Register(artifacts, job, "output.m4b");
       var normalizer = new ProgressNormalizer(plan, progress);
-      var tags = ResolveProfile(plan.MetadataProfileId).Apply(plan.Metadata);
+      var tags = plan.MetadataProfile.Apply(plan.Metadata);
       var metadata = Register(artifacts, job, "metadata.ffmeta");
       WriteMetadata(metadata, tags, plan.Chapters);
       string? manifest = null;
@@ -222,7 +222,6 @@ public sealed class FFmpegConversionExecutor : IConversionExecutor
   }
 
   private static string Escape(string value) => value.Replace("\\", "\\\\").Replace("=", "\\=").Replace(";", "\\;").Replace("#", "\\#").Replace("\r\n", "\\\n").Replace("\n", "\\\n").Replace("\r", "\\\n");
-  private static MetadataProfile ResolveProfile(string id) => id == MetadataProfiles.GenericMp4.Name ? MetadataProfiles.GenericMp4 : throw new InvalidOperationException();
 
   internal static void Cleanup(IEnumerable<string> artifacts, string? job, Func<string, FileAttributes>? getAttributes = null)
   {

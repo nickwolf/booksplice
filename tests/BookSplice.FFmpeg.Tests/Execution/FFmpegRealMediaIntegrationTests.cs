@@ -1,10 +1,14 @@
+using BookSplice.Core.Analysis;
 using BookSplice.Core.Chapters;
 using BookSplice.Core.Covers;
+using BookSplice.Core.Discovery;
 using BookSplice.Core.Metadata;
 using BookSplice.Core.Naming;
+using BookSplice.Core.Ordering;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Settings;
 using BookSplice.FFmpeg.Commands;
+using BookSplice.FFmpeg.Covers;
 using BookSplice.FFmpeg.Execution;
 using BookSplice.FFmpeg.Probing;
 using BookSplice.FFmpeg.Tools;
@@ -284,7 +288,7 @@ public sealed class FFmpegRealMediaIntegrationTests
     var metadata = new BookMetadata(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>());
     var plan = new ConversionPlan([first, embedded], metadata, cover,
       [new ChapterEntry(0, 1_000_000, "First", "", "first.mp3"), new ChapterEntry(1_000_000, 2_000_000, "Later", "", "later-cover.m4a")],
-      QualityProfileCatalog.Version1[2], ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, destination, AudioStrategy.SegmentedTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 2, "integration", "GenericMp4", 44100, 1);
+      QualityProfileCatalog.Version1[2], ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, destination, AudioStrategy.SegmentedTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 2, "integration", MetadataProfiles.GenericMp4, 44100, 1);
     var runner = new RecordingRunner(new ProcessRunner());
     var result = await new FFmpegConversionExecutor(runner, new FFmpegCommandFactory(tools), new Mp4MetadataWriter(), Path.Combine(root.Path, "jobs"))
       .ExecuteAsync(plan, CancellationToken.None);
@@ -313,7 +317,7 @@ public sealed class FFmpegRealMediaIntegrationTests
     };
     var metadata = new BookMetadata(fields, new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>());
     var destination = Path.Combine(root.Path, "planned-sample.m4b");
-    var plan = new ConversionPlan([source], metadata, null, [new ChapterEntry(0, 1_000_000, "Opening", "", "spoken.mp3")], QualityProfileCatalog.Version1[2], ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, destination, AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "integration", "GenericMp4", 44100, 1);
+    var plan = new ConversionPlan([source], metadata, null, [new ChapterEntry(0, 1_000_000, "Opening", "", "spoken.mp3")], QualityProfileCatalog.Version1[2], ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, destination, AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "integration", MetadataProfiles.GenericMp4, 44100, 1);
     var writer = new ObservingMetadataWriter(tools, new Mp4MetadataWriter());
     var result = await new FFmpegConversionExecutor(new RecordingRunner(new ProcessRunner()), new FFmpegCommandFactory(tools), writer, Path.Combine(root.Path, "jobs-sample"))
       .ExecuteAsync(plan, CancellationToken.None);
@@ -339,7 +343,7 @@ public sealed class FFmpegRealMediaIntegrationTests
     };
     var metadata = new BookMetadata(fields, new Dictionary<string, string> { ["CUSTOM"] = "Preserved" }, new Dictionary<SemanticField, IReadOnlyList<string>>());
     var destination = Path.Combine(root.Path, "planned-sample.m4b");
-    var plan = new ConversionPlan([source], metadata, null, [new ChapterEntry(0, 1_000_000, "Opening", "", "spoken.mp3")], QualityProfileCatalog.Version1[2], ValidationLevel.Full, CollisionPolicy.AvoidCollision, destination, AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "integration", "GenericMp4", 44100, 1);
+    var plan = new ConversionPlan([source], metadata, null, [new ChapterEntry(0, 1_000_000, "Opening", "", "spoken.mp3")], QualityProfileCatalog.Version1[2], ValidationLevel.Full, CollisionPolicy.AvoidCollision, destination, AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "integration", MetadataProfiles.GenericMp4, 44100, 1);
     var runner = new ProcessRunner();
     var result = await new FFmpegConversionExecutor(runner, new FFmpegCommandFactory(tools), new Mp4MetadataWriter(), Path.Combine(root.Path, "jobs-sample-validation"))
       .ExecuteAsync(plan, CancellationToken.None);
@@ -353,13 +357,84 @@ public sealed class FFmpegRealMediaIntegrationTests
     Assert.True(report.IsValid, string.Join(Environment.NewLine, report.Checks.Where(check => !check.Passed).Select(check => $"{check.Code}: {check.Message}")) + Environment.NewLine + string.Join(", ", facts.FormatTags.Select(tag => $"{tag.Key}={tag.Value}")));
   }
 
+  [PinnedMediaFact]
+  public async Task CustomProfileFromJsonSurvivesEditsAndPassesFullValidation()
+  {
+    var tools = ResolveTools();
+    using var root = new TemporaryDirectory();
+    var sourceRoot = Directory.CreateDirectory(Path.Combine(root.Path, "sources")).FullName;
+    var profilesRoot = Directory.CreateDirectory(Path.Combine(root.Path, "profiles")).FullName;
+    var outputRoot = Directory.CreateDirectory(Path.Combine(root.Path, "out")).FullName;
+    await GenerateAudioAsync(tools, Path.Combine(sourceRoot, "spoken.mp3"), "libmp3lame", "1", "44100", "440");
+    await GenerateImageAsync(tools, Path.Combine(sourceRoot, "cover.jpg"), "mjpeg", "red");
+    File.WriteAllText(Path.Combine(profilesRoot, "synthetic.json"), """
+      {
+        "schemaVersion": 1,
+        "name": "SyntheticCustom",
+        "version": "3",
+        "mappings": [
+          { "field": "BookTitle", "keys": ["TITLE", "ALBUM"] },
+          { "field": "Author", "keys": ["ARTIST", "ALBUMARTIST"] },
+          { "field": "Narrator", "keys": ["COMPOSER", "X NARRATOR"] },
+          { "field": "Series", "keys": ["X SERIES"] },
+          { "field": "RatingWmp", "keys": ["RATING WMP"] },
+          { "field": "Publisher", "keys": ["X PUBLISHER"] }
+        ]
+      }
+      """);
+    var catalog = MetadataProfileCatalog.Load(profilesRoot);
+    Assert.Empty(catalog.Errors);
+
+    var probe = new FFprobeMediaProbe(new ProcessRunner(), tools);
+    var analyzer = new BookAnalyzer(new SourceDiscoverer(probe, 1), new OrderResolver(), new MetadataAggregator(), new CoverDiscoverer(new MediaCoverPayloadOpener(tools)), new ChapterPlanner());
+    var analysis = await analyzer.AnalyzeAsync(sourceRoot, true);
+    Assert.Equal(BookAnalysisStatus.Ready, analysis.Status);
+    var edits = new Dictionary<SemanticField, MetadataEdit>
+    {
+      [SemanticField.BookTitle] = MetadataEdit.Set("Sample Book"),
+      [SemanticField.Author] = MetadataEdit.Set("Sample Author"),
+      [SemanticField.Narrator] = MetadataEdit.Set("Sample Narrator"),
+      [SemanticField.Series] = MetadataEdit.Set("Sample Series"),
+      [SemanticField.RatingWmp] = MetadataEdit.Set("5"),
+      [SemanticField.Publisher] = MetadataEdit.Set("Sample Publisher"),
+    };
+    var settings = AppSettings.Defaults with { OutputDirectory = outputRoot, MetadataProfileId = "SyntheticCustom", ValidationLevel = ValidationLevel.Full };
+    var planning = await new ConversionPlanner(new OutputNamePlanner(), new FixedSpace(), catalog)
+      .CreateAsync(analysis, new ConversionOptions(settings, QualityProfileCatalog.Version1[2], edits), CancellationToken.None);
+    var plan = planning.Plan!;
+    Assert.Equal("SyntheticCustom", plan.MetadataProfile.Name);
+    Assert.NotNull(plan.Cover);
+
+    var writer = new ObservingMetadataWriter(tools, new Mp4MetadataWriter());
+    var runner = new ProcessRunner();
+    var result = await new FFmpegConversionExecutor(runner, new FFmpegCommandFactory(tools), writer, Path.Combine(root.Path, "jobs-custom")).ExecuteAsync(plan, CancellationToken.None);
+
+    Assert.Equal(ExecutionStatus.Succeeded, result.Status);
+    Assert.Equal(writer.BeforeAudioHash, writer.AfterAudioHash);
+    Assert.Equal(writer.BeforeChapterCount, writer.AfterChapterCount);
+    var facts = await probe.ProbeAsync(result.TemporaryOutputPath!);
+    Assert.Single(facts.AttachedPictures);
+    Assert.Equal("Sample Book", facts.FormatTags["title"]);
+    Assert.Equal("Sample Author", facts.FormatTags["album_artist"]);
+    Assert.Equal("Sample Narrator", facts.FormatTags["X NARRATOR"]);
+    Assert.Equal("Sample Series", facts.FormatTags["X SERIES"]);
+    Assert.Equal("5", facts.FormatTags["RATING WMP"]);
+    Assert.Equal("Sample Publisher", facts.FormatTags["X PUBLISHER"]);
+    var report = await new FFmpegOutputValidator(probe, runner, tools, new CoverPayloadValidator()).ValidateAsync(plan, result.TemporaryOutputPath!, CancellationToken.None);
+    Assert.True(report.IsValid, string.Join(Environment.NewLine, report.Checks.Where(check => !check.Passed).Select(check => $"{check.Code}: {check.Message}")) + Environment.NewLine + string.Join(", ", facts.FormatTags.Select(tag => $"{tag.Key}={tag.Value}")));
+    Assert.Contains(report.Checks, check => check.Code == "metadata.required" && check.Passed);
+    Assert.Contains(report.Checks, check => check.Code == "decode.full" && check.Passed);
+  }
+
+  private sealed class FixedSpace : IStorageSpaceProvider { public long? GetAvailableBytes(string destinationDirectory) => long.MaxValue; }
+
   private static ConversionPlan CreatePlan(AudioStrategy strategy, IReadOnlyList<string> sources, string destination, string sourceRoot) =>
     CreatePlan(strategy, sources, destination, sourceRoot, sources.Select((path, index) => new ChapterEntry(index * 1_000_000L, (index + 1) * 1_000_000L, $"Chapter {index + 1}", "", Path.GetRelativePath(sourceRoot, path))).ToArray());
 
   private static ConversionPlan CreatePlan(AudioStrategy strategy, IReadOnlyList<string> sources, string destination, string sourceRoot, IReadOnlyList<ChapterEntry> chapters, ValidationLevel validationLevel = ValidationLevel.Lightweight)
   {
     var metadata = new BookMetadata(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>());
-    return new ConversionPlan(sources, metadata, null, chapters, QualityProfileCatalog.Version1[2], validationLevel, CollisionPolicy.AvoidCollision, destination, strategy, [], new SpaceEstimate(1, 1, 1, 1, 0), 2, "integration", "GenericMp4");
+    return new ConversionPlan(sources, metadata, null, chapters, QualityProfileCatalog.Version1[2], validationLevel, CollisionPolicy.AvoidCollision, destination, strategy, [], new SpaceEstimate(1, 1, 1, 1, 0), 2, "integration", MetadataProfiles.GenericMp4);
   }
 
   private static ConversionPlan CreateTaggedPlan(string source, string cover, string destination)
@@ -372,7 +447,7 @@ public sealed class FFmpegRealMediaIntegrationTests
     };
     var metadata = new BookMetadata(fields, new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>());
     var coverCandidate = new CoverCandidate("generated", CoverOrigin.ExternalFile, cover, null, Path.GetExtension(cover) == ".png" ? "image/png" : "image/jpeg", 32, 32, CoverSemanticType.FrontCover, true);
-    return new ConversionPlan([source], metadata, coverCandidate, [new ChapterEntry(0, 1_000_000, "Opening & Intro", "", Path.GetFileName(source))], QualityProfileCatalog.Version1[2], ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, destination, AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "integration", "GenericMp4");
+    return new ConversionPlan([source], metadata, coverCandidate, [new ChapterEntry(0, 1_000_000, "Opening & Intro", "", Path.GetFileName(source))], QualityProfileCatalog.Version1[2], ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, destination, AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "integration", MetadataProfiles.GenericMp4);
   }
 
   private static AggregatedValue Value(SemanticField field, string value) => new(field, AggregationState.Consistent, value, []);

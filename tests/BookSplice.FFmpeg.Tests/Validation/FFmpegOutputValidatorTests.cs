@@ -172,13 +172,51 @@ public sealed class FFmpegOutputValidatorTests
     Assert.True(report.IsValid);
     Assert.Contains(report.Checks, check => check.Code == "metadata.required" && check.Passed);
   }
+  private static MetadataProfile CustomProfile() => new("SyntheticProfile", "1", [new(SemanticField.BookTitle, "TITLE"), new(SemanticField.Author, "ALBUMARTIST"), new(SemanticField.Narrator, "X NARRATOR")]);
+
+  private static BookMetadata CustomMetadata() => new(
+    new Dictionary<SemanticField, AggregatedValue>
+    {
+      [SemanticField.BookTitle] = new(SemanticField.BookTitle, AggregationState.Consistent, "Book", []),
+      [SemanticField.Author] = new(SemanticField.Author, AggregationState.Consistent, "Author", []),
+      [SemanticField.Narrator] = new(SemanticField.Narrator, AggregationState.Consistent, "Narrator", []),
+    },
+    new Dictionary<string, string>(),
+    new Dictionary<SemanticField, IReadOnlyList<string>>());
+
+  [Theory]
+  [InlineData(null, false)]
+  [InlineData("Narrator", true)]
+  [InlineData("Other", false)]
+  public async Task ValidateAsyncChecksTheCustomProfileKeysAndAcceptsProbeAlbumArtist(string? freeform, bool valid)
+  {
+    using var output = new TemporaryOutput();
+    var tags = new Dictionary<string, string> { ["title"] = "Book", ["album_artist"] = "Author" };
+    if (freeform is not null) tags["X NARRATOR"] = freeform;
+
+    var report = await Validator(new Probe(Media(tags: tags))).ValidateAsync(Plan(metadataProfile: CustomProfile(), metadata: CustomMetadata()), output.Path, CancellationToken.None);
+
+    Assert.Equal(valid, report.Checks.Single(check => check.Code == "metadata.required").Passed);
+  }
+
+  [Fact]
+  public async Task ValidateAsyncFailsWhenTheCustomAlbumArtistIsMissing()
+  {
+    using var output = new TemporaryOutput();
+    var tags = new Dictionary<string, string> { ["title"] = "Book", ["X NARRATOR"] = "Narrator" };
+
+    var report = await Validator(new Probe(Media(tags: tags))).ValidateAsync(Plan(metadataProfile: CustomProfile(), metadata: CustomMetadata()), output.Path, CancellationToken.None);
+
+    Assert.False(report.Checks.Single(check => check.Code == "metadata.required").Passed);
+  }
+
   private static FFmpegOutputValidator Validator(IMediaProbe probe, Runner? runner = null)
     => new(probe, runner ?? new Runner(), new MediaToolSet("ffmpeg.exe", "ffprobe.exe", "pinned", "pinned"), new CoverPayloadValidator());
 
-  private static ConversionPlan Plan(string? output = null, ValidationLevel level = ValidationLevel.Lightweight, int sampleRate = 44_100, int channels = 1, string metadataProfileId = "GenericMp4", BookMetadata? metadata = null, string chapterTitle = "One")
+  private static ConversionPlan Plan(string? output = null, ValidationLevel level = ValidationLevel.Lightweight, int sampleRate = 44_100, int channels = 1, MetadataProfile? metadataProfile = null, BookMetadata? metadata = null, string chapterTitle = "One")
   {
     metadata ??= new BookMetadata(new Dictionary<SemanticField, AggregatedValue> { [SemanticField.BookTitle] = new(SemanticField.BookTitle, AggregationState.Consistent, "Book", []) }, new Dictionary<string, string> { ["CUSTOM"] = "Value" }, new Dictionary<SemanticField, IReadOnlyList<string>>());
-    return new ConversionPlan(["source-01.mp3"], metadata, null, [new ChapterEntry(0, 4_000_000, chapterTitle, "", "source-01.mp3")], QualityProfileCatalog.Version1[0], level, CollisionPolicy.AvoidCollision, output ?? Path.Combine(Path.GetTempPath(), "Book.m4b"), AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "test", metadataProfileId, sampleRate, channels);
+    return new ConversionPlan(["source-01.mp3"], metadata, null, [new ChapterEntry(0, 4_000_000, chapterTitle, "", "source-01.mp3")], QualityProfileCatalog.Version1[0], level, CollisionPolicy.AvoidCollision, output ?? Path.Combine(Path.GetTempPath(), "Book.m4b"), AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "test", metadataProfile ?? MetadataProfiles.GenericMp4, sampleRate, channels);
   }
 
   private static MediaProbeResult Media(IReadOnlyList<AudioTrack>? audio = null, decimal duration = 4m, IReadOnlyList<MediaChapter>? chapters = null, IReadOnlyDictionary<string, string>? tags = null)

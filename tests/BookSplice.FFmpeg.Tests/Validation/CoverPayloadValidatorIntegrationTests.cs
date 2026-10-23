@@ -42,7 +42,7 @@ public sealed class CoverPayloadValidatorIntegrationTests
   private static ConversionPlan Plan(string output, string coverHash)
   {
     var cover = new CoverCandidate(coverHash, CoverOrigin.ExternalFile, "cover.jpg", null, "image/jpeg", 32, 32, CoverSemanticType.FrontCover, true);
-    return new ConversionPlan(["source.mp3"], new BookMetadata(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>()), cover, [], QualityProfileCatalog.Version1[0], ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, output, AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "test", "GenericMp4", 44_100, 1);
+    return new ConversionPlan(["source.mp3"], new BookMetadata(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>()), cover, [], QualityProfileCatalog.Version1[0], ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, output, AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "test", MetadataProfiles.GenericMp4, 44_100, 1);
   }
 
   private sealed class TemporaryDirectory : IDisposable
