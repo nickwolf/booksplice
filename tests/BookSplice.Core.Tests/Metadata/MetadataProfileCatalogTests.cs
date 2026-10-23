@@ -166,14 +166,13 @@ public sealed class MetadataProfileCatalogTests
     Assert.DoesNotContain(directory.Root, error.Reason);
   }
 
-  [Fact]
+  [SymbolicLinkFact]
   public void Load_rejects_symbolic_links()
   {
     using var directory = new TempProfiles();
     var target = Path.Combine(directory.Root, "target.txt");
     File.WriteAllText(target, Valid);
-    try { File.CreateSymbolicLink(Path.Combine(directory.Root, "link.json"), target); }
-    catch (Exception exception) when (exception is UnauthorizedAccessException or IOException) { return; }
+    File.CreateSymbolicLink(Path.Combine(directory.Root, "link.json"), target);
 
     var catalog = MetadataProfileCatalog.Load(directory.Root);
 
@@ -188,4 +187,22 @@ public sealed class MetadataProfileCatalogTests
     public void Write(string name, string content) => File.WriteAllText(Path.Combine(Root, name), content);
     public void Dispose() => Directory.Delete(Root, recursive: true);
   }
+}
+
+[AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
+public sealed class SymbolicLinkFactAttribute : FactAttribute
+{
+  public SymbolicLinkFactAttribute()
+  {
+    if (!CanCreate.Value) Skip = "Creating a symbolic link needs Developer Mode or elevation on this machine.";
+  }
+
+  private static readonly Lazy<bool> CanCreate = new(() =>
+  {
+    var root = Path.Combine(Path.GetTempPath(), $"BookSplice-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(root);
+    try { File.CreateSymbolicLink(Path.Combine(root, "probe"), Path.Combine(root, "missing")); return true; }
+    catch (Exception exception) when (exception is UnauthorizedAccessException or IOException) { return false; }
+    finally { Directory.Delete(root, recursive: true); }
+  });
 }
