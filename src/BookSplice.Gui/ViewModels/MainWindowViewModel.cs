@@ -8,6 +8,7 @@ using BookSplice.Core.Metadata;
 using BookSplice.Core.Ordering;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Settings;
+using BookSplice.Gui.Diagnostics;
 using BookSplice.Gui.Updates;
 
 namespace BookSplice.Gui.ViewModels;
@@ -110,6 +111,8 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     using var cancellation = new CancellationTokenSource();
     item.Cancellation = cancellation;
     var acquired = false;
+    var finished = false;
+    Guid? registeredJob = null;
     var elapsed = new Stopwatch();
     var requestedValidation = item.Settings.ValidationLevel;
     var display = new ConversionProgressDisplay();
@@ -148,7 +151,12 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     }
     catch (OperationCanceledException) { ShowExceptionResult(ConversionTerminalStatus.Cancelled, null); }
     catch (Exception exception) { ShowExceptionResult(ConversionTerminalStatus.UnexpectedFailure, exception.Message); }
-    finally { timer.Stop(); elapsed.Stop(); if (acquired) _slots.Release(); item.Cancellation = null; item.IsBusy = false; }
+    finally
+    {
+      finished = true;
+      if (registeredJob is { } job) ActiveJobRegistry.Shared.Remove(job);
+      timer.Stop(); elapsed.Stop(); if (acquired) _slots.Release(); item.Cancellation = null; item.IsBusy = false;
+    }
 
     void ShowExceptionResult(ConversionTerminalStatus status, string? message)
     {
@@ -164,6 +172,11 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
 
     void ApplyProgress(ConversionProgress value)
     {
+      if (!finished && registeredJob is null && value.JobId is { } jobId)
+      {
+        registeredJob = jobId;
+        ActiveJobRegistry.Shared.Add(jobId);
+      }
       if (!elapsed.IsRunning || !ReferenceEquals(item.Cancellation, cancellation) || item.Result is not null) return;
       if (!display.Report(value, elapsed.Elapsed)) return;
       item.Status = display.PhaseLabel;

@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using BookSplice.Core.Settings;
+using BookSplice.Gui.Diagnostics;
 using BookSplice.Gui.Bootstrap;
 using BookSplice.Gui.ViewModels;
 using BookSplice.Gui.Views;
@@ -18,10 +19,28 @@ public partial class App : Application
   private UpdateComposition? _updates;
   private UpdatePreferencesStore? _preferenceStore;
   private UpdatePreferences? _preferences;
+  private CrashHandler _crash = null!;
+  private string? _dataRoot;
 
   protected override async void OnStartup(StartupEventArgs e)
   {
     base.OnStartup(e);
+    var selfCheck = e.Args is ["--update-self-check", ..];
+    var candidate = e.Args is ["--update-candidate", ..];
+    _dataRoot = TryResolveDataRoot();
+    _crash = new CrashHandler(
+      () => _dataRoot is null ? null : new CrashReportStore(CrashReportStore.DirectoryFor(_dataRoot)),
+      new WpfCrashUi(), ActiveJobRegistry.Shared,
+      candidate ? CrashLaunchMode.UpdateCandidate : CrashLaunchMode.Normal, () => PackagedIdentity.Version);
+    if (!selfCheck)
+    {
+      DispatcherUnhandledException += (_, args) =>
+      {
+        args.Handled = true;
+        _crash.HandleDispatcher(args.Exception);
+      };
+      AppDomain.CurrentDomain.UnhandledException += (_, args) => _crash.HandleAppDomain(args.ExceptionObject);
+    }
     if (e.Args.Length != 0 && e.Args[0].StartsWith("--update-", StringComparison.Ordinal))
     {
       try
@@ -37,9 +56,11 @@ public partial class App : Application
         if (e.Args is ["--update-candidate", var encoded])
         {
           var request = CandidateStartupRequest.Parse(encoded, PackagedIdentity.Matches);
+          _dataRoot = request.DataRoot;
           var active = await RestrictedStartup.RunCandidateAsync(request,
             window => { MainWindow = window; window.Show(); },
             lease => _lease = lease, CancellationToken.None);
+          _crash.MarkUpdateCommitted();
           CreateUpdates(request.DataRoot);
           AttachUpdates(active);
           MainWindow = active;
@@ -47,14 +68,18 @@ public partial class App : Application
           return;
         }
       }
-      catch { Shutdown(1); return; }
+      catch (Exception exception)
+      {
+        if (!selfCheck) _crash.HandleStartup(exception);
+        Shutdown(1);
+        return;
+      }
       Shutdown(1);
       return;
     }
     try
     {
-      var root = Environment.GetEnvironmentVariable("BOOKSPLICE_LOCAL_APP_DATA");
-      if (string.IsNullOrWhiteSpace(root)) root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+      var root = LocalRoot();
       var dataRoot = System.IO.Path.Combine(System.IO.Path.GetFullPath(root), "BookSplice");
       CreateUpdates(dataRoot);
       if (_updates!.TryForwardDirectLaunch()) { Shutdown(); return; }
@@ -89,9 +114,22 @@ public partial class App : Application
     }
     catch (Exception exception)
     {
+      _crash.HandleStartup(exception);
       MessageBox.Show($"BookSplice could not start. {exception.Message}", "BookSplice", MessageBoxButton.OK, MessageBoxImage.Error);
       Shutdown(1);
     }
+  }
+
+  private static string LocalRoot()
+  {
+    var root = Environment.GetEnvironmentVariable("BOOKSPLICE_LOCAL_APP_DATA");
+    return string.IsNullOrWhiteSpace(root) ? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) : root;
+  }
+
+  private static string? TryResolveDataRoot()
+  {
+    try { return System.IO.Path.Combine(System.IO.Path.GetFullPath(LocalRoot()), "BookSplice"); }
+    catch { return null; }
   }
 
   private void CreateUpdates(string dataRoot)
