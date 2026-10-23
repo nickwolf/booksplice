@@ -81,6 +81,8 @@ public sealed class CrashReportStore(string directory, ICrashReportFiles? files 
     {
       var bytes = Serialize(report);
       _files.CreateDirectory(directory);
+      Quietly(Prune);
+      if (_files.List(directory, "crash-*.json").Count >= RetainedReports) return false;
       var stamp = _clock.GetUtcNow().ToString("yyyyMMdd'T'HHmmssfff'Z'", CultureInfo.InvariantCulture);
       var name = $"crash-{stamp}-{Convert.ToHexString(RandomNumberGenerator.GetBytes(4)).ToLowerInvariant()}.json";
       var final = System.IO.Path.Combine(directory, name);
@@ -95,7 +97,6 @@ public sealed class CrashReportStore(string directory, ICrashReportFiles? files 
         Quietly(() => _files.Delete(temp));
         return false;
       }
-      Quietly(Prune);
       return true;
     }
     catch { return false; }
@@ -130,7 +131,7 @@ public sealed class CrashReportStore(string directory, ICrashReportFiles? files 
   private void Prune()
   {
     var reports = _files.List(directory, "crash-*.json").OrderByDescending(System.IO.Path.GetFileName, StringComparer.Ordinal).ToList();
-    foreach (var old in reports.Skip(RetainedReports))
+    foreach (var old in reports.Skip(RetainedReports - 1))
     {
       Quietly(() => _files.Delete(old));
       Quietly(() => { if (_files.Exists(old + ReviewedSuffix)) _files.Delete(old + ReviewedSuffix); });

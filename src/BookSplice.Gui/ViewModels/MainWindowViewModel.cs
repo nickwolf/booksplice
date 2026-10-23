@@ -110,6 +110,7 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     item.IsCancellationRequested = false;
     using var cancellation = new CancellationTokenSource();
     item.Cancellation = cancellation;
+    using var tracked = ActiveJobRegistry.Shared.Track(cancellation);
     var acquired = false;
     var finished = false;
     Guid? registeredJob = null;
@@ -139,7 +140,9 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
       timer.Start();
       var request = new ConversionRequest(item.Source, item.Settings.CreateChapters, item.CreateOptions(singleConversionJob: true),
         AnalysisOptions: new BookAnalysisOptions(item.SelectedOrder), ExpectedSourcePaths: item.Analysis!.OrderedFiles.Select(file => file.FullPath).ToArray());
-      var result = await Task.Run(() => conversion.ConvertAsync(request, cancellation.Token, progress));
+      var run = Task.Run(() => conversion.ConvertAsync(request, cancellation.Token, progress));
+      tracked.SetTask(run);
+      var result = await run;
       elapsed.Stop();
       timer.Stop();
       item.Result = ConversionResultDisplay.Create(result, elapsed.Elapsed, requestedValidation);

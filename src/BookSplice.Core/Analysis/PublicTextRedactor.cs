@@ -26,7 +26,7 @@ public static partial class PublicTextRedactor
     return LongBlob().Replace(clean, "[redacted]");
   }
 
-  [GeneratedRegex(@"\b(password|passwd|pwd|token|secret|api[_-]?key|access[_-]?key|authorization)(\s*[:=]\s*)(?:(?:Bearer|Basic)\s+)?(?:""[^""\r\n]*""|'[^'\r\n]*'|[^\s,;]+)", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+  [GeneratedRegex(@"\b([A-Za-z0-9_-]*(?:password|passwd|pwd|token|secret|api[_-]?key|access[_-]?key|authorization)[""']?)(\s*[:=]\s*)(?:(?:Bearer|Basic)\s+)?(?:""[^""\r\n]*""|'[^'\r\n]*'|[^\s,;]+)", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
   private static partial Regex SecretAssignment();
 
   [GeneratedRegex(@"\b(Bearer\s+)[A-Za-z0-9._~+/=-]{8,}", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]

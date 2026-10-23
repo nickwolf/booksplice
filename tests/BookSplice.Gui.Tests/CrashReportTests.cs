@@ -138,10 +138,14 @@ public sealed class CrashReportTests : IDisposable
   }
 
   [Fact]
-  public void FailedPruningDoesNotFailTheWrite()
+  public void FailedPruningNeverLetsTheFolderPassTheRetentionBound()
   {
     var store = new CrashReportStore(ReportDirectory, new FaultyFiles(FaultPoint.Delete), new StepClock());
-    for (var index = 0; index < 7; index++) Assert.True(store.TryWrite(Report(new InvalidDataException("crash " + index))));
+    var results = Enumerable.Range(0, 8).Select(index => store.TryWrite(Report(new InvalidDataException("crash " + index)))).ToList();
+
+    Assert.Equal(CrashReportStore.RetainedReports, results.Count(written => written));
+    Assert.All(results.Skip(CrashReportStore.RetainedReports), written => Assert.False(written));
+    Assert.Equal(CrashReportStore.RetainedReports, Directory.GetFiles(ReportDirectory).Length);
   }
 
   [Fact]
@@ -191,6 +195,26 @@ public sealed class CrashReportTests : IDisposable
     Assert.Contains("11111111-2222-3333-4444-555555555555", summary);
     Assert.Contains("System.IO.IOException", summary);
     Assert.Contains("[redacted]", summary);
+  }
+
+  [Fact]
+  public void SummaryRedactsPrefixedCredentialNamesButLeavesOrdinaryText()
+  {
+    var report = new CrashReport
+    {
+      CreatedUtc = DateTimeOffset.UtcNow,
+      ExceptionType = "System.InvalidOperationException",
+      Message = "access_token=abc123XYZ refresh_token: r3fr3sh client_secret=\"s3cr3t value\" db_password=pw1 x-api-key: key9 {\"password\": \"p4ss\"} The tokenizer rejected the input",
+      StackTrace = "   at Parser.TokenizerFactory.GetToken(String text)\n   at Secrets.Store.Load()"
+    };
+
+    var summary = CrashSummaryBuilder.Build([new CrashReportEntry("x", report)], []);
+
+    foreach (var leaked in new[] { "abc123XYZ", "r3fr3sh", "s3cr3t", "pw1", "key9", "p4ss" })
+      Assert.DoesNotContain(leaked, summary);
+    Assert.Contains("The tokenizer rejected the input", summary);
+    Assert.Contains("Parser.TokenizerFactory.GetToken(String text)", summary);
+    Assert.Contains("Secrets.Store.Load()", summary);
   }
 
   [Fact]

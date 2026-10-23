@@ -30,7 +30,7 @@ public partial class App : Application
     _dataRoot = TryResolveDataRoot();
     _crash = new CrashHandler(
       () => _dataRoot is null ? null : new CrashReportStore(CrashReportStore.DirectoryFor(_dataRoot)),
-      new WpfCrashUi(), ActiveJobRegistry.Shared,
+      new WpfCrashUi(ActiveJobRegistry.Shared), ActiveJobRegistry.Shared,
       candidate ? CrashLaunchMode.UpdateCandidate : CrashLaunchMode.Normal, () => PackagedIdentity.Version);
     if (!selfCheck)
     {
@@ -68,12 +68,7 @@ public partial class App : Application
           return;
         }
       }
-      catch (Exception exception)
-      {
-        if (!selfCheck) _crash.HandleStartup(exception);
-        Shutdown(1);
-        return;
-      }
+      catch { Shutdown(1); return; }
       Shutdown(1);
       return;
     }
@@ -141,8 +136,9 @@ public partial class App : Application
       var notice = CrashNoticeViewModel.TryCreate(CrashLaunchMode.Normal, store,
         [dataRoot, Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), AppContext.BaseDirectory]);
       if (notice is null || new CrashNoticeWindow { Owner = owner }.ShowDialog() != true) return;
-      notice.MarkReviewed();
-      new CrashSummaryWindow(notice.SummaryText) { Owner = owner }.ShowDialog();
+      var summary = new CrashSummaryWindow(notice.SummaryText) { Owner = owner };
+      summary.Loaded += (_, _) => notice.MarkReviewed();
+      summary.ShowDialog();
     }
     catch { }
   }

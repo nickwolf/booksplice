@@ -133,6 +133,65 @@ public sealed class CrashHandlerTests
   }
 
   [Fact]
+  public void ExitCancelsRegisteredConversionsWaitsForThemAndExitsWithOne()
+  {
+    var jobs = new ActiveJobRegistry();
+    using var cancellation = new CancellationTokenSource();
+    using var tracked = jobs.Track(cancellation);
+    tracked.SetTask(Task.Run(() => cancellation.Token.WaitHandle.WaitOne()));
+    var exits = new List<int>();
+
+    new WpfCrashUi(jobs, TimeSpan.FromSeconds(5), exits.Add).Shutdown(1);
+
+    Assert.True(cancellation.IsCancellationRequested);
+    Assert.Equal([1], exits);
+  }
+
+  [Fact]
+  public void ExitWaitIsBoundedWhenAConversionNeverFinishes()
+  {
+    var jobs = new ActiveJobRegistry();
+    using var cancellation = new CancellationTokenSource();
+    using var tracked = jobs.Track(cancellation);
+    var never = new TaskCompletionSource();
+    tracked.SetTask(never.Task);
+    var exits = new List<int>();
+    var started = System.Diagnostics.Stopwatch.StartNew();
+
+    new WpfCrashUi(jobs, TimeSpan.FromMilliseconds(300), exits.Add).Shutdown(1);
+
+    Assert.InRange(started.Elapsed, TimeSpan.FromMilliseconds(250), TimeSpan.FromSeconds(3));
+    Assert.True(cancellation.IsCancellationRequested);
+    Assert.Equal([1], exits);
+  }
+
+  [Fact]
+  public void ExitStillHappensWhenACancellationSourceIsAlreadyDisposed()
+  {
+    var jobs = new ActiveJobRegistry();
+    var cancellation = new CancellationTokenSource();
+    using var tracked = jobs.Track(cancellation);
+    cancellation.Dispose();
+    var exits = new List<int>();
+
+    new WpfCrashUi(jobs, TimeSpan.FromMilliseconds(50), exits.Add).Shutdown(1);
+
+    Assert.Equal([1], exits);
+  }
+
+  [Fact]
+  public void UnregisteredConversionsAreNotCancelled()
+  {
+    var jobs = new ActiveJobRegistry();
+    using var cancellation = new CancellationTokenSource();
+    jobs.Track(cancellation).Dispose();
+
+    new WpfCrashUi(jobs, TimeSpan.FromMilliseconds(50), _ => { }).Shutdown(1);
+
+    Assert.False(cancellation.IsCancellationRequested);
+  }
+
+  [Fact]
   public void MessagesMatchTheDocumentedWording()
   {
     Assert.Equal("BookSplice hit an unexpected error and must close. A diagnostic report was saved on this computer.", CrashMessages.Saved);
