@@ -189,12 +189,27 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     try
     {
       var result = await Task.Run(() => planner.CreateAsync(item.Analysis, item.CreateOptions(singleConversionJob: true), CancellationToken.None));
-      item.Details = result.Plan is { } plan
-        ? $"Output: {plan.OutputPath}{Environment.NewLine}Audio: {DescribeAudio(plan)}{Environment.NewLine}Validation: {plan.ValidationLevel} | Metadata: {MetadataProfileCatalog.PublicLabel(plan.MetadataProfileId)}"
-        : string.Join(Environment.NewLine, result.Diagnostics.Select(diagnostic => diagnostic.Message));
+      item.Details = result.Plan is { } plan ? DescribePlan(plan) : DescribeRefusal(result);
     }
     catch (Exception exception) { item.Details = exception.Message; }
     finally { item.IsBusy = false; }
+  }
+
+  private static string DescribePlan(ConversionPlan plan)
+  {
+    var explanation = StrategyExplanation.Create(plan.Strategy, plan.StrategyReasonCodes);
+    var lines = new List<string> { $"Output: {plan.OutputPath}", $"Audio: {DescribeAudio(plan)}", explanation.Summary };
+    if (explanation.Reasons.Count > 0) { lines.Add("Why re-encode:"); lines.AddRange(explanation.Reasons.Select(reason => $"  - {reason}")); }
+    lines.AddRange(SpaceEstimateDescription.Lines(plan.Space));
+    lines.Add($"Validation: {plan.ValidationLevel} | Metadata: {MetadataProfileCatalog.PublicLabel(plan.MetadataProfileId)}");
+    return string.Join(Environment.NewLine, lines);
+  }
+
+  private static string DescribeRefusal(ConversionPlanningResult result)
+  {
+    var lines = result.Diagnostics.Select(diagnostic => diagnostic.Message).ToList();
+    if (result.Space is { } space) lines.AddRange(SpaceEstimateDescription.Lines(space));
+    return string.Join(Environment.NewLine, lines);
   }
 
   private static string DescribeAudio(ConversionPlan plan) => plan.Strategy == AudioStrategy.AacStreamCopy

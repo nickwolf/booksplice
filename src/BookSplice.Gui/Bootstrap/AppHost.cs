@@ -28,9 +28,9 @@ public sealed class AppHost(string localAppDataRoot)
     var probe = new FFprobeMediaProbe(runner, tools);
     var analyzer = new BookAnalyzer(new SourceDiscoverer(probe, Math.Clamp(Environment.ProcessorCount, 1, 8)),
       new OrderResolver(), new MetadataAggregator(), new CoverDiscoverer(new BookSplice.FFmpeg.Covers.MediaCoverPayloadOpener(tools)), new ChapterPlanner());
-    var planner = new ConversionPlanner(new OutputNamePlanner(), new StorageSpaceProvider(), Profiles);
     var localDirectory = Path.Combine(Path.GetFullPath(localAppDataRoot), "BookSplice");
     var temporaryRoot = Path.Combine(localDirectory, "temp");
+    var planner = new ConversionPlanner(new OutputNamePlanner(), new StorageSpaceProvider(), Profiles, temporaryRoot);
     var service = new ConversionService(analyzer, planner,
       new FFmpegConversionExecutor(runner, new FFmpegCommandFactory(tools), new Mp4MetadataWriter(), temporaryRoot),
       new FFmpegOutputValidator(probe, runner, tools, new CoverPayloadValidator()),

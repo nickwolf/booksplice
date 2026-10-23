@@ -173,6 +173,76 @@ public sealed class ConversionPlannerTests
     Assert.Null(SourceDurationEvidence.ReadMicroseconds(ambiguous));
   }
 
+  private static readonly string SeparateTemp = @"Z:\scratch\temp";
+  private static string SameVolumeTemp => Path.Combine(Path.GetTempPath(), "booksplice-temp");
+  private static string DestinationRoot => Path.GetPathRoot(Path.GetTempPath())!;
+
+  [Fact]
+  public async Task SeparateTemporaryVolumeIsCheckedIndependently()
+  {
+    var analysis = Analysis(BookAnalysisStatus.Ready);
+    var planner = (long? destination, long? temporary) => new ConversionPlanner(new OutputNamePlanner(), new Storage(new() { [DestinationRoot] = destination, ["Z:\\"] = temporary }), null, SeparateTemp);
+
+    var ready = await planner(long.MaxValue, long.MaxValue).CreateAsync(analysis, Options(), CancellationToken.None);
+    var space = ready.Plan!.Space;
+    Assert.Equal("Z:\\", space.TemporaryVolume);
+    Assert.Equal(DestinationRoot, space.DestinationVolume);
+    Assert.Equal(space.TotalRequiredBytes, checked((long)decimal.Ceiling((space.FinalBytes + space.TemporaryBytes) * 1.10m)));
+    Assert.True(space.DestinationRequiredBytes < space.TotalRequiredBytes);
+    Assert.True(space.TemporaryRequiredBytes < space.TotalRequiredBytes);
+
+    var tight = await planner(space.DestinationRequiredBytes, space.TemporaryRequiredBytes).CreateAsync(analysis, Options(), CancellationToken.None);
+    Assert.NotNull(tight.Plan);
+    Assert.Equal(0, tight.Plan.Space.MarginBytes);
+
+    var smallTemp = await planner(long.MaxValue, space.TemporaryRequiredBytes - 1).CreateAsync(analysis, Options(), CancellationToken.None);
+    Assert.Null(smallTemp.Plan);
+    Assert.Contains(smallTemp.Diagnostics, d => d.Code == "planning.insufficient-temporary-space");
+    Assert.NotNull(smallTemp.Space);
+    Assert.Equal(space.FinalBytes, smallTemp.Space.FinalBytes);
+
+    var smallDestination = await planner(space.DestinationRequiredBytes - 1, long.MaxValue).CreateAsync(analysis, Options(), CancellationToken.None);
+    Assert.Contains(smallDestination.Diagnostics, d => d.Code == "planning.insufficient-space");
+
+    var unknownTemp = await planner(long.MaxValue, null).CreateAsync(analysis, Options(), CancellationToken.None);
+    Assert.Null(unknownTemp.Plan);
+    Assert.Contains(unknownTemp.Diagnostics, d => d.Code == "planning.temporary-space-unavailable");
+    Assert.Null(unknownTemp.Space!.TemporaryAvailableBytes);
+  }
+
+  [Fact]
+  public async Task SharedVolumeKeepsOneCombinedRequirement()
+  {
+    var analysis = Analysis(BookAnalysisStatus.Ready);
+    var combined = await new ConversionPlanner(new OutputNamePlanner(), new Storage(long.MaxValue), null, SameVolumeTemp).CreateAsync(analysis, Options(), CancellationToken.None);
+    var space = combined.Plan!.Space;
+    Assert.Null(space.TemporaryVolume);
+    Assert.Equal(space.TotalRequiredBytes, space.DestinationRequiredBytes);
+    Assert.Null(space.TemporaryRequiredBytes);
+
+    var short1 = await new ConversionPlanner(new OutputNamePlanner(), new Storage(space.TotalRequiredBytes - 1), null, SameVolumeTemp.ToUpperInvariant()).CreateAsync(analysis, Options(), CancellationToken.None);
+    Assert.Contains(short1.Diagnostics, d => d.Code == "planning.insufficient-space");
+  }
+
+  [Fact]
+  public async Task MissingTemporaryDirectoryCountsEverythingOnDestination()
+  {
+    var result = await Planner().CreateAsync(Analysis(BookAnalysisStatus.Ready), Options(), CancellationToken.None);
+    Assert.Null(result.Plan!.Space.TemporaryVolume);
+    Assert.Equal(result.Plan.Space.TotalRequiredBytes, result.Plan.Space.DestinationRequiredBytes);
+  }
+
+  [Fact]
+  public async Task RefusalKeepsEstimateAndStrategy()
+  {
+    var result = await Planner(1).CreateAsync(Analysis(BookAnalysisStatus.Ready), Options(), CancellationToken.None);
+    Assert.Null(result.Plan);
+    Assert.Equal(AudioStrategy.DirectTranscode, result.Strategy);
+    Assert.NotEmpty(result.StrategyReasonCodes!);
+    Assert.Equal(1, result.Space!.AvailableBytes);
+    Assert.True(result.Space.TotalRequiredBytes > 1);
+  }
+
   private static ConversionPlanner Planner(long? available = long.MaxValue) => new(new OutputNamePlanner(), new Storage(available));
   private static ConversionOptions Options(IReadOnlyDictionary<SemanticField, MetadataEdit>? edits = null, int? jobs = null, string? cover = null) => new(AppSettings.Defaults with { OutputDirectory = Path.GetTempPath(), ConversionJobs = jobs }, QualityProfileCatalog.Version1[0], edits, selectedCoverHash: cover);
   private static BookAnalysis Analysis(BookAnalysisStatus status, int count = 1, bool copy = false, CoverCandidate? cover = null)
@@ -199,7 +269,11 @@ public sealed class ConversionPlannerTests
     }).ToArray();
     return new BookAnalysis(BookAnalysisStatus.Ready, "book", files, null, baseAnalysis.BookMetadata, baseAnalysis.Cover, ChapterPlan.Valid([], 0), []);
   }
-  private sealed class Storage(long? available) : IStorageSpaceProvider { public long? GetAvailableBytes(string directory) => available; }
+  private sealed class Storage(long? available, Dictionary<string, long?>? byRoot = null) : IStorageSpaceProvider
+  {
+    public Storage(Dictionary<string, long?> byRoot) : this(null, byRoot) { }
+    public long? GetAvailableBytes(string directory) => byRoot is null ? available : byRoot.GetValueOrDefault(Path.GetPathRoot(Path.GetFullPath(directory))!);
+  }
   private sealed class TempProfiles : IDisposable
   {
     public TempProfiles() => Directory.CreateDirectory(Root);

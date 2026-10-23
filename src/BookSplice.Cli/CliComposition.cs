@@ -47,7 +47,7 @@ public static class CliComposition
       new MetadataAggregator(),
       new CoverDiscoverer(new BookSplice.FFmpeg.Covers.MediaCoverPayloadOpener(tools)),
       new ChapterPlanner());
-    var planner = new ConversionPlanner(new OutputNamePlanner(), new FileSystemStorageSpaceProvider(), profiles);
+    var planner = new ConversionPlanner(new OutputNamePlanner(), new FileSystemStorageSpaceProvider(), profiles, temporaryRoot);
     var executor = new FFmpegConversionExecutor(runner, new FFmpegCommandFactory(tools), new Mp4MetadataWriter(), temporaryRoot);
     var validator = new FFmpegOutputValidator(probe, runner, tools, new CoverPayloadValidator());
     var service = new ConversionService(
