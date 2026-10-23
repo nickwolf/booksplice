@@ -19,7 +19,7 @@ $env:BOOKSPLICE_FIXTURE_FFMPEG_DIR = Join-Path $fixtureRoot $fixtureRelease
 dotnet restore
 $env:BOOKSPLICE_FFMPEG_DIR = $toolDirectory
 dotnet build --configuration Release --no-restore
-dotnet test --configuration Release --no-build -m:1
+dotnet test --configuration Release --no-build
 dotnet format --verify-no-changes --no-restore
 
 .\scripts\Build-Release.ps1 -Version 0.1.1 -MediaToolDirectory $toolDirectory
