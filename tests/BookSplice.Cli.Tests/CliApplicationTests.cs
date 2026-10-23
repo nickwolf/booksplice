@@ -1,7 +1,11 @@
 using System.Text.Json;
 using BookSplice.Cli;
 using BookSplice.Core.Analysis;
+using BookSplice.Core.Chapters;
+using BookSplice.Core.Covers;
 using BookSplice.Core.Execution;
+using BookSplice.Core.Metadata;
+using BookSplice.Core.Ordering;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Settings;
 
@@ -164,6 +168,106 @@ public sealed class CliApplicationTests
     Assert.Equal(0, store.SaveCount);
   }
 
+  [Fact]
+  public async Task StopJoinsTimerBeforeFinalAndRejectsLateProgress()
+  {
+    var service = new LateProgressService(Result(ConversionTerminalStatus.Succeeded));
+    var output = new StringWriter();
+    var clock = new CliProgressDisplayTests.ManualTimeProvider();
+    var application = new CliApplication(new SettingsStore(Settings()), service, timeProvider: clock);
+
+    await application.RunAsync(["book", "--json"], output, TextWriter.Null, CancellationToken.None);
+    service.LateProgress!.Report(new(null, null, null, 0, Phase: ConversionPhase.Publication,
+      PhaseOccurrenceId: Guid.NewGuid(), IsPhaseEntry: true, JobId: Guid.NewGuid(), Sequence: 3));
+
+    var events = output.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+      .Select(line => JsonDocument.Parse(line).RootElement.Clone()).ToArray();
+    Assert.Equal("started", events[0].GetProperty("event").GetString());
+    Assert.Equal("Analysis", events[1].GetProperty("phase").GetString());
+    Assert.Equal("final", events[^1].GetProperty("event").GetString());
+    Assert.Equal(3, events.Length);
+    Assert.Equal(0, clock.ActiveTimerCount);
+    clock.Advance(TimeSpan.FromMinutes(1));
+    Assert.Equal(3, output.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries).Length);
+  }
+
+  [Fact]
+  public async Task DecisionPromptSuspendsObservation()
+  {
+    var service = new DecisionPhaseService();
+    var output = new StringWriter();
+    var clock = new CliProgressDisplayTests.ManualTimeProvider();
+    using var input = new BlockingReader();
+    var application = new CliApplication(new SettingsStore(Settings()), service, timeProvider: clock);
+
+    var running = application.RunAsync(["book"], output, TextWriter.Null, CancellationToken.None, input);
+    Assert.True(SpinWait.SpinUntil(() => output.ToString().Contains("Select an order number", StringComparison.Ordinal), TimeSpan.FromSeconds(2)));
+    Assert.Equal(0, clock.ActiveTimerCount);
+    var before = output.ToString();
+    clock.Advance(TimeSpan.FromMinutes(1));
+    Assert.Equal(before, output.ToString());
+    input.Release();
+    Assert.Equal(CliExitCode.OrderingDecisionRequired, await running);
+  }
+
+  [Fact]
+  public async Task SelectedOrderStartsFreshAttempt()
+  {
+    var service = new DecisionPhaseService();
+    var output = new StringWriter();
+    var clock = new CliProgressDisplayTests.ManualTimeProvider();
+    var application = new CliApplication(new SettingsStore(Settings()), service, timeProvider: clock);
+
+    var exit = await application.RunAsync(["book"], output, TextWriter.Null, CancellationToken.None, new StringReader("1\n"));
+
+    Assert.Equal(CliExitCode.Success, exit);
+    Assert.Equal(2, service.Calls);
+    Assert.Equal(0, clock.ActiveTimerCount);
+    Assert.Equal(2, output.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+      .Count(line => line.Contains("Analyzing sources", StringComparison.Ordinal)));
+  }
+
+  [Fact]
+  public async Task ExceptionalAndEarlyTerminalPathsLeaveNoObservationTimer()
+  {
+    var clock = new CliProgressDisplayTests.ManualTimeProvider();
+    var output = new StringWriter();
+    var failing = new CliApplication(new SettingsStore(Settings()), new ThrowingService(), timeProvider: clock);
+    Assert.Equal(CliExitCode.UnexpectedFailure, await failing.RunAsync(["book", "--json"], output, TextWriter.Null, CancellationToken.None));
+    Assert.Equal(0, clock.ActiveTimerCount);
+    clock.Advance(TimeSpan.FromMinutes(1));
+    Assert.Equal("final", JsonDocument.Parse(output.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)[^1]).RootElement.GetProperty("event").GetString());
+
+    var dryRun = new CliApplication(new SettingsStore(Settings()), new FakeService(Result(ConversionTerminalStatus.DryRun)), timeProvider: clock);
+    Assert.Equal(CliExitCode.Success, await dryRun.RunAsync(["book", "--dry-run"], TextWriter.Null, TextWriter.Null, CancellationToken.None));
+    Assert.Equal(0, clock.ActiveTimerCount);
+    Assert.Equal(CliExitCode.UsageError, await dryRun.RunAsync(["book", "--invalid"], TextWriter.Null, TextWriter.Null, CancellationToken.None));
+    Assert.Equal(0, clock.ActiveTimerCount);
+  }
+
+  [Fact]
+  public async Task CancellationStopsActiveObservationBeforeFinal()
+  {
+    var service = new CancellableService();
+    var clock = new CliProgressDisplayTests.ManualTimeProvider();
+    var output = new StringWriter();
+    using var cancellation = new CancellationTokenSource();
+    var application = new CliApplication(new SettingsStore(Settings()), service, timeProvider: clock);
+
+    var running = application.RunAsync(["book", "--json"], output, TextWriter.Null, cancellation.Token);
+    await service.Started.Task;
+    clock.Advance(TimeSpan.FromSeconds(30));
+    cancellation.Cancel();
+    Assert.Equal(CliExitCode.Cancelled, await running);
+    Assert.Equal(0, clock.ActiveTimerCount);
+    var before = output.ToString();
+    clock.Advance(TimeSpan.FromSeconds(30));
+    Assert.Equal(before, output.ToString());
+    using var final = JsonDocument.Parse(before.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)[^1]);
+    Assert.Equal("final", final.RootElement.GetProperty("event").GetString());
+    Assert.Equal("Cancelled", final.RootElement.GetProperty("status").GetString());
+  }
+
   private static ConversionServiceResult Result(ConversionTerminalStatus status) => new(
     Guid.NewGuid(), status, ConversionStage.Completed, null, null, null, null, null,
     [new("test", ServiceDiagnosticSeverity.Error, "diagnostic")], [], null);
@@ -187,6 +291,68 @@ public sealed class CliApplicationTests
       progress?.Report(new(500_000, 2.0, "continue", 0, null, 50));
       return Task.FromResult(result);
     }
+  }
+
+  private sealed class LateProgressService(ConversionServiceResult result) : IConversionService
+  {
+    public IProgress<ConversionProgress>? LateProgress { get; private set; }
+    public Task<ConversionServiceResult> ConvertAsync(ConversionRequest request, CancellationToken cancellationToken, IProgress<ConversionProgress>? progress = null)
+    {
+      LateProgress = progress;
+      progress?.Report(new(null, null, null, 0, Phase: ConversionPhase.Analysis,
+        PhaseOccurrenceId: Guid.NewGuid(), IsPhaseEntry: true, JobId: result.JobId, Sequence: 1));
+      return Task.FromResult(result);
+    }
+  }
+
+  private sealed class DecisionPhaseService : IConversionService
+  {
+    public int Calls { get; private set; }
+    public Task<ConversionServiceResult> ConvertAsync(ConversionRequest request, CancellationToken cancellationToken, IProgress<ConversionProgress>? progress = null)
+    {
+      Calls++;
+      var job = Guid.NewGuid();
+      progress?.Report(new(null, null, null, 0, Phase: ConversionPhase.Analysis,
+        PhaseOccurrenceId: Guid.NewGuid(), IsPhaseEntry: true, JobId: job, Sequence: 1));
+      if (Calls > 1) return Task.FromResult(Result(ConversionTerminalStatus.Succeeded) with { JobId = job });
+      var candidate = new OrderCandidate(OrderCandidateId.NaturalPath, ["01.mp3"], true, OrderConfidence.High, []);
+      var analysis = new BookAnalysis(BookAnalysisStatus.NeedsDecision, Path.GetTempPath(), [],
+        new OrderResolution(OrderStatus.NeedsDecision, null, [candidate], []),
+        new BookMetadata(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>()),
+        new CoverDiscoveryResult([], [], null), ChapterPlan.Valid([], 0), []);
+      return Task.FromResult(Result(ConversionTerminalStatus.DecisionRequired) with { JobId = job, Analysis = analysis });
+    }
+  }
+
+  private sealed class ThrowingService : IConversionService
+  {
+    public Task<ConversionServiceResult> ConvertAsync(ConversionRequest request, CancellationToken cancellationToken, IProgress<ConversionProgress>? progress = null)
+    {
+      progress?.Report(new(null, null, null, 0, Phase: ConversionPhase.Analysis,
+        PhaseOccurrenceId: Guid.NewGuid(), IsPhaseEntry: true, JobId: Guid.NewGuid(), Sequence: 1));
+      throw new IOException("injected");
+    }
+  }
+
+  private sealed class CancellableService : IConversionService
+  {
+    public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public async Task<ConversionServiceResult> ConvertAsync(ConversionRequest request, CancellationToken cancellationToken, IProgress<ConversionProgress>? progress = null)
+    {
+      progress?.Report(new(null, null, null, 0, Phase: ConversionPhase.Analysis,
+        PhaseOccurrenceId: Guid.NewGuid(), IsPhaseEntry: true, JobId: Guid.NewGuid(), Sequence: 1));
+      Started.SetResult();
+      await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+      throw new InvalidOperationException("The service should have been cancelled.");
+    }
+  }
+
+  private sealed class BlockingReader : TextReader
+  {
+    private readonly ManualResetEventSlim _release = new();
+    public override string? ReadLine() { _release.Wait(); return null; }
+    public void Release() => _release.Set();
+    protected override void Dispose(bool disposing) { if (disposing) Release(); base.Dispose(disposing); }
   }
 
   private sealed class SettingsStore(AppSettings settings) : ISettingsStore

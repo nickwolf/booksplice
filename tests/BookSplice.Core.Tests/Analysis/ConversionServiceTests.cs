@@ -13,6 +13,79 @@ namespace BookSplice.Core.Tests.Analysis;
 public sealed class ConversionServiceTests
 {
   [Fact]
+  public async Task ServicePhasesFollowActualOperations()
+  {
+    var fixture = new Fixture();
+    var result = await fixture.Service.ConvertAsync(fixture.Request(), CancellationToken.None, fixture.Progress);
+
+    Assert.Equal(ConversionTerminalStatus.Succeeded, result.Status);
+    Assert.Equal([
+      "phase:Analysis", "analyze", "phase:Planning", "plan", "execute", "completed", "validate",
+      "phase:Publication", "publish", "phase:Cleanup", "cleanup", "phase:AuditWriting", "audit"
+    ], fixture.ProgressCalls);
+    Assert.DoesNotContain(fixture.Events, value => value.IsPhaseEntry && value.Phase is ConversionPhase.Encoding or ConversionPhase.ValidationChecks);
+    Assert.All(fixture.Events, value => Assert.Equal(result.JobId, value.JobId));
+    Assert.Equal(Enumerable.Range(1, fixture.Events.Count).Select(value => (long?)value), fixture.Events.Select(value => value.Sequence));
+  }
+
+  [Fact]
+  public async Task DryRunStopsAtPlanning()
+  {
+    var fixture = new Fixture();
+    await fixture.Service.ConvertAsync(fixture.Request(dryRun: true), CancellationToken.None, fixture.Progress);
+    Assert.Equal(["phase:Analysis", "analyze", "phase:Planning", "plan"], fixture.ProgressCalls);
+  }
+
+  [Fact]
+  public async Task LateExecutorCallbacksAreDiscarded()
+  {
+    var fixture = new Fixture { EmitLateExecutorCallbackDuringValidation = true };
+    await fixture.Service.ConvertAsync(fixture.Request(), CancellationToken.None, fixture.Progress);
+    Assert.DoesNotContain("late executor", fixture.ProgressCalls);
+    var count = fixture.Events.Count;
+    fixture.RetainedExecutorProgress!.Report(new ConversionProgress(null, null, "late", 0));
+    Assert.Equal(count, fixture.Events.Count);
+    Assert.Equal(count, fixture.Events[^1].Sequence);
+  }
+
+  [Fact]
+  public async Task ValidationProgressUsesTheServiceEnvelopeAndClosesOnReturn()
+  {
+    var fixture = new Fixture { EmitValidationProgress = true };
+    var result = await fixture.Service.ConvertAsync(fixture.Request(), CancellationToken.None, fixture.Progress);
+
+    var validation = Assert.Single(fixture.Events, value => value.Phase == ConversionPhase.ValidationChecks);
+    Assert.Equal(result.JobId, validation.JobId);
+    Assert.True(validation.Sequence > fixture.Events.Single(value => value.State == "completed").Sequence);
+    var count = fixture.Events.Count;
+    fixture.RetainedValidationProgress!.Report(new ConversionProgress(null, null, null, 0, Phase: ConversionPhase.ValidationChecks));
+    Assert.Equal(count, fixture.Events.Count);
+  }
+
+  [Fact]
+  public async Task TerminalReturnClosesAllSinks()
+  {
+    var fixture = new Fixture { ValidationIsValid = false };
+    var result = await fixture.Service.ConvertAsync(fixture.Request(), CancellationToken.None, fixture.Progress);
+    Assert.Equal(ConversionTerminalStatus.ValidationFailed, result.Status);
+    Assert.Equal([
+      "phase:Analysis", "analyze", "phase:Planning", "plan", "execute", "completed", "validate",
+      "phase:Cleanup", "cleanup", "phase:AuditWriting", "audit"
+    ], fixture.ProgressCalls);
+    var count = fixture.Events.Count;
+    fixture.RetainedExecutorProgress!.Report(new ConversionProgress(null, null, "late", 0));
+    Assert.Equal(count, fixture.Events.Count);
+  }
+
+  [Fact]
+  public async Task AnalysisFailureAnnouncesOnlyAnalysisAndAudit()
+  {
+    var fixture = new Fixture { AnalysisStatus = BookAnalysisStatus.Invalid };
+    await fixture.Service.ConvertAsync(fixture.Request(), CancellationToken.None, fixture.Progress);
+    Assert.Equal(["phase:Analysis", "analyze", "phase:AuditWriting", "audit"], fixture.ProgressCalls);
+  }
+
+  [Fact]
   public async Task SuccessfulConversionRunsStagesInContractOrder()
   {
     var fixture = new Fixture();
@@ -197,6 +270,11 @@ public sealed class ConversionServiceTests
   private sealed class Fixture : IBookAnalyzer, IConversionPlanner, IConversionExecutor, IOutputValidator, IAtomicPublisher, ITemporaryArtifactCleaner, IJobLogWriter
   {
     public readonly List<string> Calls = [];
+    public readonly List<string> ProgressCalls = [];
+    public readonly List<ConversionProgress> Events = [];
+    public IProgress<ConversionProgress>? RetainedExecutorProgress;
+    public ConversionPhaseScope? RetainedValidationProgress;
+    public IProgress<ConversionProgress> Progress => new ImmediateProgress(this);
     public readonly List<string> CleanupPaths = [];
     public readonly List<CancellationToken> CleanupTokens = [];
     public readonly List<ConversionAuditRecord> Audits = [];
@@ -208,6 +286,8 @@ public sealed class ConversionServiceTests
     public Exception? AnalysisException { get; init; }
     public Exception? AuditException { get; init; }
     public bool ValidationIsValid { get; init; } = true;
+    public bool EmitLateExecutorCallbackDuringValidation { get; init; }
+    public bool EmitValidationProgress { get; init; }
     public ConversionExecutionResult Execution { get; set; }
     public PublicationResult Publication { get; init; }
 
@@ -224,6 +304,7 @@ public sealed class ConversionServiceTests
     public Task<BookAnalysis> AnalyzeAsync(string inputPath, bool chaptersEnabled, BookAnalysisOptions? options = null, CancellationToken cancellationToken = default)
     {
       Calls.Add("analyze");
+      ProgressCalls.Add("analyze");
       if (AnalysisException is not null) throw AnalysisException;
       return Task.FromResult(new BookAnalysis(AnalysisStatus, inputPath, "book", [], null, Metadata(), new CoverDiscoveryResult([], [], null), ChapterPlan.Valid([], 0), []));
     }
@@ -231,30 +312,44 @@ public sealed class ConversionServiceTests
     public Task<ConversionPlanningResult> CreateAsync(BookAnalysis analysis, ConversionOptions options, CancellationToken cancellationToken)
     {
       Calls.Add("plan");
+      ProgressCalls.Add("plan");
       return Task.FromResult(new ConversionPlanningResult(PlanningStatus, PlanningStatus == BookAnalysisStatus.Ready ? Plan() : null, []));
     }
 
     public Task<ConversionExecutionResult> ExecuteAsync(ConversionPlan plan, CancellationToken cancellationToken, IProgress<ConversionProgress>? progress = null)
     {
       Calls.Add("execute");
+      ProgressCalls.Add("execute");
+      RetainedExecutorProgress = progress;
+      progress?.Report(new ConversionProgress(null, null, "completed", 0));
       return Task.FromResult(Execution);
     }
 
-    public Task<ValidationReport> ValidateAsync(ConversionPlan plan, string temporaryOutputPath, CancellationToken cancellationToken)
+    public Task<ValidationReport> ValidateAsync(ConversionPlan plan, string temporaryOutputPath, CancellationToken cancellationToken, IProgress<ConversionProgress>? progress = null)
     {
       Calls.Add("validate");
+      ProgressCalls.Add("validate");
+      if (EmitValidationProgress)
+      {
+        var phase = ConversionPhaseScope.Start(progress, ConversionPhase.ValidationChecks);
+        RetainedValidationProgress = phase;
+        phase.Dispose();
+      }
+      if (EmitLateExecutorCallbackDuringValidation) RetainedExecutorProgress!.Report(new ConversionProgress(null, null, "late executor", 0));
       return Task.FromResult(new ValidationReport(temporaryOutputPath, ValidationIsValid, [], errors: ValidationIsValid ? [] : ["invalid"], planId: plan.PlanId));
     }
 
     public Task<PublicationResult> PublishAsync(ConversionPlan plan, ValidationReport report, CancellationToken cancellationToken)
     {
       Calls.Add("publish");
+      ProgressCalls.Add("publish");
       return Task.FromResult(Publication);
     }
 
     public Task CleanupAsync(string temporaryOutputPath, CancellationToken cancellationToken)
     {
       Calls.Add("cleanup");
+      ProgressCalls.Add("cleanup");
       CleanupPaths.Add(temporaryOutputPath);
       CleanupTokens.Add(cancellationToken);
       return Task.CompletedTask;
@@ -263,6 +358,7 @@ public sealed class ConversionServiceTests
     public Task WriteAsync(ConversionAuditRecord record, CancellationToken cancellationToken)
     {
       Calls.Add("audit");
+      ProgressCalls.Add("audit");
       Audits.Add(record);
       AuditTokens.Add(cancellationToken);
       return AuditException is null ? Task.CompletedTask : Task.FromException(AuditException);
@@ -270,5 +366,14 @@ public sealed class ConversionServiceTests
 
     private ConversionPlan Plan() => new([], Metadata(), null, [], QualityProfileCatalog.Version1[0], ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, PublishedPath, AudioStrategy.DirectTranscode, [], new(0, 0, 0, long.MaxValue, 0), 1, "test", Core.Metadata.MetadataProfiles.GenericMp4);
     private static BookMetadata Metadata() => new(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>());
+
+    private sealed class ImmediateProgress(Fixture fixture) : IProgress<ConversionProgress>
+    {
+      public void Report(ConversionProgress value)
+      {
+        fixture.Events.Add(value);
+        fixture.ProgressCalls.Add(value.IsPhaseEntry ? $"phase:{value.Phase}" : value.State ?? "update");
+      }
+    }
   }
 }

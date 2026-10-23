@@ -44,7 +44,7 @@ public sealed class ConversionPlanner : IConversionPlanner
     var metadataProfile = _profiles.Find(options.Settings.MetadataProfileId);
     if (metadataProfile is null) return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.metadata-profile-unknown", AnalysisDiagnosticSeverity.Error, "The selected metadata profile is unavailable.")]));
     var format = SelectAudioFormat(analysis, options.Settings.ChannelPolicy);
-    var plan = new ConversionPlan(analysis.OrderedFiles.Select(file => file.FullPath).ToArray(), metadata, cover, chapters, options.QualityProfile, options.Settings.ValidationLevel, options.CollisionPolicy, output, strategy, reasons, space, jobs, options.Settings.ConversionJobs is null ? "benchmark-host-automatic-6" : "explicit-setting", metadataProfile, format.SampleRate, format.Channels);
+    var plan = new ConversionPlan(analysis.OrderedFiles.Select(file => file.FullPath).ToArray(), metadata, cover, chapters, options.QualityProfile, options.Settings.ValidationLevel, options.CollisionPolicy, output, strategy, reasons, space, jobs, options.Settings.ConversionJobs is null ? "benchmark-host-automatic-6" : "explicit-setting", metadataProfile, format.SampleRate, format.Channels, sourceDurationsMicroseconds: analysis.OrderedFiles.Select(SourceDurationEvidence.ReadMicroseconds).ToArray());
     return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Ready, plan, diagnostics));
   }
 

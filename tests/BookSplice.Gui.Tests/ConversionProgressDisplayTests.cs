@@ -1,9 +1,19 @@
+using BookSplice.Core.Execution;
 using BookSplice.Gui.ViewModels;
 
 namespace BookSplice.Gui.Tests;
 
 public sealed class ConversionProgressDisplayTests
 {
+  [Fact]
+  public void BeforeFirstPhaseOnlyStartingConversionIsClaimed()
+  {
+    var display = new ConversionProgressDisplay();
+    Assert.Equal("Starting conversion", display.PhaseLabel);
+    Assert.Contains("Starting conversion", display.Describe(TimeSpan.Zero));
+    Assert.DoesNotContain("Preparing conversion", display.Describe(TimeSpan.Zero));
+  }
+
   [Theory]
   [InlineData(47.3609504, "Elapsed: 47s")]
   [InlineData(1290.2067871, "Elapsed: 21m 30s")]
@@ -12,69 +22,92 @@ public sealed class ConversionProgressDisplayTests
   public void ElapsedTextUsesWholeSecondsAndDoesNotWrapAfterADay(double seconds, string expected)
     => Assert.Equal(expected, ConversionProgressDisplay.ElapsedText(TimeSpan.FromSeconds(seconds)));
 
-  [Fact]
-  public void RemainingTimeUsesOverallProgressAndCountsDownBetweenUpdates()
-  {
-    var display = new ConversionProgressDisplay();
-    display.Report(new(null, 12.3, null, 0, null, 24.75), TimeSpan.FromSeconds(10));
-    Assert.Equal("Elapsed: 10s · Speed: 12.3× · Est. remaining: 30s", display.Describe(TimeSpan.FromSeconds(10)));
-    Assert.Equal("Elapsed: 12s · Speed: 12.3× · Est. remaining: 28s", display.Describe(TimeSpan.FromSeconds(12)));
-
-    display.Report(new(null, null, "continue", 0, null, 49.5), TimeSpan.FromSeconds(20));
-    Assert.Equal("Elapsed: 20s · Speed: 12.3× · Est. remaining: 20s", display.Describe(TimeSpan.FromSeconds(20)));
-  }
-
-  [Fact]
-  public void EstimateAdaptsToRecentSlowerProgressInsteadOfKeepingStartupSpeed()
-  {
-    var display = new ConversionProgressDisplay();
-    display.Report(new(null, 20, null, 0, null, 9.9), TimeSpan.FromSeconds(10));
-    display.Report(new(null, 20, null, 0, null, 19.8), TimeSpan.FromSeconds(20));
-    display.Report(new(null, 10, null, 0, null, 29.7), TimeSpan.FromSeconds(40));
-    Assert.Equal("Elapsed: 40s · Speed: 10.0× · Est. remaining: 1m 45s", display.Describe(TimeSpan.FromSeconds(40)));
-  }
-
-  [Fact]
-  public void StalledProgressDoesNotKeepCountingDownToZero()
-  {
-    var display = new ConversionProgressDisplay();
-    display.Report(new(null, 10, null, 0, null, 49.5), TimeSpan.FromSeconds(10));
-    Assert.EndsWith("Est. remaining: Calculating…", display.Describe(TimeSpan.FromSeconds(21)), StringComparison.Ordinal);
-  }
-
-  [Fact]
-  public void StageChangeDoesNotReuseThePreviousProcessesSpeed()
-  {
-    var display = new ConversionProgressDisplay();
-    display.Report(new(null, 12.3, null, 0), TimeSpan.FromSeconds(2));
-    display.Report(new(null, null, "continue", 1), TimeSpan.FromSeconds(3));
-    Assert.Contains("Speed: Calculating…", display.Describe(TimeSpan.FromSeconds(3)), StringComparison.Ordinal);
-  }
-
   [Theory]
-  [InlineData(double.NaN)]
-  [InlineData(double.PositiveInfinity)]
-  [InlineData(-1)]
-  public void InvalidSpeedNeverAppearsAsANumber(double speed)
+  [InlineData(ConversionPhase.Analysis, "Reanalyzing sources")]
+  [InlineData(ConversionPhase.Planning, "Planning conversion")]
+  [InlineData(ConversionPhase.Preparation, "Preparing conversion")]
+  [InlineData(ConversionPhase.Encoding, "Encoding audio")]
+  [InlineData(ConversionPhase.StreamCopy, "Copying audio")]
+  [InlineData(ConversionPhase.Assembly, "Assembling audio")]
+  [InlineData(ConversionPhase.MetadataWriting, "Writing metadata")]
+  [InlineData(ConversionPhase.ValidationChecks, "Checking output")]
+  [InlineData(ConversionPhase.FullDecode, "Validating full audio")]
+  [InlineData(ConversionPhase.Publication, "Publishing output")]
+  [InlineData(ConversionPhase.Cleanup, "Cleaning up")]
+  [InlineData(ConversionPhase.AuditWriting, "Writing audit")]
+  public void NamedPhaseIsShownWithUnavailableNumericProgress(ConversionPhase phase, string label)
   {
     var display = new ConversionProgressDisplay();
-    display.Report(new(null, speed, null, 0), TimeSpan.FromSeconds(1));
-    Assert.Equal("Elapsed: 1s · Speed: Calculating… · Est. remaining: Calculating…", display.Describe(TimeSpan.FromSeconds(1)));
+    display.Report(Entry(phase), TimeSpan.Zero);
+
+    Assert.Equal(label, display.PhaseLabel);
+    Assert.Contains("Numeric progress unavailable", display.Describe(TimeSpan.Zero));
+    Assert.Null(display.Snapshot(TimeSpan.Zero).Percent);
   }
 
   [Fact]
-  public void ACompletedSegmentDoesNotClaimTheWholeBookIsFinalizing()
+  public void NewPhaseClearsPreviousPercentageSpeedAndEta()
   {
     var display = new ConversionProgressDisplay();
-    display.Report(new(null, null, "end", 0, 0, 24.75), TimeSpan.FromSeconds(10));
-    Assert.Contains("Est. remaining: 30s", display.Describe(TimeSpan.FromSeconds(10)), StringComparison.Ordinal);
+    var encoding = Guid.NewGuid();
+    display.Report(Entry(ConversionPhase.Encoding, encoding) with { PhasePercent = 0 }, TimeSpan.Zero);
+    display.Report(Measure(ConversionPhase.Encoding, encoding, 30, 2), TimeSpan.FromSeconds(3));
+    Assert.Equal(30, display.Snapshot(TimeSpan.FromSeconds(3)).Percent);
+    Assert.NotNull(display.Snapshot(TimeSpan.FromSeconds(3)).Remaining);
+
+    display.Report(Entry(ConversionPhase.ValidationChecks), TimeSpan.FromSeconds(4));
+    Assert.Equal("Checking output", display.PhaseLabel);
+    Assert.Null(display.Snapshot(TimeSpan.FromSeconds(4)).Percent);
+    Assert.Null(display.Snapshot(TimeSpan.FromSeconds(4)).Speed);
+    Assert.Null(display.Snapshot(TimeSpan.FromSeconds(4)).Remaining);
+    Assert.Contains("Numeric progress unavailable", display.Describe(TimeSpan.FromSeconds(4)));
   }
 
   [Fact]
-  public void EncodingCompletionShowsFinalizingUntilTheServiceReturns()
+  public void PhaseRemainingCountsDownThenExpiresAfterTenSeconds()
   {
     var display = new ConversionProgressDisplay();
-    display.Report(new(null, 12.3, "completed", int.MaxValue, null, 100), TimeSpan.FromSeconds(60));
-    Assert.Equal("Elapsed: 1m 0s · Finalizing…", display.Describe(TimeSpan.FromSeconds(60)));
+    var occurrence = Guid.NewGuid();
+    display.Report(Entry(ConversionPhase.Encoding, occurrence) with { PhasePercent = 0 }, TimeSpan.Zero);
+    display.Report(Measure(ConversionPhase.Encoding, occurrence, 10, 2), TimeSpan.FromSeconds(3));
+
+    Assert.Contains("Phase remaining: 27s", display.Describe(TimeSpan.FromSeconds(3)));
+    Assert.Contains("Phase remaining: 17s", display.Describe(TimeSpan.FromSeconds(13)));
+    Assert.DoesNotContain("Phase remaining: 17s", display.Describe(TimeSpan.FromSeconds(13.001)));
+    Assert.Contains("10%", display.Describe(TimeSpan.FromSeconds(13.001)));
   }
+
+  [Fact]
+  public void SilenceAndNoAdvanceUseExactAdvisoryWordingAtThirtySeconds()
+  {
+    var silence = new ConversionProgressDisplay();
+    silence.Report(Entry(ConversionPhase.MetadataWriting), TimeSpan.Zero);
+    Assert.DoesNotContain("No update received", silence.Describe(TimeSpan.FromSeconds(29.999)));
+    Assert.Contains("No update received for 30s; operation has not returned", silence.Describe(TimeSpan.FromSeconds(30)));
+
+    var noAdvance = new ConversionProgressDisplay();
+    var occurrence = Guid.NewGuid();
+    noAdvance.Report(Entry(ConversionPhase.Encoding, occurrence), TimeSpan.Zero);
+    for (var second = 1; second <= 30; second++)
+      noAdvance.Report(Measure(ConversionPhase.Encoding, occurrence, null), TimeSpan.FromSeconds(second));
+    Assert.Contains("Updates received, but progress has not advanced for 30s", noAdvance.Describe(TimeSpan.FromSeconds(30)));
+  }
+
+  [Fact]
+  public void ExecutorCompletionNeverClaimsConversionIsComplete()
+  {
+    var display = new ConversionProgressDisplay();
+    display.Report(Entry(ConversionPhase.MetadataWriting) with { State = "completed", DisplayPercent = 100 }, TimeSpan.Zero);
+
+    Assert.Equal("Writing metadata", display.PhaseLabel);
+    Assert.DoesNotContain("Complete", display.Describe(TimeSpan.Zero), StringComparison.OrdinalIgnoreCase);
+    Assert.Null(display.Snapshot(TimeSpan.Zero).Percent);
+  }
+
+  private static ConversionProgress Entry(ConversionPhase phase, Guid? occurrence = null) =>
+    new(null, null, null, 0, Phase: phase, PhaseOccurrenceId: occurrence ?? Guid.NewGuid(), IsPhaseEntry: true,
+      ExpectsMeasurableUpdates: phase is ConversionPhase.Encoding or ConversionPhase.StreamCopy or ConversionPhase.Assembly or ConversionPhase.FullDecode);
+
+  private static ConversionProgress Measure(ConversionPhase phase, Guid occurrence, double? percent, double? speed = null) =>
+    new(null, null, null, 0, Phase: phase, PhaseOccurrenceId: occurrence, PhasePercent: percent, PhaseSpeed: speed);
 }

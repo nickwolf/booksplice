@@ -10,11 +10,15 @@ namespace BookSplice.Core.Planning;
 public sealed record SpaceEstimate(long FinalBytes, long TemporaryBytes, long TotalRequiredBytes, long? AvailableBytes, long? MarginBytes);
 public sealed class ConversionPlan
 {
-  public ConversionPlan(IReadOnlyList<string> sourcePaths, BookMetadata metadata, CoverCandidate? cover, IReadOnlyList<ChapterEntry> chapters, QualityProfile qualityProfile, ValidationLevel validationLevel, CollisionPolicy collisionPolicy, string outputPath, AudioStrategy strategy, IEnumerable<string> strategyReasonCodes, SpaceEstimate space, int conversionJobs, string jobsReason, MetadataProfile metadataProfile, int sampleRate = 44100, int channels = 2, Guid? planId = null)
+  public ConversionPlan(IReadOnlyList<string> sourcePaths, BookMetadata metadata, CoverCandidate? cover, IReadOnlyList<ChapterEntry> chapters, QualityProfile qualityProfile, ValidationLevel validationLevel, CollisionPolicy collisionPolicy, string outputPath, AudioStrategy strategy, IEnumerable<string> strategyReasonCodes, SpaceEstimate space, int conversionJobs, string jobsReason, MetadataProfile metadataProfile, int sampleRate = 44100, int channels = 2, Guid? planId = null, IReadOnlyList<long?>? sourceDurationsMicroseconds = null)
   {
     SourcePaths = Array.AsReadOnly(sourcePaths.ToArray()); Metadata = metadata; Cover = cover; Chapters = Array.AsReadOnly(chapters.ToArray()); QualityProfile = qualityProfile; ValidationLevel = validationLevel; CollisionPolicy = collisionPolicy; OutputPath = outputPath; Strategy = strategy; StrategyReasonCodes = Array.AsReadOnly(strategyReasonCodes.ToArray()); Space = space; ConversionJobs = conversionJobs; JobsReason = jobsReason; MetadataProfile = metadataProfile; SampleRate = sampleRate; Channels = channels; PlanId = planId ?? Guid.NewGuid();
+    SourceDurationsMicroseconds = Array.AsReadOnly(sourceDurationsMicroseconds is not null && sourceDurationsMicroseconds.Count == SourcePaths.Count
+      ? sourceDurationsMicroseconds.Select(duration => duration is > 0 ? duration : null).ToArray()
+      : new long?[SourcePaths.Count]);
   }
   public IReadOnlyList<string> SourcePaths { get; }
+  public IReadOnlyList<long?> SourceDurationsMicroseconds { get; }
   public BookMetadata Metadata { get; }
   public CoverCandidate? Cover { get; }
   public IReadOnlyList<ChapterEntry> Chapters { get; }
