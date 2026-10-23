@@ -1,0 +1,18 @@
+<Window x:Class="BookSplice.Gui.Views.CrashSummaryWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Crash report summary" Width="680" Height="520" MinWidth="440" MinHeight="320"
+        WindowStartupLocation="CenterOwner">
+  <DockPanel Margin="16">
+    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+               Text="Recognized local paths and credentials are hidden. Read it before sharing, because other identifiers in error messages can remain."/>
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+      <TextBlock x:Name="Status" VerticalAlignment="Center" Margin="0,0,12,0" AutomationProperties.LiveSetting="Polite"/>
+      <Button Content="_Copy summary" Click="Copy_Click" Padding="16,6" Margin="0,0,8,0" AutomationProperties.Name="Copy summary"/>
+      <Button Content="C_lose" IsCancel="True" IsDefault="True" Padding="16,6" AutomationProperties.Name="Close"/>
+    </StackPanel>
+    <TextBox x:Name="SummaryBox" IsReadOnly="True" TextWrapping="NoWrap" AcceptsReturn="True"
+             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+             FontFamily="Consolas" AutomationProperties.Name="Crash report summary"/>
+  </DockPanel>
+</Window>

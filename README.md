@@ -118,8 +118,11 @@ BookSplice stores local state under `%LOCALAPPDATA%\BookSplice`:
 | `settings.json` | Persistent GUI and CLI defaults |
 | `logs\` | Atomic JSON audit records for non-dry-run jobs |
 | `temp\` | Per-job temporary files removed after success, failure, or cancellation |
+| `crash-reports\` | Up to 5 small JSON reports from unexpected GUI failures |
 
 Audit records contain local source paths, imported and final metadata, artwork selection, timings, and command evidence. Treat them as private. Public diagnostics redact recognized source paths and command arguments. Review the summary before sharing because arbitrary identifiers in tool or operating-system messages may remain.
+
+If the GUI hits an unexpected error it saves a crash report (version, exception type, message, stack trace, and the IDs of any running jobs) under `crash-reports\`, keeps the newest 5, and closes. The reports stay on this computer and nothing is uploaded. On the next launch BookSplice offers a summary with recognized paths and credentials hidden, and it is only copied if you click Copy summary.
 
 `BOOKSPLICE_FFMPEG_DIR` can point to a directory containing `ffmpeg.exe` and `ffprobe.exe`. `BOOKSPLICE_LOCAL_APP_DATA` overrides the Local AppData root for isolated runs and tests.
 
