@@ -64,13 +64,15 @@ The quality profiles use native AAC-LC when transcoding:
 
 Compatible AAC input can use stream copy when channel handling preserves the source. Forcing mono or stereo uses AAC-LC transcoding.
 
+Before starting, the preview states whether audio is copied or re-encoded and, when re-encoding, lists the reasons in plain language. A reason that says BookSplice "could not confirm" compatibility means the probe did not report a detail, which is different from a detected incompatibility. More than 32 files are encoded in separate segments and joined afterward. The preview also shows estimated output size and temporary space with free space for each volume. Temporary files are written under `%LOCALAPPDATA%\BookSplice\temp`, so that drive is checked separately when it differs from the destination drive; both checks include a 10% margin. These are estimates: a preview that shows enough room can still run out if other programs use the disk during conversion.
+
 ## GUI workflow
 
 1. Drop one or more audiobook folders onto the main window, or use **Add folder**.
 2. Select a queued book and review its file count, duration, codec summary, metadata, chapters, and cover.
 3. If BookSplice finds more than one credible order, inspect each complete track list and choose one. Conversion remains disabled until an order is selected.
 4. Edit metadata or chapter titles, select different artwork, or choose not to embed artwork.
-5. Open **Output** to review or change that book's conversion settings, then use **Preview output** to check the planned output filename and selected audio strategy. Stream-copy previews do not present the unused transcode bitrate.
+5. Open **Output** to review or change that book's conversion settings, then use **Preview output** to check the planned output filename, whether audio is copied or re-encoded and why, and the estimated storage needed. Stream-copy previews do not present the unused transcode bitrate. A preview refused for lack of space still shows the estimate.
 6. Convert the selected book or all ready books. The result card shows whether conversion completed, completed with warnings, was cancelled, or failed, along with the published output path and elapsed time. It names the lightweight checks and full audio decode separately. Warnings remain visible; expand **Validation checks** or **Diagnostics** for details. **Open output folder** is available when the published file exists. Use **Copy diagnostics** to copy a support summary and tool output with recognized local paths redacted.
 
 During conversion, the queue names the active operation, such as reanalyzing sources, encoding audio, assembling audio, checking output, validating full audio, or publishing output. The percentage and **Phase remaining** estimate apply only to the current measurable phase and can reset when the phase changes. An operation without a reliable measurement shows **Numeric progress unavailable** and an indeterminate bar. The estimate needs at least 3 seconds of advancing samples from a recent 30-second window; it disappears when the last numeric advance is more than 10 seconds old. After 30 seconds without an operation report, the queue says how long it has been since an update. If reports continue but an expected measurement does not advance for 30 seconds, it says that instead. These are activity advisories, not timeouts: they do not cancel conversion or decide whether validation passed. Cancel remains available while work is active; cleanup or an atomic publication step may finish before the request settles. The result card, including its validation evidence and warnings, remains the final outcome.
@@ -98,6 +100,8 @@ booksplice <source> [options]
 ```
 
 An interactive terminal prompts when ordering needs a decision. Redirected input and JSON mode never prompt. Command-line overrides apply to that run and are not saved.
+
+A dry run prints the same strategy explanation and storage estimate. In `--json` mode the final event's `plan` adds `strategyExplanation` (`summary` and `reasons`) and `space` (estimated and required bytes, free space, and the volume roots); existing fields are unchanged.
 
 `booksplice --help` lists the metadata profiles that are installed, and any profile files that were skipped with the reason.
 
