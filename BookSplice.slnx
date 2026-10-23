@@ -4,6 +4,8 @@
     <Project Path="src/BookSplice.Core/BookSplice.Core.csproj" />
     <Project Path="src/BookSplice.FFmpeg/BookSplice.FFmpeg.csproj" />
     <Project Path="src/BookSplice.Gui/BookSplice.Gui.csproj" />
+    <Project Path="src/BookSplice.Updates/BookSplice.Updates.csproj" />
+    <Project Path="src/BookSplice.Launcher/BookSplice.Launcher.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/BookSplice.Acceptance.Tests/BookSplice.Acceptance.Tests.csproj" />
@@ -11,6 +13,8 @@
     <Project Path="tests/BookSplice.Core.Tests/BookSplice.Core.Tests.csproj" />
     <Project Path="tests/BookSplice.FFmpeg.Tests/BookSplice.FFmpeg.Tests.csproj" />
     <Project Path="tests/BookSplice.Gui.Tests/BookSplice.Gui.Tests.csproj" />
+    <Project Path="tests/BookSplice.LeaseHost/BookSplice.LeaseHost.csproj" />
+    <Project Path="tests/BookSplice.Updates.Tests/BookSplice.Updates.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/BookSplice.Benchmarks/BookSplice.Benchmarks.csproj" />

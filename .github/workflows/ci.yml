@@ -30,6 +30,9 @@ jobs:
       - name: Test private acceptance harness safeguards
         shell: pwsh
         run: .\scripts\Test-AcceptanceHarness.ps1
+      - name: Test update signing tooling with disposable keys
+        shell: pwsh
+        run: .\scripts\booksplice\Test-UpdateTooling.ps1
       - run: dotnet restore
       - uses: actions/download-artifact@v4
         with:
@@ -46,7 +49,7 @@ jobs:
         shell: pwsh
         run: .\scripts\Get-FFmpegLicenseInventory.ps1 -MediaToolDirectory $env:BOOKSPLICE_FFMPEG_DIR -Check
       - run: dotnet build --configuration Release --no-restore
-      - run: dotnet test --configuration Release --no-build
+      - run: dotnet test --configuration Release --no-build -m:1
       - run: dotnet format --verify-no-changes --no-restore
       - name: Build and test release package
         shell: pwsh

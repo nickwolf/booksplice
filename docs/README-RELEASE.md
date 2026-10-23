@@ -18,6 +18,8 @@ The `booksplice.exe` CLI supports the same conversion engine. Run `booksplice.ex
 
 BookSplice does not modify source files. It stores settings, job logs, and temporary files under `%LOCALAPPDATA%\BookSplice`. Audit logs contain local paths and metadata, so treat them as private. Review copied diagnostics before sharing because arbitrary identifiers in tool or operating-system messages may remain.
 
+BookSplice can check GitHub for newer signed releases. Open Check for updates to see the running version, install a newer one when the queue is empty, or roll back to the previous version. A copy of BookSplice made before the updater existed must be replaced by hand once.
+
 Project documentation, source code, and issue tracking are available at [github.com/nickwolf/booksplice](https://github.com/nickwolf/booksplice).
 
 BookSplice is licensed under the MIT License in `LICENSE`. Third-party terms are listed in `THIRD-PARTY-NOTICES.md` and `licenses`. The corresponding FFmpeg and zlib source archives and rebuild instructions are in `sources`.

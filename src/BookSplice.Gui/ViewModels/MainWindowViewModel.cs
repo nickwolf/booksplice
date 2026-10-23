@@ -7,10 +7,11 @@ using BookSplice.Core.Execution;
 using BookSplice.Core.Ordering;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Settings;
+using BookSplice.Gui.Updates;
 
 namespace BookSplice.Gui.ViewModels;
 
-public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionService conversion, AppSettings settings, IConversionPlanner? planner = null) : ObservableModel, IDisposable
+public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionService conversion, AppSettings settings, IConversionPlanner? planner = null, GuiOperationGate? gate = null) : ObservableModel, IDisposable
 {
   private SemaphoreSlim _slots = new(settings.ConversionJobs ?? Math.Clamp(Environment.ProcessorCount / 2, 1, 6));
   private string _message = "";
@@ -29,8 +30,24 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
   }
   public string Message { get => _message; private set { _message = value; Changed(); } }
 
+  // Registers running work with the update gate. Returns null when an update is being prepared.
+  private IDisposable? Enter(string operation)
+  {
+    if (gate is null) return NoGate.Instance;
+    if (gate.IsFrozen) { Message = "BookSplice is preparing an update. Try again if the update is cancelled."; return null; }
+    return gate.Enter(operation);
+  }
+
+  private sealed class NoGate : IDisposable
+  {
+    public static NoGate Instance { get; } = new();
+    public void Dispose() { }
+  }
+
   public async Task AddAsync(string path)
   {
+    using var operation = Enter("add");
+    if (operation is null) return;
     try
     {
       path = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
@@ -48,6 +65,8 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
   public async Task ResolveOrderAsync(BookQueueItemViewModel item, OrderCandidateId candidate)
   {
     if (item.IsBusy || !item.CanEdit || !item.OrderCandidates.Any(value => value.Id == candidate)) return;
+    using var operation = Enter("order");
+    if (operation is null) return;
     item.SelectedOrder = candidate;
     await AnalyzeAsync(item);
   }
@@ -74,6 +93,8 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
   public async Task ConvertAsync(BookQueueItemViewModel item)
   {
     if (!item.CanConvert) return;
+    using var operation = Enter("conversion");
+    if (operation is null) return;
     item.IsBusy = true;
     item.Status = "Converting";
     item.Result = null;
@@ -136,6 +157,8 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
   public async Task PreviewAsync(BookQueueItemViewModel item)
   {
     if (planner is null || !item.CanConvert || item.Analysis is null) return;
+    using var operation = Enter("preview");
+    if (operation is null) return;
     item.Result = null;
     item.IsBusy = true;
     try

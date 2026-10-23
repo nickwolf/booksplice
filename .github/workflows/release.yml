@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - v*
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
     inputs:
       tag:
@@ -35,6 +35,7 @@ jobs:
   publish:
     needs: media-tools
     runs-on: windows-latest
+    environment: release-signing
     steps:
       - uses: actions/checkout@v4
         with:
@@ -49,7 +50,7 @@ jobs:
           BOOKSPLICE_REQUESTED_TAG: ${{ inputs.tag }}
         run: |
           $releaseTag = if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $env:BOOKSPLICE_REQUESTED_TAG } else { $env:GITHUB_REF_NAME }
-          if ($releaseTag -notmatch '^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') { throw "Invalid release tag '$releaseTag'." }
+          if ($releaseTag -notmatch '^v\d+\.\d+\.\d+$') { throw "Invalid release tag '$releaseTag'." }
           $version = $releaseTag.Substring(1)
           git fetch --force origin "refs/tags/$($releaseTag):refs/tags/$releaseTag"
           if ($LASTEXITCODE -ne 0) { throw "Could not fetch release tag '$releaseTag'." }
@@ -66,7 +67,13 @@ jobs:
           "BOOKSPLICE_TAG=$releaseTag" | Out-File -FilePath $env:GITHUB_ENV -Append
           "BOOKSPLICE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
           "BOOKSPLICE_RELEASE_NOTES=$notes" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "BOOKSPLICE_PRERELEASE=$($version.Contains('-').ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Require signing configuration
+        shell: pwsh
+        env:
+          BOOKSPLICE_UPDATE_SIGNING_KEY: ${{ secrets.BOOKSPLICE_UPDATE_SIGNING_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:BOOKSPLICE_UPDATE_SIGNING_KEY)) { throw 'BOOKSPLICE_UPDATE_SIGNING_KEY is not configured in the release-signing environment.' }
+          if (-not (Test-Path -LiteralPath .\src\BookSplice.Updates\Trust\production-public-key.pem -PathType Leaf)) { throw 'The reviewed production public key is not embedded in this tag.' }
       - run: dotnet restore
       - uses: actions/download-artifact@v4
         with:
@@ -83,13 +90,27 @@ jobs:
         shell: pwsh
         run: .\scripts\Get-FFmpegLicenseInventory.ps1 -MediaToolDirectory $env:BOOKSPLICE_FFMPEG_DIR -Check
       - run: dotnet build --configuration Release --no-restore
-      - run: dotnet test --configuration Release --no-build
+      - run: dotnet test --configuration Release --no-build -m:1
       - run: dotnet format --verify-no-changes --no-restore
       - name: Build and test release package
         shell: pwsh
         run: |
-          .\scripts\Build-Release.ps1 -Version $env:BOOKSPLICE_VERSION -MediaToolDirectory $env:BOOKSPLICE_FFMPEG_DIR
+          .\scripts\Build-Release.ps1 -Version $env:BOOKSPLICE_VERSION -MediaToolDirectory $env:BOOKSPLICE_FFMPEG_DIR -Flavor Release
           .\scripts\Test-Release.ps1 -ArchivePath ".\artifacts\release\BookSplice-$env:BOOKSPLICE_VERSION-win-x64.zip" -ChecksumPath ".\artifacts\release\BookSplice-$env:BOOKSPLICE_VERSION-win-x64.zip.sha256"
+      - name: Sign and verify update manifest
+        shell: pwsh
+        env:
+          BOOKSPLICE_UPDATE_SIGNING_KEY: ${{ secrets.BOOKSPLICE_UPDATE_SIGNING_KEY }}
+        run: |
+          $keyPath = Join-Path $env:RUNNER_TEMP 'update-signing-key.pem'
+          try {
+            [IO.File]::WriteAllText($keyPath, $env:BOOKSPLICE_UPDATE_SIGNING_KEY)
+            $archive = ".\artifacts\release\BookSplice-$env:BOOKSPLICE_VERSION-win-x64.zip"
+            $publicKey = '.\src\BookSplice.Updates\Trust\production-public-key.pem'
+            $signed = .\scripts\booksplice\New-UpdateManifest.ps1 -ArchivePath $archive -Version $env:BOOKSPLICE_VERSION -SigningKeyPath $keyPath -PublicKeyPath $publicKey -OutputDirectory .\artifacts\release-signed
+            .\scripts\booksplice\Test-UpdateManifest.ps1 -ArchivePath $archive -ManifestPath $signed.ManifestPath -SignaturePath $signed.SignaturePath -PublicKeyPath $publicKey | Out-Null
+          }
+          finally { Remove-Item -LiteralPath $keyPath -Force -ErrorAction SilentlyContinue }
       - uses: actions/attest-build-provenance@v2
         with:
           subject-path: artifacts/release/BookSplice-*-win-x64.zip
@@ -97,12 +118,15 @@ jobs:
         with:
           tag_name: ${{ env.BOOKSPLICE_TAG }}
           body_path: ${{ env.BOOKSPLICE_RELEASE_NOTES }}
-          prerelease: ${{ env.BOOKSPLICE_PRERELEASE }}
           draft: true
           overwrite_files: false
           fail_on_unmatched_files: true
           files: |
             artifacts/release/BookSplice-*-win-x64.zip
             artifacts/release/BookSplice-*-win-x64.zip.sha256
+            artifacts/release-signed/BookSplice-*-win-x64.update.json
+            artifacts/release-signed/BookSplice-*-win-x64.update.sig.json
+            scripts/booksplice/Test-UpdateManifest.ps1
+            scripts/booksplice/UpdateSigning.ps1
             scripts/Test-Release.ps1
             scripts/ReleaseOwnedDirectory.ps1

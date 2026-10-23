@@ -19,7 +19,7 @@ $env:BOOKSPLICE_FIXTURE_FFMPEG_DIR = Join-Path $fixtureRoot $fixtureRelease
 dotnet restore
 $env:BOOKSPLICE_FFMPEG_DIR = $toolDirectory
 dotnet build --configuration Release --no-restore
-dotnet test --configuration Release --no-build
+dotnet test --configuration Release --no-build -m:1
 dotnet format --verify-no-changes --no-restore
 
 .\scripts\Build-Release.ps1 -Version 0.1.1 -MediaToolDirectory $toolDirectory
@@ -29,6 +29,18 @@ dotnet format --verify-no-changes --no-restore
 `Test-Release.ps1` verifies the checksum, archive structure, required license files, exact pinned FFmpeg license digest, and packaged GUI startup. It then runs the packaged CLI, converts generated audio with full-decode validation, probes the M4B, checks its chapter and audio stream, confirms an audit record exists, and confirms the source hash did not change.
 
 Build the same version twice into different output directories and compare SHA-256 hashes before tagging. A release tag must have a matching `docs/releases/<tag>.md` file.
+
+## Updater packaging and signing
+
+`Build-Release.ps1 -Flavor` selects the build flavor, and the ZIP's `VERSION.txt` records it. The default is `Test`, which embeds no production trust: such a package can run the updater against a disposable key but can never install a production release. `Release` embeds the public key from `src\BookSplice.Updates\Trust\production-public-key.pem` and fails if that file is missing. The production public key was added on 2026-10-22; its SubjectPublicKeyInfo SHA-256 is `8eff20ea18367ce3309deb850051fca376f600112da2af803e6e154020b89b32`. The matching private key lives only in the `release-signing` environment secret and the owner's password manager. A `Release` updater also accepts a `Test` flavor line in `VERSION.txt`, because the manifest signature is the guard.
+
+The release workflow runs the `publish` job in the `release-signing` environment and reads the private key from the `BOOKSPLICE_UPDATE_SIGNING_KEY` secret. It stops before building if the secret or the public key file is absent. After `Test-Release.ps1` it runs `scripts\booksplice\New-UpdateManifest.ps1` to write `BookSplice-<version>-win-x64.update.json` and `.update.sig.json`, then `scripts\booksplice\Test-UpdateManifest.ps1` to verify them against the archive and the public key. Both files are attached to the draft release.
+
+Tags must be plain `vX.Y.Z`. The workflow trigger and the manifest version check reject prerelease suffixes, so a prerelease cannot be signed or offered as an update.
+
+`scripts\booksplice\Test-UpdateTooling.ps1` checks the manifest scripts and signing helpers with a throwaway key, including refusal when key material is missing. It needs no desktop and runs in CI.
+
+`scripts\booksplice\Test-UpdateRehearsal.ps1 -MediaToolDirectory <dir> -OutputDirectory <new dir under artifacts>` builds two `Test` packages, signs the newer one with a disposable key, and drives the real GUI and launcher through upgrade, rollback, a candidate that never reports ready, a killed launcher, rejected releases, and cleanup. It needs an interactive Windows desktop, so hosted CI cannot run it. Run it locally before a release that changes the updater and keep the aggregate JSON it prints as evidence. It does not exercise the production key or a real GitHub release.
 
 ## Media-tool review
 
@@ -57,7 +69,7 @@ The CLI result must report `status: passed` and `gateComplete: true`. The later 
 3. Review the release notes and public repository diff for private paths, media, credentials, and machine-specific data.
 4. Complete and record the manual and third-party-license gates in `docs/ACCEPTANCE.md` using disposable copies and the exact pinned media-tool artifact. If the owner explicitly accepts an unrun private gate, record the missing coverage and decision without claiming a pass.
 5. Create and push an annotated `v<version>` tag.
-6. The release workflow rebuilds and tests the package, creates a build-provenance attestation, and attaches the ZIP, checksum, smoke-test script, and its helper to an unpublished draft release. Existing same-named assets are never overwritten.
+6. The release workflow rebuilds and tests the package, creates a build-provenance attestation, and attaches the ZIP, checksum, signed update manifest and signature, the smoke-test and manifest-check scripts, and their helpers to an unpublished draft release. Existing same-named assets are never overwritten.
    If the tag-triggered run fails before creating a draft, fix the workflow on `main` and dispatch `release.yml` with the existing annotated tag. The retry checks out that tag and verifies its object and commit before building. Do not move the tag or overwrite draft assets.
 7. On a clean Windows x64 machine, authenticate to GitHub, download the draft assets into one directory, run the downloaded script against the ZIP and checksum, and compare the downloaded artifact digest with the workflow result.
 8. Publish the draft release only after the clean-machine gate passes and the disposition of every other release gate is recorded.

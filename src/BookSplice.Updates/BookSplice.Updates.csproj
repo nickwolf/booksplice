@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <!-- Build flavor: Test (default, no production trust) or Release (embeds Trust\production-public-key.pem, required). -->
+  <PropertyGroup>
+    <BookSpliceFlavor Condition="'$(BookSpliceFlavor)' == ''">Test</BookSpliceFlavor>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(BookSpliceFlavor)' == 'Release'">
+    <BookSpliceTrustFile>$(MSBuildProjectDirectory)\Trust\production-public-key.pem</BookSpliceTrustFile>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(BookSpliceFlavor)' == 'Test'">
+    <BookSpliceTrustFile>$(BookSpliceTestPublicKey)</BookSpliceTrustFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="BookSplice.BuildFlavor" Value="$(BookSpliceFlavor)" />
+    <EmbeddedResource Include="$(BookSpliceTrustFile)" LogicalName="BookSplice.Trust.pem" Condition="'$(BookSpliceTrustFile)' != ''" />
+  </ItemGroup>
+  <Target Name="BookSpliceCheckFlavor" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(BookSpliceFlavor)' != 'Test' And '$(BookSpliceFlavor)' != 'Release'" Text="BookSpliceFlavor must be Test or Release." />
+    <Error Condition="'$(BookSpliceFlavor)' == 'Release' And !Exists('$(BookSpliceTrustFile)')" Text="A Release build requires the reviewed production public key at src\BookSplice.Updates\Trust\production-public-key.pem." />
+    <Error Condition="'$(BookSpliceFlavor)' == 'Test' And '$(BookSpliceTrustFile)' != '' And !Exists('$(BookSpliceTrustFile)')" Text="BookSpliceTestPublicKey does not exist." />
+  </Target>
+  <ItemGroup>
+    <InternalsVisibleTo Include="BookSplice.Updates.Tests" />
+    <InternalsVisibleTo Include="BookSplice.Gui.Tests" />
+    <InternalsVisibleTo Include="BookSplice.Launcher" />
+  </ItemGroup>
+</Project>

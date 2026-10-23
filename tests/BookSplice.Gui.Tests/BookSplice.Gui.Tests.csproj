@@ -14,7 +14,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Using Include="Xunit" /><ProjectReference Include="..\..\src\BookSplice.Gui\BookSplice.Gui.csproj" />
+    <Using Include="Xunit" />
+    <ProjectReference Include="..\..\src\BookSplice.Gui\BookSplice.Gui.csproj" />
   </ItemGroup>
 
 </Project>
