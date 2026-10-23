@@ -55,12 +55,14 @@ public sealed class FirstLaunchService
 {
   private readonly ISettingsStore _store;
   private readonly IOutputDirectoryProbe _probe;
-  public FirstLaunchService(ISettingsStore store, IOutputDirectoryProbe? probe = null) { _store = store; _probe = probe ?? new FileOutputDirectoryProbe(); }
+  private readonly Metadata.MetadataProfileCatalog _profiles;
+  public FirstLaunchService(ISettingsStore store, IOutputDirectoryProbe? probe = null, Metadata.MetadataProfileCatalog? profiles = null) { _store = store; _probe = probe ?? new FileOutputDirectoryProbe(); _profiles = profiles ?? Metadata.MetadataProfileCatalog.BuiltIn; }
 
   public async Task<FirstLaunchResult> CompleteAsync(AppSettings settings, CancellationToken cancellationToken = default)
   {
     var validation = SettingsValidator.Validate(settings);
     if (!validation.IsValid) return new(false, "validation-failed", string.Join("; ", validation.Errors));
+    if (_profiles.Find(settings.MetadataProfileId) is null) return new(false, "profile-unavailable", "The selected metadata profile is not available.");
     var probe = await _probe.ProbeAsync(settings.OutputDirectory, cancellationToken);
     if (!probe.Succeeded) return new(false, probe.Code, probe.Error);
     try { await _store.SaveAsync(settings, cancellationToken); return new(true, "completed"); }

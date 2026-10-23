@@ -25,7 +25,7 @@ public sealed class AdvancedOptionsTests
 
   [Theory]
   [InlineData("--order", "random")]
-  [InlineData("--metadata-profile", "unknown")]
+  [InlineData("--metadata-profile", "not valid!")]
   [InlineData("--validation", "none")]
   [InlineData("--channels", "surround")]
   public void InvalidAdvancedOptionsFailBeforeConversion(string option, string value)

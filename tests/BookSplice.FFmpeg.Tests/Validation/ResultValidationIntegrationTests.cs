@@ -97,7 +97,7 @@ public sealed class ResultValidationIntegrationTests
   private static ConversionPlan Plan(string output, bool chapters = true)
     => new(["source.wav"], new BookMetadata(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>()),
       null, chapters ? [new ChapterEntry(0, 2_000_000, "One", "", "source.wav")] : [], QualityProfileCatalog.Version1[0], ValidationLevel.Full,
-      CollisionPolicy.AvoidCollision, output, AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "test", "GenericMp4", 44100, 1);
+      CollisionPolicy.AvoidCollision, output, AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "test", MetadataProfiles.GenericMp4, 44100, 1);
 
   private sealed class TemporaryDirectory : IDisposable
   {

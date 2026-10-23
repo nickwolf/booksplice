@@ -1,6 +1,7 @@
 using System.Text.Json;
 using BookSplice.Core.Analysis;
 using BookSplice.Core.Execution;
+using BookSplice.Core.Metadata;
 using BookSplice.Core.Naming;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Settings;
@@ -14,8 +15,10 @@ public sealed class CliApplication
   private readonly IConversionService _service;
   private readonly IJobLogWriter? _logs;
 
-  public CliApplication(ISettingsStore settings, IConversionService service, IJobLogWriter? logs = null)
-    => (_settings, _service, _logs) = (settings, service, logs);
+  private readonly MetadataProfileCatalog? _profiles;
+
+  public CliApplication(ISettingsStore settings, IConversionService service, IJobLogWriter? logs = null, MetadataProfileCatalog? profiles = null)
+    => (_settings, _service, _logs, _profiles) = (settings, service, logs, profiles);
 
   public async Task<CliExitCode> RunAsync(IReadOnlyList<string> arguments, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken, TextReader? standardInput = null)
   {
@@ -59,7 +62,7 @@ public sealed class CliApplication
         standardError).ConfigureAwait(false);
     }
 
-    var configured = CliConfiguration.Resolve(parsed.Options!, loaded);
+    var configured = CliConfiguration.Resolve(parsed.Options!, loaded, _profiles);
     if (!configured.IsSuccess)
     {
       return await CompletePreServiceAsync(

@@ -4,25 +4,14 @@ using BookSplice.Updates.Windows;
 using System.Text;
 using System.Text.Json;
 
+var localAppData = Environment.GetEnvironmentVariable("BOOKSPLICE_LOCAL_APP_DATA");
+if (string.IsNullOrWhiteSpace(localAppData)) localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
 if (args is ["--help"] or ["-h"])
 {
-  Console.WriteLine("""
-    booksplice <source> [options]
-      --output <folder>                 Existing output folder (or saved setting)
-      --quality <profile>               efficient, balanced, high-quality, preserve-more
-      --bitrate <32-320>                 Custom AAC bitrate in kbps
-      --jobs <1-32>                      Parallel segment encoders
-      --order <natural|metadata>        Explicit source ordering candidate
-      --metadata-profile <name>          GenericMp4
-      --validation <lightweight|full>    Output validation level
-      --channels <preserve|mono|stereo>   Output channel handling
-      --chapters | --no-chapters         Chapter creation
-      --overwrite                       Replace an existing output after validation
-      --dry-run                         Plan without writing output or audit files
-      --json                            Newline-delimited JSON; never prompts
-    Terminal runs prompt when track order needs a decision. Redirected input never prompts.
-    Use the BookSplice GUI Settings window to save defaults.
-    """);
+  var profiles = BookSplice.Core.Metadata.MetadataProfileCatalog.BuiltIn;
+  try { profiles = BookSplice.Core.Metadata.MetadataProfileCatalog.Load(CliComposition.ProfilesDirectory(localAppData)); }
+  catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { }
+  Console.WriteLine(CliHelp.Build(profiles, CliComposition.ProfilesDirectory(localAppData)));
   return 0;
 }
 
@@ -44,8 +33,6 @@ ConsoleCancelEventHandler handler = (_, eventArgs) =>
 Console.CancelKeyPress += handler;
 try
 {
-  var localAppData = Environment.GetEnvironmentVariable("BOOKSPLICE_LOCAL_APP_DATA");
-  if (string.IsNullOrWhiteSpace(localAppData)) localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
   var mediaTools = Environment.GetEnvironmentVariable("BOOKSPLICE_FFMPEG_DIR");
   if (string.IsNullOrWhiteSpace(mediaTools)) mediaTools = Path.Combine(AppContext.BaseDirectory, "tools", "ffmpeg");
   var dataRoot = Path.Combine(Path.GetFullPath(localAppData), "BookSplice");

@@ -172,7 +172,7 @@ public sealed class CliApplicationTests
     sources ?? ["C:\\Book\\01.mp3", "C:\\Book\\02.mp3"],
     new(new Dictionary<Core.Metadata.SemanticField, Core.Metadata.AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<Core.Metadata.SemanticField, IReadOnlyList<string>>()),
     null, [], QualityProfileCatalog.Version1[0], ValidationLevel.Lightweight, Core.Naming.CollisionPolicy.AvoidCollision,
-    "C:\\Output\\Book.m4b", AudioStrategy.DirectTranscode, ["strategy.test"], new(1, 1, 2, 3, 1), 1, "test", "GenericMp4");
+    "C:\\Output\\Book.m4b", AudioStrategy.DirectTranscode, ["strategy.test"], new(1, 1, 2, 3, 1), 1, "test", Core.Metadata.MetadataProfiles.GenericMp4);
 
   private static AppSettings Settings() => AppSettings.Defaults with { OutputDirectory = "C:\\Output" };
 

@@ -4,6 +4,7 @@ using System.IO;
 using System.Windows.Threading;
 using BookSplice.Core.Analysis;
 using BookSplice.Core.Execution;
+using BookSplice.Core.Metadata;
 using BookSplice.Core.Ordering;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Settings;
@@ -11,7 +12,7 @@ using BookSplice.Gui.Updates;
 
 namespace BookSplice.Gui.ViewModels;
 
-public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionService conversion, AppSettings settings, IConversionPlanner? planner = null, GuiOperationGate? gate = null) : ObservableModel, IDisposable
+public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionService conversion, AppSettings settings, IConversionPlanner? planner = null, GuiOperationGate? gate = null, MetadataProfileCatalog? profiles = null) : ObservableModel, IDisposable
 {
   private SemaphoreSlim _slots = new(settings.ConversionJobs ?? Math.Clamp(Environment.ProcessorCount / 2, 1, 6));
   private string _message = "";
@@ -53,7 +54,7 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
       path = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
       if (Items.Any(item => string.Equals(item.Source, path, StringComparison.OrdinalIgnoreCase)))
       { Message = "This source is already in the queue."; return; }
-      var item = new BookQueueItemViewModel(path, Settings);
+      var item = new BookQueueItemViewModel(path, Settings, profiles);
       Items.Add(item);
       Message = "";
       await AnalyzeAsync(item);
@@ -165,7 +166,7 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     {
       var result = await Task.Run(() => planner.CreateAsync(item.Analysis, item.CreateOptions(singleConversionJob: true), CancellationToken.None));
       item.Details = result.Plan is { } plan
-        ? $"Output: {plan.OutputPath}{Environment.NewLine}Audio: {DescribeAudio(plan)}{Environment.NewLine}Validation: {plan.ValidationLevel} | Metadata: {plan.MetadataProfileId}"
+        ? $"Output: {plan.OutputPath}{Environment.NewLine}Audio: {DescribeAudio(plan)}{Environment.NewLine}Validation: {plan.ValidationLevel} | Metadata: {MetadataProfileCatalog.PublicLabel(plan.MetadataProfileId)}"
         : string.Join(Environment.NewLine, result.Diagnostics.Select(diagnostic => diagnostic.Message));
     }
     catch (Exception exception) { item.Details = exception.Message; }

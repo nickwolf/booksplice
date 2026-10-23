@@ -268,7 +268,7 @@ public sealed class ConversionServiceTests
       return AuditException is null ? Task.CompletedTask : Task.FromException(AuditException);
     }
 
-    private ConversionPlan Plan() => new([], Metadata(), null, [], QualityProfileCatalog.Version1[0], ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, PublishedPath, AudioStrategy.DirectTranscode, [], new(0, 0, 0, long.MaxValue, 0), 1, "test", "GenericMp4");
+    private ConversionPlan Plan() => new([], Metadata(), null, [], QualityProfileCatalog.Version1[0], ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, PublishedPath, AudioStrategy.DirectTranscode, [], new(0, 0, 0, long.MaxValue, 0), 1, "test", Core.Metadata.MetadataProfiles.GenericMp4);
     private static BookMetadata Metadata() => new(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>());
   }
 }

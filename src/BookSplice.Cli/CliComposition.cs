@@ -18,12 +18,15 @@ namespace BookSplice.Cli;
 
 public static class CliComposition
 {
+  public static string ProfilesDirectory(string localAppDataRoot) => Path.Combine(Path.GetFullPath(localAppDataRoot), "BookSplice", "profiles");
+
   public static CliApplication Create(string localAppDataRoot, string mediaToolDirectory)
   {
     var localDirectory = Path.Combine(Path.GetFullPath(localAppDataRoot), "BookSplice");
     var temporaryRoot = Path.Combine(localDirectory, "temp");
     var logDirectory = Path.Combine(localDirectory, "logs");
     var logs = new JsonJobLogWriter(logDirectory);
+    var profiles = MetadataProfileCatalog.Load(ProfilesDirectory(localAppDataRoot));
     MediaToolSet tools;
     try
     {
@@ -34,7 +37,7 @@ public static class CliComposition
       return new CliApplication(
         new JsonSettingsStore(localAppDataRoot),
         new UnavailableToolConversionService(logs),
-        logs);
+        logs, profiles);
     }
     var runner = new ProcessRunner();
     var probe = new FFprobeMediaProbe(runner, tools);
@@ -44,7 +47,7 @@ public static class CliComposition
       new MetadataAggregator(),
       new CoverDiscoverer(new BookSplice.FFmpeg.Covers.MediaCoverPayloadOpener(tools)),
       new ChapterPlanner());
-    var planner = new ConversionPlanner(new OutputNamePlanner(), new FileSystemStorageSpaceProvider());
+    var planner = new ConversionPlanner(new OutputNamePlanner(), new FileSystemStorageSpaceProvider(), profiles);
     var executor = new FFmpegConversionExecutor(runner, new FFmpegCommandFactory(tools), new Mp4MetadataWriter(), temporaryRoot);
     var validator = new FFmpegOutputValidator(probe, runner, tools, new CoverPayloadValidator());
     var service = new ConversionService(
@@ -55,7 +58,7 @@ public static class CliComposition
       new AtomicPublisher(),
       new TemporaryArtifactCleaner(temporaryRoot),
       logs);
-    return new CliApplication(new JsonSettingsStore(localAppDataRoot), service, logs);
+    return new CliApplication(new JsonSettingsStore(localAppDataRoot), service, logs, profiles);
   }
 
   private sealed class UnavailableToolConversionService(IJobLogWriter logs) : IConversionService

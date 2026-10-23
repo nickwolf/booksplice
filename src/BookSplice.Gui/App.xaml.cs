@@ -63,7 +63,7 @@ public partial class App : Application
       if (_lease is null) { Shutdown(); return; }
       var host = new AppHost(root);
       var store = host.Settings;
-      var startup = await new StartupService(store).LoadAsync();
+      var startup = await new StartupService(store, profiles: host.Profiles).LoadAsync();
       if (startup.IsBlocked)
       {
         MessageBox.Show(startup.Message, "BookSplice settings", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -74,7 +74,7 @@ public partial class App : Application
       if (startup.RequiresSetup)
       {
         if (!string.IsNullOrEmpty(startup.Message)) MessageBox.Show(startup.Message, "BookSplice", MessageBoxButton.OK, MessageBoxImage.Information);
-        var model = new FirstLaunchViewModel(new FirstLaunchService(store), settings);
+        var model = new FirstLaunchViewModel(new FirstLaunchService(store, profiles: host.Profiles), settings, host.Profiles);
         if (new FirstLaunchWindow(model).ShowDialog() != true) { Shutdown(); return; }
         settings = model.SavedSettings!;
       }

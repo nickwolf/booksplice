@@ -1,3 +1,4 @@
+using BookSplice.Core.Metadata;
 using BookSplice.Core.Naming;
 using BookSplice.Core.Validation;
 
@@ -93,7 +94,7 @@ public sealed class AtomicPublisherTests
   }
 
   private static BookSplice.Core.Planning.ConversionPlan Plan(string outputPath, CollisionPolicy policy = CollisionPolicy.AvoidCollision)
-    => new([], new BookSplice.Core.Metadata.BookMetadata(new Dictionary<BookSplice.Core.Metadata.SemanticField, BookSplice.Core.Metadata.AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<BookSplice.Core.Metadata.SemanticField, IReadOnlyList<string>>()), null, [], BookSplice.Core.Planning.QualityProfileCatalog.Version1[0], BookSplice.Core.Settings.ValidationLevel.Lightweight, policy, outputPath, BookSplice.Core.Planning.AudioStrategy.DirectTranscode, [], new BookSplice.Core.Planning.SpaceEstimate(1, 1, 1, 1, 0), 1, "test", "GenericMp4", planId: TestPlanId);
+    => new([], new BookSplice.Core.Metadata.BookMetadata(new Dictionary<BookSplice.Core.Metadata.SemanticField, BookSplice.Core.Metadata.AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<BookSplice.Core.Metadata.SemanticField, IReadOnlyList<string>>()), null, [], BookSplice.Core.Planning.QualityProfileCatalog.Version1[0], BookSplice.Core.Settings.ValidationLevel.Lightweight, policy, outputPath, BookSplice.Core.Planning.AudioStrategy.DirectTranscode, [], new BookSplice.Core.Planning.SpaceEstimate(1, 1, 1, 1, 0), 1, "test", MetadataProfiles.GenericMp4, planId: TestPlanId);
 
   private sealed class TemporaryDirectory : IDisposable
   {

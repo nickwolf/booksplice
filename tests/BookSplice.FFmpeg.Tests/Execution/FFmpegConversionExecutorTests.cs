@@ -179,7 +179,7 @@ public sealed class FFmpegConversionExecutorTests
     };
     var metadata = new BookMetadata(fields, new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>());
     var writer = new FakeMetadataWriter();
-    var result = await Executor(new FakeRunner(), root.Path, writer).ExecuteAsync(Plan(AudioStrategy.DirectTranscode, 1, 1, metadata: metadata, metadataProfileId: "GenericMp4"), CancellationToken.None);
+    var result = await Executor(new FakeRunner(), root.Path, writer).ExecuteAsync(Plan(AudioStrategy.DirectTranscode, 1, 1, metadata: metadata, metadataProfile: MetadataProfiles.GenericMp4), CancellationToken.None);
 
     Assert.Equal(ExecutionStatus.Succeeded, result.Status);
     Assert.Equal("Book", writer.LastTags!["title"]);
@@ -223,12 +223,12 @@ public sealed class FFmpegConversionExecutorTests
 
   private static FFmpegConversionExecutor Executor(FakeRunner runner, string root, FakeMetadataWriter? writer = null) => new(runner, new FFmpegCommandFactory(new MediaToolSet("ffmpeg.exe", "ffprobe.exe", "pinned", "pinned")), writer ?? new FakeMetadataWriter(), root);
 
-  private static ConversionPlan Plan(AudioStrategy strategy, int count, int jobs, string? destination = null, string? sourceOverride = null, BookMetadata? metadata = null, string metadataProfileId = "GenericMp4")
+  private static ConversionPlan Plan(AudioStrategy strategy, int count, int jobs, string? destination = null, string? sourceOverride = null, BookMetadata? metadata = null, MetadataProfile? metadataProfile = null)
   {
     var sources = Enumerable.Range(0, count).Select(index => index == 0 && sourceOverride is not null ? sourceOverride : Path.Combine(Path.GetTempPath(), $"source-{index:D2}.mp3")).ToArray();
     var chapters = sources.Select((_, index) => new ChapterEntry(index * 10_000_000L, (index + 1) * 10_000_000L, $"Chapter {index + 1}", string.Empty, sources[index])).ToArray();
     metadata ??= new BookMetadata(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>());
-    return new ConversionPlan(sources, metadata, null, chapters, QualityProfileCatalog.Version1[2], ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, destination ?? Path.Combine(Path.GetTempPath(), $"planned-{Guid.NewGuid():N}.m4b"), strategy, [], new SpaceEstimate(1, 1, 1, 1, 0), jobs, "test", metadataProfileId);
+    return new ConversionPlan(sources, metadata, null, chapters, QualityProfileCatalog.Version1[2], ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, destination ?? Path.Combine(Path.GetTempPath(), $"planned-{Guid.NewGuid():N}.m4b"), strategy, [], new SpaceEstimate(1, 1, 1, 1, 0), jobs, "test", metadataProfile ?? MetadataProfiles.GenericMp4);
   }
 
   private sealed class FakeRunner : IProcessRunner

@@ -2,13 +2,14 @@ using System.Collections.ObjectModel;
 using System.IO;
 using BookSplice.Core.Analysis;
 using BookSplice.Core.Covers;
+using BookSplice.Core.Metadata;
 using BookSplice.Core.Ordering;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Settings;
 
 namespace BookSplice.Gui.ViewModels;
 
-public sealed class BookQueueItemViewModel(string source, AppSettings settings) : ObservableModel
+public sealed class BookQueueItemViewModel(string source, AppSettings settings, MetadataProfileCatalog? profiles = null) : ObservableModel
 {
   private string _status = "Queued";
   private string _details = "";
@@ -28,12 +29,13 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings) 
     new(ChannelPolicy.ForceStereo, "Force stereo"),
   ];
   public IReadOnlyList<ValidationLevel> ValidationLevels { get; } = Enum.GetValues<ValidationLevel>();
-  public IReadOnlyList<string> MetadataProfiles { get; } = ["GenericMp4"];
+  private readonly MetadataProfileCatalog _profiles = profiles ?? MetadataProfileCatalog.BuiltIn;
+  public IReadOnlyList<string> MetadataProfiles { get; } = (profiles ?? MetadataProfileCatalog.BuiltIn).Profiles.Select(profile => profile.Name).ToArray();
   public string OutputDirectory { get => Settings.OutputDirectory; set => UpdateSettings(Settings with { OutputDirectory = value }); }
   public string QualityProfileId { get => Settings.QualityProfileId; set { if (QualityProfileCatalog.FindById(value) is not null) UpdateSettings(Settings with { QualityProfileId = value }); } }
   public ChannelPolicy ChannelPolicy { get => Settings.ChannelPolicy; set => UpdateSettings(Settings with { ChannelPolicy = value }); }
   public ValidationLevel ValidationLevel { get => Settings.ValidationLevel; set => UpdateSettings(Settings with { ValidationLevel = value }); }
-  public string MetadataProfileId { get => Settings.MetadataProfileId; set { if (value == "GenericMp4") UpdateSettings(Settings with { MetadataProfileId = value }); } }
+  public string MetadataProfileId { get => Settings.MetadataProfileId; set { if (_profiles.Find(value) is not null) UpdateSettings(Settings with { MetadataProfileId = value }); } }
   public BookAnalysis? Analysis { get; private set; }
   public OrderCandidateId? SelectedOrder { get; set; }
   public CoverCandidate? SelectedCover { get; set; }

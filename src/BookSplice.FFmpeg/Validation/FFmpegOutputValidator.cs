@@ -122,7 +122,7 @@ public sealed class FFmpegOutputValidator : IOutputValidator
 
   private static void ValidateMetadata(ConversionPlan plan, MediaProbeResult facts, List<ValidationCheck> checks)
   {
-    var expected = MetadataProfiles.GenericMp4.Apply(plan.Metadata).Where(pair => !string.IsNullOrWhiteSpace(pair.Value));
+    var expected = plan.MetadataProfile.Apply(plan.Metadata).Where(pair => !string.IsNullOrWhiteSpace(pair.Value)).Select(pair => KeyValuePair.Create(MetadataTagKeys.Canonical(pair.Key), pair.Value));
     var actual = new Dictionary<string, string>(facts.FormatTags, StringComparer.OrdinalIgnoreCase);
     var valid = expected.All(pair => actual.TryGetValue(pair.Key, out var value) && string.Equals(value.TrimEnd('\0'), pair.Value.TrimEnd('\0'), StringComparison.Ordinal));
     checks.Add(Check(ValidationCodes.MetadataRequired, valid, "Required output metadata is missing or changed."));

@@ -97,6 +97,32 @@ public sealed class ConversionPlannerTests
     Assert.EndsWith("book.m4b", result.Plan!.OutputPath, StringComparison.OrdinalIgnoreCase);
   }
 
+  [Fact]
+  public async Task CreateAsync_snapshots_a_custom_profile_from_the_catalog_into_the_plan()
+  {
+    using var directory = new TempProfiles();
+    directory.Write("synthetic.json", """{"schemaVersion":1,"name":"SyntheticProfile","version":"7","mappings":[{"field":"BookTitle","keys":["TITLE"]}]}""");
+    var catalog = MetadataProfileCatalog.Load(directory.Root);
+    var options = new ConversionOptions(AppSettings.Defaults with { OutputDirectory = Path.GetTempPath(), MetadataProfileId = "SyntheticProfile" }, QualityProfileCatalog.Version1[0]);
+
+    var result = await new ConversionPlanner(new OutputNamePlanner(), new Storage(long.MaxValue), catalog).CreateAsync(Analysis(BookAnalysisStatus.Ready), options, CancellationToken.None);
+
+    Assert.Same(catalog.Find("SyntheticProfile"), result.Plan!.MetadataProfile);
+    Assert.Equal("SyntheticProfile", result.Plan.MetadataProfileId);
+    Assert.Equal("7", result.Plan.MetadataProfile.Version);
+  }
+
+  [Fact]
+  public async Task CreateAsync_reports_an_unknown_metadata_profile()
+  {
+    var options = new ConversionOptions(AppSettings.Defaults with { OutputDirectory = Path.GetTempPath(), MetadataProfileId = "Missing" }, QualityProfileCatalog.Version1[0]);
+
+    var result = await Planner().CreateAsync(Analysis(BookAnalysisStatus.Ready), options, CancellationToken.None);
+
+    Assert.Null(result.Plan);
+    Assert.Contains(result.Diagnostics, d => d.Code == "planning.metadata-profile-unknown");
+  }
+
   private static ConversionPlanner Planner(long? available = long.MaxValue) => new(new OutputNamePlanner(), new Storage(available));
   private static ConversionOptions Options(IReadOnlyDictionary<SemanticField, MetadataEdit>? edits = null, int? jobs = null, string? cover = null) => new(AppSettings.Defaults with { OutputDirectory = Path.GetTempPath(), ConversionJobs = jobs }, QualityProfileCatalog.Version1[0], edits, selectedCoverHash: cover);
   private static BookAnalysis Analysis(BookAnalysisStatus status, int count = 1, bool copy = false, CoverCandidate? cover = null)
@@ -114,4 +140,11 @@ public sealed class ConversionPlannerTests
     return new BookAnalysis(BookAnalysisStatus.Ready, "book", files, null, new BookMetadata(fields, new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>()), new CoverDiscoveryResult([], [], null), ChapterPlan.Valid([new ChapterEntry(0, formats.Length * 1_000_000L, "One", "One", files[0].RelativePath)], formats.Length * 1_000_000L), []);
   }
   private sealed class Storage(long? available) : IStorageSpaceProvider { public long? GetAvailableBytes(string directory) => available; }
+  private sealed class TempProfiles : IDisposable
+  {
+    public TempProfiles() => Directory.CreateDirectory(Root);
+    public string Root { get; } = Path.Combine(Path.GetTempPath(), $"BookSplice-{Guid.NewGuid():N}");
+    public void Write(string name, string content) => System.IO.File.WriteAllText(Path.Combine(Root, name), content);
+    public void Dispose() => Directory.Delete(Root, recursive: true);
+  }
 }
