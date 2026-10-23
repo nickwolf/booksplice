@@ -111,6 +111,7 @@ public partial class App : Application
       MainWindow = window;
       ShutdownMode = ShutdownMode.OnMainWindowClose;
       MainWindow.Show();
+      ShowCrashNotice(window, dataRoot);
     }
     catch (Exception exception)
     {
@@ -130,6 +131,20 @@ public partial class App : Application
   {
     try { return System.IO.Path.Combine(System.IO.Path.GetFullPath(LocalRoot()), "BookSplice"); }
     catch { return null; }
+  }
+
+  private static void ShowCrashNotice(Window owner, string dataRoot)
+  {
+    try
+    {
+      var store = new CrashReportStore(CrashReportStore.DirectoryFor(dataRoot));
+      var notice = CrashNoticeViewModel.TryCreate(CrashLaunchMode.Normal, store,
+        [dataRoot, Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), AppContext.BaseDirectory]);
+      if (notice is null || new CrashNoticeWindow { Owner = owner }.ShowDialog() != true) return;
+      notice.MarkReviewed();
+      new CrashSummaryWindow(notice.SummaryText) { Owner = owner }.ShowDialog();
+    }
+    catch { }
   }
 
   private void CreateUpdates(string dataRoot)
