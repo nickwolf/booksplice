@@ -132,7 +132,7 @@ public sealed class FFmpegConversionExecutor : IConversionExecutor
       }
       if (plan.Strategy == AudioStrategy.SegmentedTranscode)
       {
-        var segments = plan.SourcePaths.Select((_, index) => Register(artifacts, job, $"segment-{index:D4}.aac")).ToArray();
+        var segments = plan.SourcePaths.Select((_, index) => Register(artifacts, job, $"segment-{index:D4}.m4a")).ToArray();
         var segmentResults = await RunSegmentsAsync(plan, segments, normalizer, cancellationToken).ConfigureAwait(false);
         processes.AddRange(segmentResults);
         ConcatManifestWriter.WriteFile(manifest!, segments);

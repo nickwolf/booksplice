@@ -276,6 +276,51 @@ public sealed class FFmpegRealMediaIntegrationTests
     Assert.Contains(report.Checks, check => check.Code == "decode.full" && check.Passed);
   }
   [PinnedMediaFact]
+  public async Task SegmentedAssemblyPreservesDurationAndFinalChapterForVariableBitrateSegments()
+  {
+    var tools = ResolveTools();
+    using var root = new TemporaryDirectory();
+    var sourceRoot = Directory.CreateDirectory(Path.Combine(root.Path, "segmented-sources")).FullName;
+    var sources = new List<string>();
+    var chapters = new List<ChapterEntry>();
+    long cursor = 0;
+    for (var index = 0; index < 33; index++)
+    {
+      var source = Path.Combine(sourceRoot, $"{index:D2}.wav");
+      WriteNoiseThenSilence(source, index == 32 ? 8820 : 352800, index + 1);
+      sources.Add(source);
+      var length = index == 32 ? 200_000L : 8_000_000L;
+      chapters.Add(new ChapterEntry(cursor, cursor + length, $"Chapter {index + 1}", "", Path.GetFileName(source)));
+      cursor += length;
+    }
+    var plan = CreatePlan(AudioStrategy.SegmentedTranscode, sources, Path.Combine(root.Path, "output.m4b"), sourceRoot, chapters, ValidationLevel.Full);
+    var result = await new FFmpegConversionExecutor(new ProcessRunner(), new FFmpegCommandFactory(tools), new Mp4MetadataWriter(), Path.Combine(root.Path, "jobs"))
+      .ExecuteAsync(plan, CancellationToken.None);
+    Assert.Equal(ExecutionStatus.Succeeded, result.Status);
+    var report = await new FFmpegOutputValidator(new FFprobeMediaProbe(new ProcessRunner(), tools), new ProcessRunner(), tools, new CoverPayloadValidator())
+      .ValidateAsync(plan, result.TemporaryOutputPath!, CancellationToken.None);
+    Assert.True(report.IsValid, string.Join(Environment.NewLine, report.Checks.Where(check => !check.Passed).Select(check => $"{check.Code}: {check.Message}")));
+    Assert.Contains(report.Checks, check => check.Code == "decode.full" && check.Passed);
+    var decoded = await new ProcessRunner().RunAsync(new ProcessSpec(tools.FFprobePath,
+      ["-v", "error", "-select_streams", "a:0", "-show_frames", "-show_entries", "frame=nb_samples", "-of", "csv=p=0", result.TemporaryOutputPath!]), null, CancellationToken.None);
+    Assert.Equal(0, decoded.ExitCode);
+    var samples = decoded.StandardOutput.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+      .Sum(line => long.Parse(line, System.Globalization.CultureInfo.InvariantCulture));
+    var expectedSamples = cursor * 44100 / 1_000_000;
+    Assert.InRange(samples, expectedSamples, expectedSamples + sources.Count * 2048L);
+  }
+
+  private static void WriteNoiseThenSilence(string path, int sampleCount, int seed)
+  {
+    using var writer = new BinaryWriter(File.Create(path));
+    writer.Write("RIFF"u8); writer.Write(36 + sampleCount * 2); writer.Write("WAVEfmt "u8);
+    writer.Write(16); writer.Write((short)1); writer.Write((short)1); writer.Write(44100);
+    writer.Write(88200); writer.Write((short)2); writer.Write((short)16); writer.Write("data"u8); writer.Write(sampleCount * 2);
+    var random = new Random(seed);
+    for (var sample = 0; sample < sampleCount; sample++) writer.Write(sample < 22050 ? (short)random.Next(-16000, 16001) : (short)0);
+  }
+
+  [PinnedMediaFact]
   public async Task SegmentedFinalMuxSelectsEmbeddedPictureFromLaterSource()
   {
     var tools = ResolveTools();

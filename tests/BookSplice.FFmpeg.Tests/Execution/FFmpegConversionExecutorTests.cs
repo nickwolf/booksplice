@@ -28,7 +28,7 @@ public sealed class FFmpegConversionExecutorTests
     Assert.Equal("copy", final.Arguments[final.Arguments.ToList().IndexOf("-c:a") + 1]);
     Assert.DoesNotContain(final.Arguments, value => value == "aac");
     var manifest = final.Arguments[final.Arguments.ToList().IndexOf("-i") + 1];
-    Assert.Equal(Enumerable.Range(0, 5).Select(index => $"file '" + Path.Combine(Path.GetDirectoryName(manifest)!, $"segment-{index:D4}.aac").Replace('\\', '/') + "'"), File.ReadAllLines(manifest));
+    Assert.Equal(Enumerable.Range(0, 5).Select(index => $"file '" + Path.Combine(Path.GetDirectoryName(manifest)!, $"segment-{index:D4}.m4a").Replace('\\', '/') + "'"), File.ReadAllLines(manifest));
     Assert.True(progress.Zip(progress.Skip(1), (left, right) => (left.DisplayPercent ?? 0) <= (right.DisplayPercent ?? 0)).All(value => value));
     Assert.Equal(100, progress[^1].DisplayPercent);
     Assert.DoesNotContain(plan.OutputPath, runner.Specs.SelectMany(spec => spec.Arguments));
