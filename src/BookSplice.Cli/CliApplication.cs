@@ -148,6 +148,8 @@ public sealed class CliApplication
         plan.OutputPath,
         Warnings = result.Diagnostics.Where(value => value.Severity == ServiceDiagnosticSeverity.Warning).Select(value => PublicTextRedactor.Sanitize(value.Message, plan.SourcePaths)),
         Predicates = plan.StrategyReasonCodes,
+        StrategyExplanation = StrategyExplanation.Create(plan.Strategy, plan.StrategyReasonCodes),
+        Space = new { plan.Space.FinalBytes, plan.Space.TemporaryBytes, plan.Space.TotalRequiredBytes, plan.Space.AvailableBytes, plan.Space.DestinationVolume, plan.Space.TemporaryVolume, plan.Space.DestinationRequiredBytes, plan.Space.TemporaryRequiredBytes, plan.Space.TemporaryAvailableBytes },
       };
       WriteJson(standardOutput, new { SchemaVersion = 1, Event = "final", Status = result.Status.ToString(), ExitCode = (int)exitCode, result.JobId, result.PublishedPath, Plan = dryRunPlan }, sync);
     }
@@ -158,6 +160,10 @@ public sealed class CliApplication
         standardOutput.WriteLine($"Strategy: {plan.Strategy}");
         standardOutput.WriteLine($"Output: {plan.OutputPath}");
         for (var index = 0; index < plan.SourcePaths.Count; index++) standardOutput.WriteLine($"Source {index + 1}");
+        var explanation = StrategyExplanation.Create(plan.Strategy, plan.StrategyReasonCodes);
+        standardOutput.WriteLine(explanation.Summary);
+        foreach (var reason in explanation.Reasons) standardOutput.WriteLine($"  - {reason}");
+        foreach (var line in SpaceEstimateDescription.Lines(plan.Space)) standardOutput.WriteLine(line);
       }
       else if (result.Status == ConversionTerminalStatus.Succeeded) standardOutput.WriteLine($"Published {result.PublishedPath}");
     }

@@ -154,6 +154,59 @@ public sealed class QueueTests
     Assert.DoesNotContain("SyntheticCustom", item.Details);
     Assert.DoesNotContain("SyntheticCustom", DiagnosticsTextBuilder.Build(item));
   }
+  [Fact]
+  public async Task CopyPreviewSaysAudioIsNotReencodedAndShowsCombinedStorage()
+  {
+    var planner = new RecordingPlanner(AudioStrategy.AacStreamCopy, space: new SpaceEstimate(400_000_000, 400_000_000, 880_000_000, 50_000_000_000, 49_000_000_000, "D:\\"));
+    using var model = new MainWindowViewModel(new Analyzer(), new Converter(), AppSettings.Defaults, planner);
+    await model.AddAsync(Path.GetFullPath("book"));
+    var item = model.Items[0];
+    await model.ResolveOrderAsync(item, OrderCandidateId.NaturalPath);
+
+    await model.PreviewAsync(item);
+
+    Assert.Contains("Audio is copied without re-encoding.", item.Details);
+    Assert.DoesNotContain("Why re-encode", item.Details);
+    Assert.Contains("Estimated space needed: 839.2 MB on D: for output and temporary files with a 10% margin (free space: 46.6 GB)", item.Details);
+  }
+
+  [Fact]
+  public async Task ReencodePreviewListsReasonsAndSeparateVolumes()
+  {
+    var space = new SpaceEstimate(400_000_000, 400_000_000, 880_000_000, 50_000_000_000, 1, "D:\\", "C:\\", 440_000_000, 440_000_000, null);
+    var planner = new RecordingPlanner(AudioStrategy.FilterConcatTranscode, ["stream-copy.codec.unsupported", "stream-copy.sample-rate.missing"], space);
+    using var model = new MainWindowViewModel(new Analyzer(), new Converter(), AppSettings.Defaults, planner);
+    await model.AddAsync(Path.GetFullPath("book"));
+    var item = model.Items[0];
+    await model.ResolveOrderAsync(item, OrderCandidateId.NaturalPath);
+
+    await model.PreviewAsync(item);
+
+    Assert.Contains("Audio will be re-encoded to AAC.", item.Details);
+    Assert.Contains("Why re-encode:", item.Details);
+    Assert.Contains("  - The source audio is not AAC.", item.Details);
+    Assert.Contains("  - Could not confirm", item.Details);
+    Assert.Contains("kbps", item.Details);
+    Assert.Contains("Estimated output size: 381.5 MB on D: (free space: 46.6 GB)", item.Details);
+    Assert.Contains("Estimated temporary space: 381.5 MB on C: (free space unavailable)", item.Details);
+  }
+
+  [Fact]
+  public async Task InsufficientSpacePreviewStillShowsEstimates()
+  {
+    var space = new SpaceEstimate(400_000_000, 400_000_000, 880_000_000, 1_000, null, "D:\\");
+    var planner = new RecordingPlanner(AudioStrategy.DirectTranscode, [], space, refuse: true);
+    using var model = new MainWindowViewModel(new Analyzer(), new Converter(), AppSettings.Defaults, planner);
+    await model.AddAsync(Path.GetFullPath("book"));
+    var item = model.Items[0];
+    await model.ResolveOrderAsync(item, OrderCandidateId.NaturalPath);
+
+    await model.PreviewAsync(item);
+
+    Assert.Contains("The destination does not have enough available space.", item.Details);
+    Assert.Contains("Estimated space needed: 839.2 MB on D:", item.Details);
+    Assert.Contains("free space: 1000 bytes", item.Details);
+  }
   private sealed class TemporaryProfiles : IDisposable
   {
     public string Root { get; } = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), $"BookSplice-{Guid.NewGuid():N}")).FullName;
@@ -177,7 +230,7 @@ public sealed class QueueTests
     Assert.Single(model.Items, item => item.Status == "ExecutionFailed");
   }
 
-  private sealed class RecordingPlanner(AudioStrategy strategy = AudioStrategy.DirectTranscode) : IConversionPlanner
+  private sealed class RecordingPlanner(AudioStrategy strategy = AudioStrategy.DirectTranscode, string[]? reasons = null, SpaceEstimate? space = null, bool refuse = false) : IConversionPlanner
   {
     public ConversionOptions? Options { get; private set; }
     public Task<ConversionPlanningResult> CreateAsync(BookAnalysis analysis, ConversionOptions options, CancellationToken cancellationToken)
@@ -185,9 +238,11 @@ public sealed class QueueTests
       Options = options;
       var channels = options.Settings.ChannelPolicy == ChannelPolicy.ForceMono ? 1 : 2;
       var plan = new ConversionPlan([], analysis.BookMetadata, null, [], options.QualityProfile, options.Settings.ValidationLevel,
-        options.CollisionPolicy, Path.Combine(options.DestinationDirectory, "Preview.m4b"), strategy, [],
-        new SpaceEstimate(1, 1, 2, 3, 1), options.Settings.ConversionJobs ?? 6, "test", options.Settings.MetadataProfileId == MetadataProfiles.GenericMp4.Name ? MetadataProfiles.GenericMp4 : new MetadataProfile(options.Settings.MetadataProfileId, "1", [new(SemanticField.BookTitle, "TITLE")]), 44_100, channels);
-      return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Ready, plan, []));
+        options.CollisionPolicy, Path.Combine(options.DestinationDirectory, "Preview.m4b"), strategy, reasons ?? [],
+        space ?? new SpaceEstimate(1, 1, 2, 3, 1), options.Settings.ConversionJobs ?? 6, "test", options.Settings.MetadataProfileId == MetadataProfiles.GenericMp4.Name ? MetadataProfiles.GenericMp4 : new MetadataProfile(options.Settings.MetadataProfileId, "1", [new(SemanticField.BookTitle, "TITLE")]), 44_100, channels);
+      return Task.FromResult(refuse
+        ? new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.insufficient-space", AnalysisDiagnosticSeverity.Error, "The destination does not have enough available space.")], plan.Space, strategy, reasons)
+        : new ConversionPlanningResult(BookAnalysisStatus.Ready, plan, []));
     }
   }
   private sealed class BoundedConverter : IConversionService

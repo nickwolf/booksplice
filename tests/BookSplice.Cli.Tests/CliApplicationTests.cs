@@ -102,6 +102,41 @@ public sealed class CliApplicationTests
   }
 
   [Fact]
+  public async Task DryRunJsonAddsStrategyExplanationAndSpaceAndKeepsExistingFields()
+  {
+    var planning = new ConversionPlanningResult(BookAnalysisStatus.Ready, Plan(), []);
+    var output = new StringWriter();
+    var application = new CliApplication(new SettingsStore(Settings()), new FakeService(Result(ConversionTerminalStatus.DryRun) with { Planning = planning }));
+
+    await application.RunAsync(["book", "--dry-run", "--json"], output, TextWriter.Null, CancellationToken.None);
+
+    var finalLine = output.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)[^1];
+    using var final = JsonDocument.Parse(finalLine);
+    var plan = final.RootElement.GetProperty("plan");
+    Assert.Equal("strategy.test", plan.GetProperty("predicates")[0].GetString());
+    Assert.StartsWith("Audio will be re-encoded to AAC.", plan.GetProperty("strategyExplanation").GetProperty("summary").GetString());
+    Assert.Equal(JsonValueKind.Array, plan.GetProperty("strategyExplanation").GetProperty("reasons").ValueKind);
+    var space = plan.GetProperty("space");
+    Assert.Equal(1, space.GetProperty("finalBytes").GetInt64());
+    Assert.Equal(2, space.GetProperty("totalRequiredBytes").GetInt64());
+    Assert.Equal(3, space.GetProperty("availableBytes").GetInt64());
+  }
+
+  [Fact]
+  public async Task HumanDryRunPrintsExplanationAndStorageLines()
+  {
+    var plan = Plan();
+    var planning = new ConversionPlanningResult(BookAnalysisStatus.Ready, plan, []);
+    var output = new StringWriter();
+    var application = new CliApplication(new SettingsStore(Settings()), new FakeService(Result(ConversionTerminalStatus.DryRun) with { Planning = planning }));
+
+    await application.RunAsync(["book", "--dry-run"], output, TextWriter.Null, CancellationToken.None);
+
+    Assert.Contains("Audio will be re-encoded to AAC.", output.ToString(), StringComparison.Ordinal);
+    Assert.Contains("Estimated space needed: 2 bytes for output and temporary files with a 10% margin (free space: 3 bytes)", output.ToString(), StringComparison.Ordinal);
+  }
+
+  [Fact]
   public async Task ParseErrorsReturnUsageCodeWithoutCallingService()
   {
     var service = new FakeService(Result(ConversionTerminalStatus.Succeeded));

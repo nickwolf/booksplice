@@ -7,7 +7,7 @@ using BookSplice.Core.Settings;
 
 namespace BookSplice.Core.Planning;
 
-public sealed record SpaceEstimate(long FinalBytes, long TemporaryBytes, long TotalRequiredBytes, long? AvailableBytes, long? MarginBytes);
+public sealed record SpaceEstimate(long FinalBytes, long TemporaryBytes, long TotalRequiredBytes, long? AvailableBytes, long? MarginBytes, string? DestinationVolume = null, string? TemporaryVolume = null, long? DestinationRequiredBytes = null, long? TemporaryRequiredBytes = null, long? TemporaryAvailableBytes = null);
 public sealed class ConversionPlan
 {
   public ConversionPlan(IReadOnlyList<string> sourcePaths, BookMetadata metadata, CoverCandidate? cover, IReadOnlyList<ChapterEntry> chapters, QualityProfile qualityProfile, ValidationLevel validationLevel, CollisionPolicy collisionPolicy, string outputPath, AudioStrategy strategy, IEnumerable<string> strategyReasonCodes, SpaceEstimate space, int conversionJobs, string jobsReason, MetadataProfile metadataProfile, int sampleRate = 44100, int channels = 2, Guid? planId = null, IReadOnlyList<long?>? sourceDurationsMicroseconds = null)
@@ -39,4 +39,4 @@ public sealed class ConversionPlan
   public string ChannelLayout => Channels == 1 ? "mono" : "stereo";
 }
 
-public sealed record ConversionPlanningResult(BookAnalysisStatus Status, ConversionPlan? Plan, IReadOnlyList<AnalysisDiagnostic> Diagnostics);
+public sealed record ConversionPlanningResult(BookAnalysisStatus Status, ConversionPlan? Plan, IReadOnlyList<AnalysisDiagnostic> Diagnostics, SpaceEstimate? Space = null, AudioStrategy? Strategy = null, IReadOnlyList<string>? StrategyReasonCodes = null);
