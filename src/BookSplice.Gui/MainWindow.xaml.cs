@@ -103,7 +103,7 @@ public partial class MainWindow : Window
   private async Task AddPathsAsync(IEnumerable<string> paths)
   {
     if (_model is null) return;
-    foreach (var path in paths) await _model.AddAsync(path);
+    await _model.AddManyAsync(paths);
     Queue.SelectedItem ??= _model.Items.FirstOrDefault();
   }
 

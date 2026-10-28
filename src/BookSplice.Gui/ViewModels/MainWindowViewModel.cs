@@ -17,6 +17,7 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
 {
   private SemaphoreSlim _slots = new(settings.ConversionJobs ?? Math.Clamp(Environment.ProcessorCount / 2, 1, 6));
   private string _message = "";
+  private string _batchProgress = "";
   public ObservableCollection<BookQueueItemViewModel> Items { get; } = [];
   private AppSettings _settings = settings;
   public AppSettings Settings
@@ -31,6 +32,8 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     }
   }
   public string Message { get => _message; private set { _message = value; Changed(); } }
+  public string BatchProgress { get => _batchProgress; private set { _batchProgress = value; Changed(); Changed(nameof(IsBatchActive)); } }
+  public bool IsBatchActive => _batchProgress.Length > 0;
 
   // Registers running work with the update gate. Returns null when an update is being prepared.
   private IDisposable? Enter(string operation)
@@ -46,22 +49,49 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     public void Dispose() { }
   }
 
-  public async Task AddAsync(string path)
+  public Task AddAsync(string path) => AddManyAsync([path]);
+
+  // Queues every path first, then analyzes them one at a time so the whole pick shows up immediately.
+  public async Task AddManyAsync(IEnumerable<string> paths)
   {
     using var operation = Enter("add");
     if (operation is null) return;
+    Message = "";
+    var problems = new List<string>();
+    var batch = new List<BookQueueItemViewModel>();
+    foreach (var raw in paths)
+    {
+      try
+      {
+        var path = Path.TrimEndingDirectorySeparator(Path.GetFullPath(raw));
+        if (Items.Any(item => string.Equals(item.Source, path, StringComparison.OrdinalIgnoreCase)))
+        { problems.Add($"{Path.GetFileName(path)} is already in the queue."); continue; }
+        var item = new BookQueueItemViewModel(path, Settings, profiles);
+        item.MarkWaiting();
+        Items.Add(item);
+        batch.Add(item);
+      }
+      catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
+      { problems.Add($"{raw}: {exception.Message}"); }
+    }
+    Message = string.Join(Environment.NewLine, problems);
+    var resolved = 0;
     try
     {
-      path = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
-      if (Items.Any(item => string.Equals(item.Source, path, StringComparison.OrdinalIgnoreCase)))
-      { Message = "This source is already in the queue."; return; }
-      var item = new BookQueueItemViewModel(path, Settings, profiles);
-      Items.Add(item);
-      Message = "";
-      await AnalyzeAsync(item);
+      foreach (var item in batch)
+      {
+        // Cancelled or removed while waiting: skipped without analysis.
+        if (!item.IsWaiting || !Items.Contains(item)) { resolved++; continue; }
+        BatchProgress = $"Analyzing {resolved + 1} of {batch.Count}";
+        await AnalyzeAsync(item);
+        resolved++;
+      }
     }
-    catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
-    { Message = exception.Message; }
+    finally
+    {
+      foreach (var item in batch) if (item.IsWaiting) item.CancelWaiting();
+      BatchProgress = "";
+    }
   }
 
   public async Task ResolveOrderAsync(BookQueueItemViewModel item, OrderCandidateId candidate)
@@ -78,6 +108,7 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     item.Result = null;
     item.PublishedPath = null;
     item.IsCancellationRequested = false;
+    item.IsWaiting = false;
     item.IsBusy = true;
     item.Status = "Analyzing";
     using var cancellation = new CancellationTokenSource();

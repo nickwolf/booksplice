@@ -22,6 +22,10 @@
       <TextBlock x:Name="Destination" TextWrapping="Wrap"/>
       <TextBlock Text="Drop audiobook folders here. Each folder becomes one book. Add files selects individual books." TextWrapping="Wrap" Margin="0,6"/>
       <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Foreground="Firebrick" AutomationProperties.LiveSetting="Polite"/>
+      <StackPanel Visibility="{Binding IsBatchActive, Converter={StaticResource BooleanVisibility}}" Margin="0,4">
+        <TextBlock Text="{Binding BatchProgress}" AutomationProperties.LiveSetting="Polite"/>
+        <ProgressBar IsIndeterminate="True" Height="5" AutomationProperties.Name="Analysis progress"/>
+      </StackPanel>
     </StackPanel>
     <Grid Margin="0,12,0,0">
       <Grid.ColumnDefinitions>
@@ -50,7 +54,7 @@
           <WrapPanel Margin="0,8">
             <Button Content="_Preview output" IsEnabled="{Binding CanConvert}" Click="Preview_Click" Padding="12,6" Margin="0,0,8,0"/>
             <Button Content="_Convert selected" IsEnabled="{Binding CanConvert}" Click="Convert_Click" Padding="12,6" Margin="0,0,8,0"/>
-            <Button Content="_Cancel" IsEnabled="{Binding IsBusy}" Click="Cancel_Click" Padding="12,6" Margin="0,0,8,0"/>
+            <Button Content="_Cancel" IsEnabled="{Binding CanCancel}" Click="Cancel_Click" Padding="12,6" Margin="0,0,8,0"/>
             <Button Content="Copy _diagnostics" Click="CopyDiagnostics_Click" Padding="12,6" Margin="0,0,8,0"/>
             <Button Content="_Remove" IsEnabled="{Binding CanRemove}" Click="Remove_Click" Padding="12,6"/>
           </WrapPanel>
