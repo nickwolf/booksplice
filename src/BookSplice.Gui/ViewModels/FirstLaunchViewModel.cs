@@ -25,6 +25,7 @@ public sealed class FirstLaunchViewModel(FirstLaunchService service, AppSettings
   public string ProfileNotice { get; } = ProfileNoticeText(profiles ?? MetadataProfileCatalog.BuiltIn);
   public string ErrorMessage { get => _errorMessage; private set { _errorMessage = value; Changed(); } }
   public int? ConversionJobs { get; set; } = initial.ConversionJobs;
+  public int? BooksAtOnce { get; set; } = initial.BooksAtOnce ?? 1;
   public ChannelPolicy ChannelPolicy { get; set; } = initial.ChannelPolicy;
   public string MetadataProfileId { get; set; } = (profiles ?? MetadataProfileCatalog.BuiltIn).Find(initial.MetadataProfileId) is not null ? initial.MetadataProfileId : Core.Metadata.MetadataProfiles.GenericMp4.Name;
   public ValidationLevel ValidationLevel { get; set; } = initial.ValidationLevel;
@@ -39,6 +40,7 @@ public sealed class FirstLaunchViewModel(FirstLaunchService service, AppSettings
   public IReadOnlyList<ValidationLevel> ValidationLevels { get; } = Enum.GetValues<ValidationLevel>();
   public IReadOnlyList<LogLevel> LogLevels { get; } = Enum.GetValues<LogLevel>();
   public IReadOnlyList<int?> JobChoices { get; } = new int?[] { null }.Concat(Enumerable.Range(1, 32).Select(value => (int?)value)).ToArray();
+  public IReadOnlyList<int> BookChoices { get; } = Enumerable.Range(1, 32).ToArray();
   public bool Completed { get; private set; }
   public AppSettings? SavedSettings { get; private set; }
 
@@ -50,7 +52,7 @@ public sealed class FirstLaunchViewModel(FirstLaunchService service, AppSettings
     try
     {
       cancellationToken.ThrowIfCancellationRequested();
-      var settings = initial with { OutputDirectory = OutputDirectory.Trim(), QualityProfileId = QualityProfileId, CreateChapters = CreateChapters, ConversionJobs = ConversionJobs, ChannelPolicy = ChannelPolicy, MetadataProfileId = MetadataProfileId, ValidationLevel = ValidationLevel, LogLevel = LogLevel };
+      var settings = initial with { OutputDirectory = OutputDirectory.Trim(), QualityProfileId = QualityProfileId, CreateChapters = CreateChapters, ConversionJobs = ConversionJobs, BooksAtOnce = BooksAtOnce, ChannelPolicy = ChannelPolicy, MetadataProfileId = MetadataProfileId, ValidationLevel = ValidationLevel, LogLevel = LogLevel };
       var result = await service.CompleteAsync(settings, cancellationToken);
       if (!result.Completed)
       {

@@ -47,7 +47,7 @@ The first update creates a managed folder named `.booksplice-managed-<id>` besid
 
 ## First launch and settings
 
-First launch asks where completed M4B files should go, which audio quality profile to use, and whether to create chapters from source-file boundaries. Advanced settings expose channel handling, parallel jobs, metadata profile, lightweight or full-decode validation, and logging level.
+First launch asks where completed M4B files should go, which audio quality profile to use, and whether to create chapters from source-file boundaries. Advanced settings expose channel handling, books converted at once, parallel encodes per book, metadata profile, lightweight or full-decode validation, and logging level.
 
 Each queued book starts with the saved settings. The **Output** tab can override the destination, audio quality, channel handling, metadata profile, and validation level for the selected book without changing the saved defaults.
 
@@ -88,7 +88,7 @@ booksplice <source> [options]
   --output <folder>                 Existing output folder or saved setting
   --quality <profile>               efficient, balanced, high-quality, preserve-more
   --bitrate <32-320>                Custom AAC bitrate in kbps
-  --jobs <1-32>                     Parallel segment encoders
+  --jobs <1-32>                     Parallel segment encoders within one book
   --order <natural|metadata>        Explicit source ordering candidate
   --metadata-profile <name>         Metadata profile ID (see below)
   --validation <lightweight|full>   Output validation level

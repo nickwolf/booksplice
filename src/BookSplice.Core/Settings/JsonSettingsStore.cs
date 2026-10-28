@@ -100,16 +100,17 @@ public sealed class JsonSettingsStore : ISettingsStore
     ReadEnum<ChannelPolicy>(json, "channelPolicy"),
     ReadBool(json, "createChapters"), ReadNullableInt(json, "conversionJobs"),
     ReadEnum<CollisionPolicy>(json, "collisionPolicy"), ReadString(json, "metadataProfileId") ?? string.Empty,
-    ReadEnum<ValidationLevel>(json, "validationLevel"), ReadEnum<LogLevel>(json, "logLevel")) with
+    ReadEnum<ValidationLevel>(json, "validationLevel"), ReadEnum<LogLevel>(json, "logLevel"),
+    json.ContainsKey("booksAtOnce") ? ReadNullableInt(json, "booksAtOnce") : ReadNullableInt(json, "conversionJobs")) with
   { UnknownProperties = json.Where(p => !Known.Contains(p.Key)).ToDictionary(p => p.Key, p => JsonSerializer.Deserialize<JsonElement>(p.Value?.ToJsonString() ?? "null"), StringComparer.Ordinal) };
 
   private static JsonObject ToJson(AppSettings s)
   {
-    var json = new JsonObject { ["schemaVersion"] = s.SchemaVersion, ["outputDirectory"] = s.OutputDirectory, ["qualityProfileId"] = s.QualityProfileId, ["channelPolicy"] = s.ChannelPolicy.ToString(), ["createChapters"] = s.CreateChapters, ["conversionJobs"] = s.ConversionJobs, ["collisionPolicy"] = s.CollisionPolicy.ToString(), ["metadataProfileId"] = s.MetadataProfileId, ["validationLevel"] = s.ValidationLevel.ToString(), ["logLevel"] = s.LogLevel.ToString() };
+    var json = new JsonObject { ["schemaVersion"] = s.SchemaVersion, ["outputDirectory"] = s.OutputDirectory, ["qualityProfileId"] = s.QualityProfileId, ["channelPolicy"] = s.ChannelPolicy.ToString(), ["createChapters"] = s.CreateChapters, ["conversionJobs"] = s.ConversionJobs, ["collisionPolicy"] = s.CollisionPolicy.ToString(), ["metadataProfileId"] = s.MetadataProfileId, ["validationLevel"] = s.ValidationLevel.ToString(), ["logLevel"] = s.LogLevel.ToString(), ["booksAtOnce"] = s.BooksAtOnce };
     foreach (var pair in s.UnknownProperties) if (!Known.Contains(pair.Key)) json[pair.Key] = JsonNode.Parse(pair.Value.GetRawText());
     return json;
   }
-  private static readonly HashSet<string> Known = new(StringComparer.Ordinal) { "schemaVersion", "outputDirectory", "qualityProfileId", "channelPolicy", "createChapters", "conversionJobs", "collisionPolicy", "metadataProfileId", "validationLevel", "logLevel" };
+  private static readonly HashSet<string> Known = new(StringComparer.Ordinal) { "schemaVersion", "outputDirectory", "qualityProfileId", "channelPolicy", "createChapters", "conversionJobs", "collisionPolicy", "metadataProfileId", "validationLevel", "logLevel", "booksAtOnce" };
   private static int? ReadInt(JsonObject o, string n) => o[n]?.GetValue<int?>();
   private static int? ReadNullableInt(JsonObject o, string n)
   {

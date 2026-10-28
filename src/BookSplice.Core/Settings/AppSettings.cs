@@ -17,7 +17,8 @@ public sealed record AppSettings(
   CollisionPolicy CollisionPolicy,
   string MetadataProfileId,
   ValidationLevel ValidationLevel,
-  LogLevel LogLevel)
+  LogLevel LogLevel,
+  int? BooksAtOnce = null)
 {
   internal IReadOnlyDictionary<string, JsonElement> UnknownProperties { get; init; } =
     new Dictionary<string, JsonElement>(StringComparer.Ordinal);

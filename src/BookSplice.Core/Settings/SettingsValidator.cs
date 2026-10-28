@@ -23,6 +23,7 @@ public static class SettingsValidator
     if (!Enum.IsDefined(settings.ValidationLevel)) errors.Add("undefined validation level");
     if (!Enum.IsDefined(settings.LogLevel)) errors.Add("undefined log level");
     if (settings.ConversionJobs is < 1 or > 32) errors.Add("conversion jobs must be null or between 1 and 32");
+    if (settings.BooksAtOnce is < 1 or > 32) errors.Add("books at once must be null or between 1 and 32");
     if (!MetadataProfileCatalog.IsValidProfileId(settings.MetadataProfileId)) errors.Add("invalid metadata profile id");
     return errors.Count == 0 ? SettingsValidationResult.Valid : new(false, errors);
   }

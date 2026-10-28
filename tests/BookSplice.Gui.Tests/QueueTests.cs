@@ -88,7 +88,7 @@ public sealed class QueueTests
     {
       var converter = new Converter();
       var planner = new RecordingPlanner();
-      using var model = new MainWindowViewModel(new Analyzer(), converter, AppSettings.Defaults, planner);
+      using var model = new MainWindowViewModel(new Analyzer(), converter, AppSettings.Defaults with { ConversionJobs = 3 }, planner);
       await model.AddAsync(Path.GetFullPath("book"));
       var item = model.Items[0];
       await model.ResolveOrderAsync(item, OrderCandidateId.NaturalPath);
@@ -105,7 +105,7 @@ public sealed class QueueTests
       Assert.Equal(ChannelPolicy.ForceMono, planner.Options.Settings.ChannelPolicy);
       Assert.Equal(ValidationLevel.Full, planner.Options.Settings.ValidationLevel);
       Assert.Equal("GenericMp4", planner.Options.Settings.MetadataProfileId);
-      Assert.Equal(1, planner.Options.Settings.ConversionJobs);
+      Assert.Equal(3, planner.Options.Settings.ConversionJobs);
       Assert.Contains(Path.Combine(output.FullName, "Preview.m4b"), item.Details);
       Assert.Contains("Efficient 48 kbps | mono", item.Details);
 
@@ -320,11 +320,25 @@ public sealed class QueueTests
     public void Dispose() => Directory.Delete(Root, recursive: true);
   }
   [Fact]
-  public async Task QueueLimitsConcurrentBooksAndContinuesAfterOneFailure()
+  public async Task QueueConvertsOneBookAtATimeByDefault()
   {
     var converter = new BoundedConverter();
     using var model = new MainWindowViewModel(new Analyzer(), converter, AppSettings.Defaults with { ConversionJobs = 4 });
-    model.Settings = AppSettings.Defaults with { ConversionJobs = 2 };
+    for (var index = 0; index < 3; index++)
+    {
+      await model.AddAsync(Path.GetFullPath($"book{index}"));
+      await model.ResolveOrderAsync(model.Items[index], OrderCandidateId.NaturalPath);
+    }
+    await model.ConvertAllAsync();
+    Assert.Equal(1, converter.Maximum);
+  }
+
+  [Fact]
+  public async Task QueueLimitsConcurrentBooksAndContinuesAfterOneFailure()
+  {
+    var converter = new BoundedConverter();
+    using var model = new MainWindowViewModel(new Analyzer(), converter, AppSettings.Defaults with { BooksAtOnce = 4 });
+    model.Settings = AppSettings.Defaults with { BooksAtOnce = 2 };
     for (var index = 0; index < 4; index++)
     {
       await model.AddAsync(Path.GetFullPath($"book{index}"));

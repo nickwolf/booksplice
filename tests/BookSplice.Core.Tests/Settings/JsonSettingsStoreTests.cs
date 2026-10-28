@@ -93,6 +93,53 @@ public sealed class JsonSettingsStoreTests
     await File.WriteAllTextAsync(store.SettingsPath, json); var result = await store.LoadAsync(); Assert.Equal(SettingsLoadCode.ValidationFailed, result.Code); Assert.Null(result.Settings);
   }
 
+  private static string SettingsJson(string root, string jobs, string? booksAtOnce)
+    => "{\"schemaVersion\":1,\"outputDirectory\":\"" + root.Replace("\\", "\\\\") + "\",\"qualityProfileId\":\"high-quality\",\"channelPolicy\":\"PreserveSourceChannels\",\"createChapters\":true,\"conversionJobs\":" + jobs + (booksAtOnce is null ? "" : ",\"booksAtOnce\":" + booksAtOnce) + ",\"collisionPolicy\":\"AvoidCollision\",\"metadataProfileId\":\"GenericMp4\",\"validationLevel\":\"Lightweight\",\"logLevel\":\"Information\"}";
+
+  [Theory]
+  [InlineData("4", null, 4, 4)]
+  [InlineData("null", null, null, null)]
+  [InlineData("4", "2", 4, 2)]
+  [InlineData("4", "null", 4, null)]
+  public async Task Books_at_once_migrates_from_conversion_jobs_only_when_absent(string jobs, string? booksAtOnce, int? expectedJobs, int? expectedBooks)
+  {
+    var root = Path.Combine(Path.GetTempPath(), "abc-settings-" + Guid.NewGuid()); var store = new JsonSettingsStore(root); Directory.CreateDirectory(Path.GetDirectoryName(store.SettingsPath)!);
+    await File.WriteAllTextAsync(store.SettingsPath, SettingsJson(root, jobs, booksAtOnce));
+    var settings = (await store.LoadAsync()).Settings!;
+    Assert.Equal(expectedJobs, settings.ConversionJobs); Assert.Equal(expectedBooks, settings.BooksAtOnce);
+    var snapshot = JsonSettingsStore.ParseSnapshot(System.Text.Encoding.UTF8.GetBytes(SettingsJson(root, jobs, booksAtOnce)));
+    Assert.Equal(SettingsLoadCode.Valid, snapshot.Code); Assert.Equal(expectedBooks, snapshot.Settings!.BooksAtOnce);
+  }
+
+  [Fact]
+  public async Task Books_at_once_round_trips_and_file_keeps_schema_one()
+  {
+    var root = Path.Combine(Path.GetTempPath(), "abc-settings-" + Guid.NewGuid()); var store = new JsonSettingsStore(root);
+    await store.SaveAsync(AppSettings.Defaults with { OutputDirectory = root, ConversionJobs = 3, BooksAtOnce = 2 });
+    var bytes = await File.ReadAllBytesAsync(store.SettingsPath);
+    var snapshot = JsonSettingsStore.ParseSnapshot(bytes);
+    Assert.Equal(SettingsLoadCode.Valid, snapshot.Code); Assert.Equal(1, snapshot.Settings!.SchemaVersion);
+    Assert.Equal(3, snapshot.Settings.ConversionJobs); Assert.Equal(2, snapshot.Settings.BooksAtOnce);
+  }
+
+  [Fact]
+  public async Task Missing_file_defaults_to_one_book_at_a_time_when_unset()
+  {
+    Assert.Null(AppSettings.Defaults.BooksAtOnce);
+    var root = Path.Combine(Path.GetTempPath(), "abc-settings-" + Guid.NewGuid()); var store = new JsonSettingsStore(root);
+    Assert.Null((await store.LoadAsync()).Settings!.BooksAtOnce);
+  }
+
+  [Theory]
+  [InlineData(0)]
+  [InlineData(33)]
+  public async Task Out_of_range_books_at_once_is_rejected(int books)
+  {
+    var root = Path.Combine(Path.GetTempPath(), "abc-settings-" + Guid.NewGuid()); var store = new JsonSettingsStore(root); Directory.CreateDirectory(Path.GetDirectoryName(store.SettingsPath)!);
+    await File.WriteAllTextAsync(store.SettingsPath, SettingsJson(root, "null", books.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+    var result = await store.LoadAsync(); Assert.Equal(SettingsLoadCode.ValidationFailed, result.Code); Assert.Null(result.Settings);
+  }
+
   private static async Task<byte[]> ReadPreambleAsync(string path)
   {
     await using var stream = File.OpenRead(path);

@@ -15,7 +15,7 @@ namespace BookSplice.Gui.ViewModels;
 
 public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionService conversion, AppSettings settings, IConversionPlanner? planner = null, GuiOperationGate? gate = null, MetadataProfileCatalog? profiles = null) : ObservableModel, IDisposable
 {
-  private SemaphoreSlim _slots = new(settings.ConversionJobs ?? Math.Clamp(Environment.ProcessorCount / 2, 1, 6));
+  private SemaphoreSlim _slots = new(settings.BooksAtOnce ?? 1);
   private string _message = "";
   private string _batchProgress = "";
   public ObservableCollection<BookQueueItemViewModel> Items { get; } = [];
@@ -28,7 +28,7 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
       if (Items.Any(item => item.IsBusy)) throw new InvalidOperationException("Wait for active jobs before changing settings.");
       _settings = value;
       _slots.Dispose();
-      _slots = new(value.ConversionJobs ?? Math.Clamp(Environment.ProcessorCount / 2, 1, 6));
+      _slots = new(value.BooksAtOnce ?? 1);
     }
   }
   public string Message { get => _message; private set { _message = value; Changed(); } }
@@ -169,7 +169,7 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
       elapsed.Start();
       ApplySnapshot();
       timer.Start();
-      var request = new ConversionRequest(item.Source, item.Settings.CreateChapters, item.CreateOptions(singleConversionJob: true),
+      var request = new ConversionRequest(item.Source, item.Settings.CreateChapters, item.CreateOptions(),
         AnalysisOptions: new BookAnalysisOptions(item.SelectedOrder), ExpectedSourcePaths: item.Analysis!.OrderedFiles.Select(file => file.FullPath).ToArray());
       var run = Task.Run(() => conversion.ConvertAsync(request, cancellation.Token, progress));
       tracked.SetTask(run);
@@ -235,7 +235,7 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     item.IsBusy = true;
     try
     {
-      var result = await Task.Run(() => planner.CreateAsync(item.Analysis, item.CreateOptions(singleConversionJob: true), CancellationToken.None));
+      var result = await Task.Run(() => planner.CreateAsync(item.Analysis, item.CreateOptions(), CancellationToken.None));
       item.Details = result.Plan is { } plan ? DescribePlan(plan) : DescribeRefusal(result);
     }
     catch (Exception exception) { item.Details = exception.Message; }
