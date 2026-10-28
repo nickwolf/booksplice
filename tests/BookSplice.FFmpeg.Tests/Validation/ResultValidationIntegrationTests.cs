@@ -1,6 +1,8 @@
 using System.Buffers.Binary;
+using System.Security.Cryptography;
 using BookSplice.Core.Analysis;
 using BookSplice.Core.Chapters;
+using BookSplice.Core.Covers;
 using BookSplice.Core.Metadata;
 using BookSplice.Core.Naming;
 using BookSplice.Core.Planning;
@@ -17,7 +19,7 @@ namespace BookSplice.FFmpeg.Tests.Validation;
 public sealed class ResultValidationIntegrationTests
 {
   [PinnedMediaFact]
-  public async Task ValidChapterDataTrackRetainsProbeWarningAndPassesFullAudioDecode()
+  public async Task ValidChapterDataTrackIsAnInformationalNoteAndPassesFullAudioDecode()
   {
     using var root = new TemporaryDirectory();
     var tools = Tools();
@@ -26,8 +28,26 @@ public sealed class ResultValidationIntegrationTests
     Assert.True(report.IsValid, string.Join(Environment.NewLine, report.Errors));
     Assert.Single(report.OutputFacts!.AudioStreams);
     Assert.Contains(report.OutputFacts.OtherStreams!, stream => stream.CodecType == "data");
-    Assert.Contains(report.Warnings, warning => warning.Contains("Unsupported codec", StringComparison.Ordinal));
+    Assert.Empty(report.Warnings);
+    Assert.Contains(report.Notes, note => note.Contains("Unsupported codec", StringComparison.Ordinal));
     Assert.Contains(report.Checks, check => check.Code == "decode.full" && check.Passed);
+  }
+
+  [PinnedMediaFact]
+  public async Task ChaptersAndCoverProduceOnlyKnownNotes()
+  {
+    using var root = new TemporaryDirectory();
+    var tools = Tools();
+    var cover = root.GetPath("cover.jpg");
+    var output = await GenerateAsync(root, tools, cover);
+    var hash = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(cover))).ToLowerInvariant();
+    var report = await Validator(tools).ValidateAsync(Plan(output, cover: new CoverCandidate(hash, CoverOrigin.ExternalFile, "cover.jpg", null, "image/jpeg", 32, 32, CoverSemanticType.FrontCover, true)), output, CancellationToken.None);
+    Assert.True(report.IsValid, string.Join(Environment.NewLine, report.Errors));
+    Assert.Single(report.OutputFacts!.AttachedPictures);
+    Assert.Empty(report.Warnings);
+    Assert.Contains(report.Notes, note => note.Contains("timescale not set", StringComparison.Ordinal));
+    Assert.Contains(report.Notes, note => note.Contains("Unsupported codec with id 98314", StringComparison.Ordinal));
+    Assert.Equal(3, report.Notes.Count);
   }
 
   [PinnedMediaFact]
@@ -71,7 +91,6 @@ public sealed class ResultValidationIntegrationTests
     Assert.False(report.IsValid);
     Assert.Contains(report.Checks, check => check.Code == "decode.full" && !check.Passed);
     Assert.Contains(report.Errors, error => error.Contains("decode", StringComparison.Ordinal));
-    Assert.Contains(report.Warnings, warning => warning.Contains("Unsupported codec", StringComparison.Ordinal));
     Assert.Contains(report.Warnings, warning => warning.Contains("Error", StringComparison.OrdinalIgnoreCase) || warning.Contains("Invalid data", StringComparison.OrdinalIgnoreCase));
   }
 
@@ -82,21 +101,29 @@ public sealed class ResultValidationIntegrationTests
     return new(new FFprobeMediaProbe(runner, tools), runner, tools, new CoverPayloadValidator());
   }
 
-  private static async Task<string> GenerateAsync(TemporaryDirectory root, MediaToolSet tools)
+  private static async Task<string> GenerateAsync(TemporaryDirectory root, MediaToolSet tools, string? coverPath = null)
   {
     var output = root.GetPath("generated.m4b");
     var metadata = root.GetPath("chapters.txt");
     await File.WriteAllTextAsync(metadata, ";FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=2000\ntitle=One\n");
-    var generated = await new ProcessRunner().RunAsync(new ProcessSpec(tools.FFmpegPath,
-      ["-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-f", "ffmetadata", "-i", metadata,
-        "-map", "0:a:0", "-map_metadata", "1", "-map_chapters", "1", "-c:a", "aac", "-ar", "44100", "-ac", "1", output]), null, CancellationToken.None);
+    var runner = new ProcessRunner();
+    if (coverPath is not null)
+    {
+      var image = await runner.RunAsync(new ProcessSpec(tools.FFmpegPath,
+        ["-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=32x32:d=1", "-frames:v", "1", "-c:v", "mjpeg", coverPath]), null, CancellationToken.None);
+      Assert.Equal(0, image.ExitCode);
+    }
+    string[] input = ["-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-f", "ffmetadata", "-i", metadata];
+    string[] cover = coverPath is null ? [] : ["-i", coverPath, "-map", "2:v:0", "-c:v", "copy", "-disposition:v:0", "attached_pic"];
+    var generated = await runner.RunAsync(new ProcessSpec(tools.FFmpegPath,
+      ["-hide_banner", "-v", "error", "-y", .. input, .. cover, "-map", "0:a:0", "-map_metadata", "1", "-map_chapters", "1", "-c:a", "aac", "-ar", "44100", "-ac", "1", output]), null, CancellationToken.None);
     Assert.Equal(0, generated.ExitCode);
     return output;
   }
 
-  private static ConversionPlan Plan(string output, bool chapters = true)
+  private static ConversionPlan Plan(string output, bool chapters = true, CoverCandidate? cover = null)
     => new(["source.wav"], new BookMetadata(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>()),
-      null, chapters ? [new ChapterEntry(0, 2_000_000, "One", "", "source.wav")] : [], QualityProfileCatalog.Version1[0], ValidationLevel.Full,
+      cover, chapters ? [new ChapterEntry(0, 2_000_000, "One", "", "source.wav")] : [], QualityProfileCatalog.Version1[0], ValidationLevel.Full,
       CollisionPolicy.AvoidCollision, output, AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "test", MetadataProfiles.GenericMp4, 44100, 1);
 
   private sealed class TemporaryDirectory : IDisposable

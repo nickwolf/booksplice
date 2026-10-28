@@ -128,6 +128,74 @@ public sealed class FFmpegOutputValidatorTests
     Assert.False(report.IsValid);
   }
 
+  private const string Timescale = "[mov,mp4,m4a,3gp,3g2,mj2 @ 0000023cdbbf1a00] stream 0, timescale not set";
+  private const string ChapterCodec = "Unsupported codec with id 98314 for input stream 1";
+  private static readonly MediaStreamInfo[] ChapterTrack = [new(1, "data", "bin_data", "text")];
+
+  [Fact]
+  public async Task KnownProbeLinesOnAChapterTrackAreNotesNotWarnings()
+  {
+    using var output = new TemporaryOutput();
+    var report = await Validator(new Probe(Media([Timescale, ChapterCodec], ChapterTrack))).ValidateAsync(Plan(), output.Path, CancellationToken.None);
+    Assert.True(report.IsValid);
+    Assert.Empty(report.Warnings);
+    Assert.Equal([Timescale, ChapterCodec], report.Notes);
+    Assert.Equal([Timescale, ChapterCodec], report.ToolDiagnostics);
+  }
+
+  [Theory]
+  [InlineData("Unsupported codec with id 98314 for input stream 2")]
+  [InlineData("Unsupported codec with id 12345 for input stream 1")]
+  [InlineData("stream 0, timescale not set and more")]
+  [InlineData("stream 1, timescale not set")]
+  [InlineData("Something else went wrong")]
+  public async Task UnknownOrMismatchedProbeLinesRemainWarnings(string line)
+  {
+    using var output = new TemporaryOutput();
+    var report = await Validator(new Probe(Media([line, Timescale], ChapterTrack))).ValidateAsync(Plan(), output.Path, CancellationToken.None);
+    Assert.True(report.IsValid);
+    Assert.Equal([line], report.Warnings);
+    Assert.Equal([Timescale], report.Notes);
+  }
+
+  [Theory]
+  [InlineData("audio", "text")]
+  [InlineData("data", "mp4s")]
+  public async Task UnsupportedCodecOnAnUnexpectedStreamRemainsAWarning(string type, string tag)
+  {
+    using var output = new TemporaryOutput();
+    var report = await Validator(new Probe(Media([ChapterCodec], [new(1, type, "bin_data", tag)]))).ValidateAsync(Plan(), output.Path, CancellationToken.None);
+    Assert.Equal([ChapterCodec], report.Warnings);
+    Assert.Empty(report.Notes);
+  }
+
+  [Fact]
+  public async Task KnownLinesStayWarningsWhenARequiredCheckFails()
+  {
+    using var output = new TemporaryOutput();
+    var report = await Validator(new Probe(Media([Timescale, ChapterCodec], ChapterTrack, audio: [Track("mp3")]))).ValidateAsync(Plan(), output.Path, CancellationToken.None);
+    Assert.False(report.IsValid);
+    Assert.Equal([Timescale, ChapterCodec], report.Warnings);
+    Assert.Empty(report.Notes);
+  }
+
+  [Fact]
+  public async Task DecodeTimescaleLineIsANoteButDecodeErrorsStayWarnings()
+  {
+    using var output = new TemporaryOutput();
+    const string decode = "[in#0 @ 000001f8e3a890c0] stream 0, timescale not set";
+    var runner = new Runner { DecodeResult = new ProcessResult(0, "", decode) };
+    var report = await Validator(new Probe(Media([], ChapterTrack)), runner).ValidateAsync(Plan(level: ValidationLevel.Full), output.Path, CancellationToken.None);
+    Assert.True(report.IsValid);
+    Assert.Empty(report.Warnings);
+    Assert.Equal([decode], report.Notes);
+
+    runner.DecodeResult = new ProcessResult(1, "", decode + "\nInvalid data found");
+    report = await Validator(new Probe(Media([], ChapterTrack)), runner).ValidateAsync(Plan(level: ValidationLevel.Full), output.Path, CancellationToken.None);
+    Assert.False(report.IsValid);
+    Assert.Equal([decode, "Invalid data found"], report.Warnings);
+  }
+
   [Fact]
   public async Task ValidateAsyncReportsDecodeFailureAndUsesNullMuxerInFullMode()
   {
@@ -218,6 +286,9 @@ public sealed class FFmpegOutputValidatorTests
     metadata ??= new BookMetadata(new Dictionary<SemanticField, AggregatedValue> { [SemanticField.BookTitle] = new(SemanticField.BookTitle, AggregationState.Consistent, "Book", []) }, new Dictionary<string, string> { ["CUSTOM"] = "Value" }, new Dictionary<SemanticField, IReadOnlyList<string>>());
     return new ConversionPlan(["source-01.mp3"], metadata, null, [new ChapterEntry(0, 4_000_000, chapterTitle, "", "source-01.mp3")], QualityProfileCatalog.Version1[0], level, CollisionPolicy.AvoidCollision, output ?? Path.Combine(Path.GetTempPath(), "Book.m4b"), AudioStrategy.DirectTranscode, [], new SpaceEstimate(1, 1, 1, 1, 0), 1, "test", metadataProfile ?? MetadataProfiles.GenericMp4, sampleRate, channels);
   }
+
+  private static MediaProbeResult Media(IReadOnlyList<string> warnings, IReadOnlyList<MediaStreamInfo> other, IReadOnlyList<AudioTrack>? audio = null)
+    => Media(audio) with { Warnings = warnings, OtherStreams = other };
 
   private static MediaProbeResult Media(IReadOnlyList<AudioTrack>? audio = null, decimal duration = 4m, IReadOnlyList<MediaChapter>? chapters = null, IReadOnlyDictionary<string, string>? tags = null)
     => new(audio ?? [Track()], [], chapters ?? [new MediaChapter(0, 0m, 4m, new Rational(1, 1), new Dictionary<string, string> { ["title"] = "One" })], new TagCollection(tags ?? new Dictionary<string, string> { ["title"] = "Book", ["album"] = "Book", ["CUSTOM"] = "Value" }), tags ?? new Dictionary<string, string> { ["title"] = "Book", ["album"] = "Book", ["CUSTOM"] = "Value" }, [], duration, "mov,mp4,m4a,3gp,3g2,mj2", 1);

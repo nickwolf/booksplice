@@ -98,9 +98,18 @@ public sealed class ConversionResultDisplay
     foreach (var process in result.Execution?.Processes ?? [])
     {
       text.AppendLine(CultureInfo.InvariantCulture, $"Tool exit code: {process.ExitCode}");
-      if (!string.IsNullOrWhiteSpace(process.StandardOutput)) text.AppendLine(process.StandardOutput);
+      if (LastProgressBlock(process.StandardOutput) is { Length: > 0 } output) text.AppendLine(output);
       if (!string.IsNullOrWhiteSpace(process.StandardError)) text.AppendLine(process.StandardError);
     }
     return text.ToString().TrimEnd();
+  }
+
+  private static string LastProgressBlock(string output)
+  {
+    var lines = output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+    var end = Array.FindLastIndex(lines, line => line.StartsWith("progress=", StringComparison.Ordinal));
+    if (end < 0) return output.Trim();
+    var start = Array.FindLastIndex(lines, end - 1, line => line.StartsWith("progress=", StringComparison.Ordinal)) + 1;
+    return string.Join(Environment.NewLine, lines[start..(end + 1)]);
   }
 }
