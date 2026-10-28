@@ -76,12 +76,11 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings, 
     cancellation.Cancel();
   }
 
-  public ConversionOptions CreateOptions(bool singleConversionJob = false)
+  public ConversionOptions CreateOptions()
   {
-    var effectiveSettings = singleConversionJob ? Settings with { ConversionJobs = 1 } : Settings;
     var edits = Metadata.Where(field => field.IsEdited).ToDictionary(field => field.Field,
       field => string.IsNullOrWhiteSpace(field.Value) ? MetadataEdit.Clear() : MetadataEdit.Set(field.Value));
-    return new ConversionOptions(effectiveSettings, QualityProfileCatalog.FindById(effectiveSettings.QualityProfileId)
+    return new ConversionOptions(Settings, QualityProfileCatalog.FindById(Settings.QualityProfileId)
       ?? throw new InvalidOperationException("The selected quality profile is unavailable."), edits,
       selectedCoverHash: SelectedCover?.ContentHash,
       chapterTitles: Chapters.ToDictionary(chapter => chapter.Source, chapter => chapter.Title), omitCover: OmitCover);

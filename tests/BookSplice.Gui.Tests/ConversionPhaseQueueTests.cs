@@ -136,7 +136,7 @@ public sealed class ConversionPhaseQueueTests
   {
     using var first = new GatedAttempt(ConversionTerminalStatus.Succeeded);
     var converter = new ScriptedConverter(first);
-    using var model = new MainWindowViewModel(new QueueTests.Analyzer(), converter, AppSettings.Defaults with { ConversionJobs = 1 });
+    using var model = new MainWindowViewModel(new QueueTests.Analyzer(), converter, AppSettings.Defaults with { BooksAtOnce = 1 });
     var active = await ReadyItem(model, "active");
     var waiting = await ReadyItem(model, "waiting");
     var firstRun = model.ConvertAsync(active);
