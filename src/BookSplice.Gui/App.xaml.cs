@@ -17,6 +17,7 @@ public partial class App : Application
 {
   private GuiInstanceLease? _lease;
   private UpdateComposition? _updates;
+  private string _applicationDirectory = AppContext.BaseDirectory;
   private UpdatePreferencesStore? _preferenceStore;
   private UpdatePreferences? _preferences;
   private CrashHandler _crash = null!;
@@ -145,17 +146,22 @@ public partial class App : Application
 
   private void CreateUpdates(string dataRoot)
   {
+    _applicationDirectory = ResolveApplicationDirectory();
     _preferenceStore = new UpdatePreferencesStore(dataRoot);
     _preferences = _preferenceStore.Load();
-    _updates = new UpdateComposition(dataRoot, AppContext.BaseDirectory, PackagedIdentity.Version,
+    _updates = new UpdateComposition(dataRoot, _applicationDirectory, PackagedIdentity.Version,
       new MemoryCheckState { LastSuccess = _preferences.LastSuccess });
   }
+
+  // A launch through a junction or symlink must find the same installation as the real folder.
+  private static string ResolveApplicationDirectory() => OperatingSystem.IsWindows() ?
+    FinalPath.ResolveDirectory(AppContext.BaseDirectory) : System.IO.Path.GetFullPath(AppContext.BaseDirectory);
 
   private void AttachUpdates(MainWindow window)
   {
     if (PackagedIdentity.Version is { } version)
       window.UseUpdates(_updates!, _preferenceStore!, _preferences!, version,
-        System.IO.Path.GetFullPath(AppContext.BaseDirectory));
+        _applicationDirectory);
   }
 
   protected override void OnExit(ExitEventArgs e)
