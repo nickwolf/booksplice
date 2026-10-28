@@ -14,6 +14,7 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings, 
   private string _status = "Queued";
   private string _details = "";
   private bool _busy;
+  private bool _waiting;
   private double _percent;
   private bool _progressIndeterminate;
   private bool _cancellationRequested;
@@ -58,13 +59,18 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings, 
   public bool IsCancellationRequested { get => _cancellationRequested; internal set { _cancellationRequested = value; Changed(); Changed(nameof(QueueStatus)); } }
   public string? PublishedPath { get => _publishedPath; internal set { _publishedPath = value; Changed(); Changed(nameof(CanOpenOutput)); } }
   public bool CanOpenOutput => !IsBusy && PublishedPath is { } path && File.Exists(path);
-  public bool IsBusy { get => _busy; internal set { _busy = value; Changed(); Changed(nameof(QueueStatus)); Changed(nameof(CanEdit)); Changed(nameof(CanRemove)); Changed(nameof(CanConvert)); Changed(nameof(CanOpenOutput)); } }
+  public bool IsBusy { get => _busy; internal set { _busy = value; Changed(); Changed(nameof(QueueStatus)); Changed(nameof(CanEdit)); Changed(nameof(CanRemove)); Changed(nameof(CanConvert)); Changed(nameof(CanOpenOutput)); Changed(nameof(CanCancel)); } }
+  public bool IsWaiting { get => _waiting; internal set { _waiting = value; Changed(); Changed(nameof(CanCancel)); } }
+  public bool CanCancel => IsBusy || IsWaiting;
   public bool CanRemove => !IsBusy;
   public bool CanEdit => !IsBusy && Status != "Complete";
   public bool CanConvert => !IsBusy && Analysis?.Status == BookAnalysisStatus.Ready && Status != "Complete";
   internal CancellationTokenSource? Cancellation { get; set; }
+  internal void MarkWaiting() { IsWaiting = true; Status = "Waiting"; }
+  internal void CancelWaiting() { IsWaiting = false; Status = "Cancelled"; }
   public void Cancel()
   {
+    if (IsWaiting) { CancelWaiting(); return; }
     if (Cancellation is not { } cancellation || Result is not null) return;
     IsCancellationRequested = true;
     cancellation.Cancel();

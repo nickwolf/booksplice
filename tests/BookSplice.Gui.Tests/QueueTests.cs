@@ -207,6 +207,112 @@ public sealed class QueueTests
     Assert.Contains("Estimated space needed: 839.2 MB on D:", item.Details);
     Assert.Contains("free space: 1000 bytes", item.Details);
   }
+  [Fact]
+  public async Task AddManyShowsEveryPathWaitingThenAnalyzesInOrder()
+  {
+    var analyzer = new GatedAnalyzer();
+    var model = new MainWindowViewModel(analyzer, new Converter(), AppSettings.Defaults);
+    var progress = new List<string>();
+    model.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(model.BatchProgress)) progress.Add(model.BatchProgress); };
+    var paths = FullPaths("a", "b", "c");
+
+    var add = model.AddManyAsync(paths);
+    await analyzer.WaitForCallAsync(0);
+
+    Assert.Equal(3, model.Items.Count);
+    Assert.Equal(["Analyzing", "Waiting", "Waiting"], model.Items.Select(item => item.Status));
+    Assert.Equal("Analyzing 1 of 3", model.BatchProgress);
+    Assert.True(model.IsBatchActive);
+    Assert.All(model.Items.Skip(1), item => { Assert.False(item.CanConvert); Assert.True(item.CanCancel); Assert.True(item.CanRemove); });
+
+    analyzer.Release(0);
+    await analyzer.WaitForCallAsync(1);
+    Assert.Equal("Analyzing 2 of 3", model.BatchProgress);
+    analyzer.Release(1);
+    await analyzer.WaitForCallAsync(2);
+    analyzer.Release(2);
+    await add;
+
+    Assert.Equal(paths, analyzer.Calls);
+    Assert.Equal(["Analyzing 1 of 3", "Analyzing 2 of 3", "Analyzing 3 of 3", ""], progress);
+    Assert.False(model.IsBatchActive);
+    Assert.All(model.Items, item => Assert.Equal("Choose track order", item.Status));
+  }
+
+  [Fact]
+  public async Task CancellingOrRemovingAWaitingItemSkipsItsAnalysis()
+  {
+    var analyzer = new GatedAnalyzer();
+    var model = new MainWindowViewModel(analyzer, new Converter(), AppSettings.Defaults);
+    var add = model.AddManyAsync(FullPaths("a", "b", "c", "d"));
+    await analyzer.WaitForCallAsync(0);
+
+    model.Items[1].Cancel();
+    model.Items.Remove(model.Items[2]);
+    Assert.Equal("Cancelled", model.Items[1].Status);
+    Assert.False(model.Items[1].CanCancel);
+    analyzer.Release(0);
+    await analyzer.WaitForCallAsync(1);
+    Assert.Equal("Analyzing 4 of 4", model.BatchProgress);
+    analyzer.Release(1);
+    await add;
+
+    Assert.Equal(FullPaths("a", "d"), analyzer.Calls);
+    Assert.Equal("", model.BatchProgress);
+    Assert.Equal(["Choose track order", "Cancelled", "Choose track order"], model.Items.Select(item => item.Status));
+  }
+
+  [Fact]
+  public async Task CancellingTheAnalyzingItemMovesOnToTheNext()
+  {
+    var analyzer = new GatedAnalyzer();
+    var model = new MainWindowViewModel(analyzer, new Converter(), AppSettings.Defaults);
+    var add = model.AddManyAsync(FullPaths("a", "b"));
+    await analyzer.WaitForCallAsync(0);
+
+    model.Items[0].Cancel();
+    await analyzer.WaitForCallAsync(1);
+    analyzer.Release(1);
+    await add;
+
+    Assert.Equal(["Cancelled", "Choose track order"], model.Items.Select(item => item.Status));
+    Assert.False(model.IsBatchActive);
+  }
+
+  [Fact]
+  public async Task FailedAnalysisDoesNotEndTheBatch()
+  {
+    var analyzer = new GatedAnalyzer { FailOn = Path.GetFullPath("a") };
+    var model = new MainWindowViewModel(analyzer, new Converter(), AppSettings.Defaults);
+    var add = model.AddManyAsync(FullPaths("a", "b"));
+    await analyzer.WaitForCallAsync(0);
+    analyzer.Release(0);
+    await analyzer.WaitForCallAsync(1);
+    analyzer.Release(1);
+    await add;
+
+    Assert.Equal(["Analysis failed", "Choose track order"], model.Items.Select(item => item.Status));
+    Assert.Equal("boom", model.Items[0].Details);
+    Assert.Equal("", model.BatchProgress);
+  }
+
+  [Fact]
+  public async Task DuplicatesAndBadPathsAreReportedWithoutEndingTheBatch()
+  {
+    var model = new MainWindowViewModel(new Analyzer(), new Converter(), AppSettings.Defaults);
+    await model.AddAsync(Path.GetFullPath("a"));
+
+    await model.AddManyAsync([Path.GetFullPath("a"), Path.GetFullPath("b"), Path.GetFullPath("b") + Path.DirectorySeparatorChar, "bad\0path", Path.GetFullPath("c")]);
+
+    Assert.Equal(["a", "b", "c"], model.Items.Select(item => item.Name));
+    var lines = model.Message.Split(Environment.NewLine);
+    Assert.Equal(3, lines.Length);
+    Assert.Contains("a is already in the queue.", lines);
+    Assert.Contains("b is already in the queue.", lines);
+    Assert.Contains(lines, line => line.StartsWith("bad\0path:", StringComparison.Ordinal));
+    Assert.Equal("", model.BatchProgress);
+  }
+
   private sealed class TemporaryProfiles : IDisposable
   {
     public string Root { get; } = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), $"BookSplice-{Guid.NewGuid():N}")).FullName;
@@ -273,6 +379,40 @@ public sealed class QueueTests
         new BookMetadata(new Dictionary<SemanticField, AggregatedValue> { [SemanticField.Author] = new(SemanticField.Author, AggregationState.Consistent, "Author", []) },
           new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>()),
         new CoverDiscoveryResult([], [], null), ChapterPlan.Valid([], 0), []));
+    }
+  }
+
+  private static string[] FullPaths(params string[] names) => names.Select(Path.GetFullPath).ToArray();
+
+  private sealed class GatedAnalyzer : IBookAnalyzer
+  {
+    private readonly List<TaskCompletionSource> _gates = [];
+    private readonly List<TaskCompletionSource> _started = [];
+    private readonly Analyzer _inner = new();
+    public List<string> Calls { get; } = [];
+    public string? FailOn { get; init; }
+
+    public async Task<BookAnalysis> AnalyzeAsync(string inputPath, bool chaptersEnabled, BookAnalysisOptions? options = null, CancellationToken cancellationToken = default)
+    {
+      TaskCompletionSource gate;
+      lock (_gates)
+      {
+        Calls.Add(inputPath);
+        gate = Slot(_gates, Calls.Count - 1);
+        Slot(_started, Calls.Count - 1).TrySetResult();
+      }
+      await gate.Task.WaitAsync(cancellationToken);
+      if (inputPath == FailOn) throw new InvalidOperationException("boom");
+      return await _inner.AnalyzeAsync(inputPath, chaptersEnabled, options, cancellationToken);
+    }
+
+    public Task WaitForCallAsync(int index) { lock (_gates) return Slot(_started, index).Task.WaitAsync(TimeSpan.FromSeconds(10)); }
+    public void Release(int index) { lock (_gates) Slot(_gates, index).TrySetResult(); }
+
+    private static TaskCompletionSource Slot(List<TaskCompletionSource> list, int index)
+    {
+      while (list.Count <= index) list.Add(new(TaskCreationOptions.RunContinuationsAsynchronously));
+      return list[index];
     }
   }
 
