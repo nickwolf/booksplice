@@ -109,6 +109,7 @@ public sealed class ConversionService : IConversionService
       using (var operation = progressSession.OpenOperation())
         validation = await TimedAsync(ConversionStage.Validation, token => _validator.ValidateAsync(planning.Plan, execution.TemporaryOutputPath, token, operation), timings, cancellationToken).ConfigureAwait(false);
       diagnostics.AddRange(validation.Warnings.Select(value => new ServiceDiagnostic("validation.warning", ServiceDiagnosticSeverity.Warning, value)));
+      diagnostics.AddRange(validation.Notes.Select(value => new ServiceDiagnostic("validation.note", ServiceDiagnosticSeverity.Information, value)));
       diagnostics.AddRange(validation.Errors.Select(value => new ServiceDiagnostic("validation.failed", ServiceDiagnosticSeverity.Error, value)));
       if (!validation.IsValid)
       {

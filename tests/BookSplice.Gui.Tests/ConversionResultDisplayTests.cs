@@ -1,4 +1,5 @@
 using BookSplice.Core.Analysis;
+using BookSplice.Core.Execution;
 using BookSplice.Core.Settings;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Metadata;
@@ -119,6 +120,19 @@ public sealed class ConversionResultDisplayTests
     Assert.Equal(explained, warning.Explanation is not null);
     Assert.Equal(message, warning.Message);
     Assert.Contains(message, display.DiagnosticsText);
+  }
+
+  [Fact]
+  public void DiagnosticsKeepOnlyTheFinalProgressBlockOfALongEncode()
+  {
+    var progress = string.Concat(Enumerable.Range(0, 800).Select(i => $"frame=1\nout_time_us={i * 1000}\nspeed=60x\nprogress={(i == 799 ? "end" : "continue")}\n"));
+    var execution = new ConversionExecutionResult(ExecutionStatus.Succeeded, "temporary.m4b", [new ExecutionProcessResult(0, progress, "encoder note")], []);
+    var display = ConversionResultDisplay.Create(Result(ConversionTerminalStatus.Succeeded) with { Execution = execution }, TimeSpan.Zero, ValidationLevel.Lightweight);
+    Assert.Contains("out_time_us=799000", display.DiagnosticsText);
+    Assert.DoesNotContain("out_time_us=798000", display.DiagnosticsText);
+    Assert.Equal(1, display.DiagnosticsText.Split("progress=").Length - 1);
+    Assert.Contains("encoder note", display.DiagnosticsText);
+    Assert.True(display.DiagnosticsText.Length < 400);
   }
 
   private static ConversionServiceResult Result(ConversionTerminalStatus status, ValidationReport? validation = null, IReadOnlyList<ServiceDiagnostic>? diagnostics = null)
