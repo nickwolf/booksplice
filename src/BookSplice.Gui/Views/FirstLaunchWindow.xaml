@@ -43,6 +43,8 @@
           <ComboBox x:Name="MetadataProfile" ItemsSource="{Binding MetadataProfiles}" SelectedItem="{Binding MetadataProfileId}" AutomationProperties.Name="Metadata profile"/>
           <Label Content="_Validation (Full decodes the entire output)" Target="{Binding ElementName=Validation}" Margin="0,8,0,4"/>
           <ComboBox x:Name="Validation" ItemsSource="{Binding ValidationLevels}" SelectedItem="{Binding ValidationLevel}" AutomationProperties.Name="Validation level"/>
+          <CheckBox Content="Show a Windows _notification when a conversion finishes" IsChecked="{Binding NotificationsEnabled}" Margin="0,12,0,0"/>
+          <CheckBox Content="Leave book titles and file paths out of notifications" IsChecked="{Binding NotificationsHideDetails}" Margin="0,4,0,0"/>
           <Label Content="_Logging level" Target="{Binding ElementName=Logging}" Margin="0,8,0,4"/>
           <ComboBox x:Name="Logging" ItemsSource="{Binding LogLevels}" SelectedItem="{Binding LogLevel}" AutomationProperties.Name="Logging level"/>
         </StackPanel>

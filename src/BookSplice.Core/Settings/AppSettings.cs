@@ -19,7 +19,9 @@ public sealed record AppSettings(
   ValidationLevel ValidationLevel,
   LogLevel LogLevel,
   int? BooksAtOnce = null,
-  string OutputTemplate = OutputPathTemplate.DefaultText)
+  string OutputTemplate = OutputPathTemplate.DefaultText,
+  bool NotificationsEnabled = false,
+  bool NotificationsHideDetails = false)
 {
   internal IReadOnlyDictionary<string, JsonElement> UnknownProperties { get; init; } =
     new Dictionary<string, JsonElement>(StringComparer.Ordinal);
