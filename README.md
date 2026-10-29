@@ -80,6 +80,8 @@ During conversion, the queue names the active operation, such as reanalyzing sou
 
 Changing source membership or playback order after review stops conversion and requires analysis again. Closing the application while work is active is blocked until cancellation and cleanup finish.
 
+**History...** lists the audit records in `logs\`, newest first, with outcome, elapsed time, strategy, validation level, warnings, and output. Search matches any of those. Open the output folder or copy diagnostics for an earlier job without rerunning it. An output file that has since been moved or deleted is shown as missing. Records that are corrupt, unfinished, or written by a newer version are listed separately and do not block the rest. Records are kept until you delete one or choose **Clear history...**, which removes only the records and never audio files. The newest 2000 records are loaded.
+
 The Windows application declares per-monitor V2 DPI awareness and exposes keyboard access keys and UI Automation names for routine controls. Its 760 by 520 minimum window fits a 1920 by 1080 work area at 200% scaling.
 
 ## Command line
