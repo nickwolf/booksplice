@@ -123,6 +123,18 @@ public sealed class JsonSettingsStoreTests
   }
 
   [Fact]
+  public async Task Notification_settings_default_off_round_trip_and_keep_schema_one()
+  {
+    var root = Path.Combine(Path.GetTempPath(), "abc-settings-" + Guid.NewGuid()); var store = new JsonSettingsStore(root);
+    var absent = JsonSettingsStore.ParseSnapshot(System.Text.Encoding.UTF8.GetBytes(SettingsJson(root, "null", null)));
+    Assert.False(absent.Settings!.NotificationsEnabled); Assert.False(absent.Settings.NotificationsHideDetails);
+    await store.SaveAsync(AppSettings.Defaults with { OutputDirectory = root, NotificationsEnabled = true, NotificationsHideDetails = true });
+    var snapshot = JsonSettingsStore.ParseSnapshot(await File.ReadAllBytesAsync(store.SettingsPath));
+    Assert.Equal(1, snapshot.Settings!.SchemaVersion);
+    Assert.True(snapshot.Settings.NotificationsEnabled); Assert.True(snapshot.Settings.NotificationsHideDetails);
+  }
+
+  [Fact]
   public async Task Missing_file_defaults_to_one_book_at_a_time_when_unset()
   {
     Assert.Null(AppSettings.Defaults.BooksAtOnce);

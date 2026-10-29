@@ -9,11 +9,12 @@ using BookSplice.Core.Ordering;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Settings;
 using BookSplice.Gui.Diagnostics;
+using BookSplice.Gui.Notifications;
 using BookSplice.Gui.Updates;
 
 namespace BookSplice.Gui.ViewModels;
 
-public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionService conversion, AppSettings settings, IConversionPlanner? planner = null, GuiOperationGate? gate = null, MetadataProfileCatalog? profiles = null) : ObservableModel, IDisposable
+public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionService conversion, AppSettings settings, IConversionPlanner? planner = null, GuiOperationGate? gate = null, MetadataProfileCatalog? profiles = null, IConversionNotifier? notifier = null) : ObservableModel, IDisposable
 {
   private SemaphoreSlim _slots = new(settings.BooksAtOnce ?? 1);
   private string _message = "";
@@ -129,9 +130,15 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
 
   public async Task ConvertAsync(BookQueueItemViewModel item)
   {
-    if (!item.CanConvert) return;
+    if (await ConvertCoreAsync(item) is { } finished) Notify(NotificationPolicy.ForBook(finished, Settings));
+  }
+
+  // Returns null when nothing ran, otherwise the terminal outcome for notifications.
+  private async Task<BookFinished?> ConvertCoreAsync(BookQueueItemViewModel item)
+  {
+    if (!item.CanConvert) return null;
     using var operation = Enter("conversion");
-    if (operation is null) return;
+    if (operation is null) return null;
     item.IsBusy = true;
     item.Status = "Converting";
     item.Result = null;
@@ -191,6 +198,7 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
       if (registeredJob is { } job) ActiveJobRegistry.Shared.Remove(job);
       timer.Stop(); elapsed.Stop(); if (acquired) _slots.Release(); item.Cancellation = null; item.IsBusy = false;
     }
+    return Finished(item);
 
     void ShowExceptionResult(ConversionTerminalStatus status, string? message)
     {
@@ -267,6 +275,23 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
 
   public async Task ConvertAllAsync()
   {
-    await Task.WhenAll(Items.Where(item => item.CanConvert).ToArray().Select(ConvertAsync));
+    var batch = notifier is null ? null : new BatchNotifier(notifier, Settings);
+    var results = await Task.WhenAll(Items.Where(item => item.CanConvert).ToArray().Select(ConvertCoreAsync));
+    foreach (var finished in results) if (finished is not null) batch?.Add(finished);
+    if (batch is not null) _ = Task.Run(batch.Complete);
+  }
+
+  private static BookFinished Finished(BookQueueItemViewModel item) => new(item.Source, item.Name,
+    item.Status switch
+    {
+      "Complete" => item.Result?.HasWarnings == true ? BookOutcome.Warning : BookOutcome.Success,
+      "Cancelled" => BookOutcome.Cancelled,
+      _ => BookOutcome.Failure,
+    }, item.PublishedPath);
+
+  // Delivery runs off the UI thread and swallows its own errors, so a notification never slows or fails a conversion.
+  private void Notify(NotificationRequest? request)
+  {
+    if (notifier is not null && request is not null) _ = Task.Run(() => BatchNotifier.Deliver(notifier, request));
   }
 }
