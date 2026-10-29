@@ -80,7 +80,8 @@ public sealed class NotificationTests
     using var model = Model(notifier, On with { BooksAtOnce = 2 });
     await Fill(model, 3);
     await model.ConvertAllAsync();
-    var request = Assert.Single(await notifier.WaitAsync(1));
+    await model.NotificationsDelivered();
+    var request = Assert.Single(notifier.Shown);
     Assert.Equal("3 conversions finished", request.Title);
     Assert.All(model.Items, item => Assert.Equal("Complete", item.Status));
   }
@@ -92,7 +93,8 @@ public sealed class NotificationTests
     using var model = Model(notifier, On);
     await Fill(model, 1);
     await model.ConvertAsync(model.Items[0]);
-    var request = Assert.Single(await notifier.WaitAsync(1));
+    await model.NotificationsDelivered();
+    var request = Assert.Single(notifier.Shown);
     Assert.Contains("succeeded", request.Title);
   }
 
@@ -103,15 +105,36 @@ public sealed class NotificationTests
     using var off = Model(quiet, AppSettings.Defaults);
     await Fill(off, 1);
     await off.ConvertAllAsync();
-    await Task.Delay(100);
+    await off.NotificationsDelivered();
     Assert.Equal(0, quiet.Attempts);
 
     var broken = new Recorder { Throw = true };
     using var model = Model(broken, On);
     await Fill(model, 2);
     await model.ConvertAllAsync();
-    await broken.WaitAsync(1);
+    await model.NotificationsDelivered();
+    Assert.Equal(1, broken.Attempts);
     Assert.All(model.Items, item => Assert.Equal("Complete", item.Status));
+  }
+
+  [Fact]
+  public async Task BookCancelledWhileWaitingForASlotCountsInTheSummary()
+  {
+    var notifier = new Recorder();
+    var gate = new GatedConverter();
+    using var model = new MainWindowViewModel(new QueueTests.Analyzer(), gate, On, notifier: notifier);
+    await Fill(model, 2);
+    var batch = model.ConvertAllAsync();
+    var running = await gate.Started.Task;
+    var waiting = model.Items.Single(item => item.Source != running);
+    while (waiting.Status != "Waiting") await Task.Delay(5);
+    waiting.Cancel();
+    gate.Release.SetResult();
+    await batch;
+    await model.NotificationsDelivered();
+    var request = Assert.Single(notifier.Shown);
+    Assert.Contains("1 succeeded", request.Body);
+    Assert.Contains("1 cancelled", request.Body);
   }
 
   private static MainWindowViewModel Model(IConversionNotifier notifier, AppSettings settings) =>
@@ -135,6 +158,18 @@ public sealed class NotificationTests
     }
   }
 
+  private sealed class GatedConverter : BookSplice.Core.Analysis.IConversionService
+  {
+    public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource<string> Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public async Task<BookSplice.Core.Analysis.ConversionServiceResult> ConvertAsync(BookSplice.Core.Analysis.ConversionRequest request, CancellationToken cancellationToken, IProgress<BookSplice.Core.Execution.ConversionProgress>? progress = null)
+    {
+      _ = Started.TrySetResult(request.Source);
+      await Release.Task.WaitAsync(cancellationToken);
+      return new(Guid.NewGuid(), BookSplice.Core.Analysis.ConversionTerminalStatus.Succeeded, BookSplice.Core.Analysis.ConversionStage.Completed, null, null, null, null, null, [], [], "finished.m4b");
+    }
+  }
+
   private sealed class Recorder : IConversionNotifier
   {
     private readonly List<NotificationRequest> _shown = [];
@@ -148,11 +183,6 @@ public sealed class NotificationTests
       if (Throw) throw new InvalidOperationException("denied");
     }
 
-    public async Task<IReadOnlyList<NotificationRequest>> WaitAsync(int count)
-    {
-      for (var waited = 0; waited < 100 && Attempts < count; waited++) await Task.Delay(50);
-      await Task.Delay(100);
-      lock (_shown) return [.. _shown];
-    }
+    public IReadOnlyList<NotificationRequest> Shown { get { lock (_shown) return [.. _shown]; } }
   }
 }

@@ -172,6 +172,7 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
       item.Details = "Waiting for a conversion slot…";
       await _slots.WaitAsync(cancellation.Token);
       acquired = true;
+      cancellation.Token.ThrowIfCancellationRequested();
       item.Status = "Converting";
       elapsed.Start();
       ApplySnapshot();
@@ -278,7 +279,7 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     var batch = notifier is null ? null : new BatchNotifier(notifier, Settings);
     var results = await Task.WhenAll(Items.Where(item => item.CanConvert).ToArray().Select(ConvertCoreAsync));
     foreach (var finished in results) if (finished is not null) batch?.Add(finished);
-    if (batch is not null) _ = Task.Run(batch.Complete);
+    if (batch is not null) Deliver(batch.Complete);
   }
 
   private static BookFinished Finished(BookQueueItemViewModel item) => new(item.Source, item.Name,
@@ -289,9 +290,15 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
       _ => BookOutcome.Failure,
     }, item.PublishedPath);
 
+  private readonly System.Collections.Concurrent.ConcurrentBag<Task> _deliveries = [];
+
   // Delivery runs off the UI thread and swallows its own errors, so a notification never slows or fails a conversion.
+  private void Deliver(Action action) => _deliveries.Add(Task.Run(action));
+
   private void Notify(NotificationRequest? request)
   {
-    if (notifier is not null && request is not null) _ = Task.Run(() => BatchNotifier.Deliver(notifier, request));
+    if (notifier is not null && request is not null) Deliver(() => BatchNotifier.Deliver(notifier, request));
   }
+
+  internal Task NotificationsDelivered() => Task.WhenAll(_deliveries);
 }
