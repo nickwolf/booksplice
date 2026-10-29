@@ -1,4 +1,5 @@
 using System.Text;
+using BookSplice.Core.Analysis;
 
 namespace BookSplice.Core.Naming;
 
@@ -18,23 +19,68 @@ public sealed class OutputNamePlanner
     string? sourceRootName,
     CollisionPolicy collisionPolicy = CollisionPolicy.AvoidCollision,
     IReadOnlySet<string>? occupiedNames = null)
+    => Plan(destinationDirectory, OutputPathTemplate.Default, new OutputTemplateValues(editedOrReliableTitle), sourceRootName, collisionPolicy, occupiedNames).Path;
+
+  public OutputPathPlan Plan(
+    string destinationDirectory,
+    OutputPathTemplate template,
+    OutputTemplateValues values,
+    string? sourceRootName,
+    CollisionPolicy collisionPolicy = CollisionPolicy.AvoidCollision,
+    IReadOnlySet<string>? occupiedNames = null)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(destinationDirectory);
+    ArgumentNullException.ThrowIfNull(template);
+    ArgumentNullException.ThrowIfNull(values);
     var destination = Path.GetFullPath(destinationDirectory);
-    var baseName = Sanitize(FirstMeaningful(editedOrReliableTitle, sourceRootName, "Audiobook"));
-    var candidate = baseName + ".m4b";
+    var notes = new List<AnalysisDiagnostic>();
+    var resolved = template.Resolve(values);
+    var folder = destination;
+    for (var index = 0; index < resolved.Count - 1; index++)
+    {
+      var segment = resolved[index];
+      var cleaned = segment.Skipped ? "" : Clean(segment.Text);
+      if (cleaned.Length == 0)
+      {
+        var missing = segment.MissingTokens.Count > 0 ? string.Join(", ", segment.MissingTokens.Distinct()) : "a usable value";
+        notes.Add(new("output.folder-skipped", AnalysisDiagnosticSeverity.Information, $"The folder \"{template.DescribeSegment(index)}\" was skipped because {missing} is not available."));
+        continue;
+      }
+      folder = Path.Combine(folder, Fit(cleaned, 0, string.Empty));
+    }
+
+    var file = resolved[^1];
+    var fileText = Clean(file.Text);
+    foreach (var token in file.MissingTokens.Distinct())
+      if (fileText.Length > 0) notes.Add(new("output.field-missing", AnalysisDiagnosticSeverity.Information, $"{token} is not available, so it is left out of the file name."));
+    if (fileText.Length == 0)
+    {
+      fileText = FirstMeaningful(values.Title, sourceRootName, "Audiobook");
+      if (template.Text != OutputPathTemplate.DefaultText) notes.Add(new("output.filename-fallback", AnalysisDiagnosticSeverity.Information, $"The file name template resolved to nothing, so \"{Clean(fileText)}\" is used."));
+    }
+
+    if (collisionPolicy == CollisionPolicy.AvoidCollision || collisionPolicy == CollisionPolicy.Overwrite)
+      occupiedNames ??= Observe(folder);
+    var candidate = Sanitize(fileText) + ".m4b";
+    var requested = candidate;
     if (collisionPolicy == CollisionPolicy.AvoidCollision)
     {
-      occupiedNames ??= Observe(destination);
       var ordinal = 1;
       while (IsOccupied(candidate, occupiedNames))
       {
         ordinal++;
-        candidate = Sanitize(FirstMeaningful(editedOrReliableTitle, sourceRootName, "Audiobook"), ordinal) + ".m4b";
+        candidate = Sanitize(fileText, ordinal) + ".m4b";
       }
+      if (ordinal > 1) notes.Add(new("output.collision-renamed", AnalysisDiagnosticSeverity.Information, $"{requested} already exists in the output folder, so this book will be saved as {candidate}."));
     }
+    else if (IsOccupied(candidate, occupiedNames))
+      notes.Add(new("output.collision-overwrite", AnalysisDiagnosticSeverity.Information, $"{candidate} already exists in the output folder and will be replaced."));
 
-    return Path.Combine(destination, candidate);
+    var path = Path.Combine(folder, candidate);
+    var full = Path.GetFullPath(path);
+    var root = Path.TrimEndingDirectorySeparator(destination) + Path.DirectorySeparatorChar;
+    if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("The output path left the destination folder.");
+    return new OutputPathPlan(path, notes);
   }
 
   private bool IsOccupied(string candidate, IReadOnlySet<string>? occupied)
@@ -48,7 +94,7 @@ public sealed class OutputNamePlanner
   private static string FirstMeaningful(params string?[] values)
     => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))!.Trim();
 
-  private static string Sanitize(string value, int ordinal = 1)
+  private static string Clean(string value)
   {
     var builder = new StringBuilder(value.Length);
     foreach (var character in value)
@@ -57,10 +103,18 @@ public sealed class OutputNamePlanner
       else builder.Append(character);
     }
 
-    var cleaned = builder.ToString().Trim().TrimEnd(' ', '.');
+    return builder.ToString().Trim().TrimEnd(' ', '.');
+  }
+
+  private static string Sanitize(string value, int ordinal = 1)
+  {
+    var cleaned = Clean(value);
     if (cleaned.Length == 0) cleaned = "Audiobook";
-    var extension = ".m4b".Length;
-    var suffix = ordinal == 1 ? string.Empty : $" ({ordinal})";
+    return Fit(cleaned, ".m4b".Length, ordinal == 1 ? string.Empty : $" ({ordinal})");
+  }
+
+  private static string Fit(string cleaned, int extension, string suffix)
+  {
     var maxBaseLength = MaxComponentLength - extension - suffix.Length;
     if (cleaned.Length > maxBaseLength) cleaned = cleaned[..maxBaseLength].TrimEnd(' ', '.');
     if (ReservedNames.Contains(cleaned.Split('.')[0])) cleaned = $"_{cleaned}";
@@ -68,3 +122,5 @@ public sealed class OutputNamePlanner
     return cleaned + suffix;
   }
 }
+
+public sealed record OutputPathPlan(string Path, IReadOnlyList<AnalysisDiagnostic> Notes);
