@@ -303,6 +303,62 @@ public sealed class CliApplicationTests
     Assert.Equal("Cancelled", final.RootElement.GetProperty("status").GetString());
   }
 
+  private static ConversionServiceResult ResultWithMixedDiagnostics() => Result(ConversionTerminalStatus.Succeeded) with
+  {
+    PublishedPath = "C:\\Output\\Book.m4b",
+    Diagnostics =
+    [
+      new("validation.note", ServiceDiagnosticSeverity.Information, "validation note text"),
+      new("output.collision-renamed", ServiceDiagnosticSeverity.Information, "output note text"),
+      new("test.warning", ServiceDiagnosticSeverity.Warning, "warning text"),
+      new("conversion.cancelled", ServiceDiagnosticSeverity.Information, "cancelled text"),
+    ],
+  };
+
+  [Fact]
+  public async Task HumanModeWritesNotesToStandardOutputAndOtherDiagnosticsToStandardError()
+  {
+    var output = new StringWriter();
+    var error = new StringWriter();
+    var application = new CliApplication(new SettingsStore(Settings()), new FakeService(ResultWithMixedDiagnostics()));
+
+    await application.RunAsync(["book"], output, error, CancellationToken.None);
+
+    var outputText = output.ToString();
+    var errorText = error.ToString();
+    Assert.Contains("validation note text", outputText, StringComparison.Ordinal);
+    Assert.Contains("output note text", outputText, StringComparison.Ordinal);
+    Assert.DoesNotContain("warning text", outputText, StringComparison.Ordinal);
+    Assert.DoesNotContain("cancelled text", outputText, StringComparison.Ordinal);
+    Assert.Contains("warning text", errorText, StringComparison.Ordinal);
+    Assert.Contains("cancelled text", errorText, StringComparison.Ordinal);
+    Assert.DoesNotContain("note text", errorText, StringComparison.Ordinal);
+    Assert.True(outputText.IndexOf("output note text", StringComparison.Ordinal) < outputText.IndexOf("Published ", StringComparison.Ordinal));
+  }
+
+  [Fact]
+  public async Task JsonModeKeepsNotesOnStandardErrorAndStandardOutputToEventsOnly()
+  {
+    var output = new StringWriter();
+    var error = new StringWriter();
+    var application = new CliApplication(new SettingsStore(Settings()), new FakeService(ResultWithMixedDiagnostics()));
+
+    await application.RunAsync(["book", "--json"], output, error, CancellationToken.None);
+
+    var lines = output.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+    foreach (var line in lines)
+    {
+      using var document = JsonDocument.Parse(line);
+      Assert.Equal(1, document.RootElement.GetProperty("schemaVersion").GetInt32());
+    }
+    Assert.DoesNotContain("note text", output.ToString(), StringComparison.Ordinal);
+    var errorText = error.ToString();
+    Assert.Contains("validation note text", errorText, StringComparison.Ordinal);
+    Assert.Contains("output note text", errorText, StringComparison.Ordinal);
+    Assert.Contains("warning text", errorText, StringComparison.Ordinal);
+    Assert.Contains("cancelled text", errorText, StringComparison.Ordinal);
+  }
+
   private static ConversionServiceResult Result(ConversionTerminalStatus status) => new(
     Guid.NewGuid(), status, ConversionStage.Completed, null, null, null, null, null,
     [new("test", ServiceDiagnosticSeverity.Error, "diagnostic")], [], null);
