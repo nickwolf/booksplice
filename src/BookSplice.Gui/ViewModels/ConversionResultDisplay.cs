@@ -59,7 +59,7 @@ public sealed class ConversionResultDisplay
     return display;
   }
 
-  private static string DescribeStatus(ConversionTerminalStatus status) => status switch
+  internal static string DescribeStatus(ConversionTerminalStatus status) => status switch
   {
     ConversionTerminalStatus.InvalidInput => "Review the input and conversion settings.",
     ConversionTerminalStatus.DecisionRequired => "Review the source files and track order before converting.",

@@ -25,6 +25,8 @@ public partial class MainWindow : Window
   private UpdatesViewModel? _updates;
   private UpdatesWindow? _updatesWindow;
   private bool _closeForUpdate;
+  private BookSplice.Gui.History.ConversionHistoryReader? _history;
+  private HistoryWindow? _historyWindow;
   public MainWindow(ISettingsStore store, AppSettings settings, GuiServices? services = null)
   {
     InitializeComponent();
@@ -55,6 +57,24 @@ public partial class MainWindow : Window
     _updatesWindow ??= new UpdatesWindow(_updates) { Owner = this };
     _updatesWindow.Show();
     _updatesWindow.Activate();
+  }
+
+  public void UseHistory(string logDirectory)
+  {
+    _history = new(logDirectory);
+    HistoryButton.Visibility = Visibility.Visible;
+  }
+
+  private void History_Click(object sender, RoutedEventArgs e)
+  {
+    if (_history is null) return;
+    if (_historyWindow is null)
+    {
+      _historyWindow = new HistoryWindow(new(_history)) { Owner = this };
+      _historyWindow.Closed += (_, _) => _historyWindow = null;
+    }
+    _historyWindow.Show();
+    _historyWindow.Activate();
   }
 
   private void Updates_Click(object sender, RoutedEventArgs e) => ShowUpdates();

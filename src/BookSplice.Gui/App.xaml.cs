@@ -104,6 +104,7 @@ public partial class App : Application
       var services = await Task.Run(() => host.CreateServices(mediaTools));
       var window = new MainWindow(store, settings, services);
       AttachUpdates(window);
+      window.UseHistory(System.IO.Path.Combine(dataRoot, "logs"));
       MainWindow = window;
       ShutdownMode = ShutdownMode.OnMainWindowClose;
       MainWindow.Show();

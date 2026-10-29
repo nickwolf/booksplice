@@ -57,7 +57,7 @@ public sealed class ConversionProgressDisplay
     _ => "Starting conversion"
   };
 
-  private static string FormatDuration(TimeSpan duration)
+  internal static string FormatDuration(TimeSpan duration)
   {
     var seconds = (long)Math.Max(0, duration.TotalSeconds);
     return seconds >= 3600 ? FormattableString.Invariant($"{seconds / 3600}h {seconds / 60 % 60}m {seconds % 60}s")
