@@ -142,6 +142,20 @@ public sealed class FirstLaunchTests : IDisposable
     Assert.Equal(ChannelPolicy.ForceStereo, saved.ChannelPolicy);
   }
 
+  [Fact]
+  public async Task OutputTemplatePersistsThroughSetupAndInvalidOnesAreRefused()
+  {
+    Directory.CreateDirectory(_root);
+    var store = new JsonSettingsStore(_root);
+    var model = new FirstLaunchViewModel(new FirstLaunchService(store), AppSettings.Defaults) { OutputDirectory = _root, OutputTemplate = "{nope}" };
+    Assert.False(await model.SaveAsync());
+    Assert.False(string.IsNullOrWhiteSpace(model.ErrorMessage));
+    Assert.False(File.Exists(store.SettingsPath));
+    model.OutputTemplate = @" {author}\{title} ";
+    Assert.True(await model.SaveAsync());
+    Assert.Equal(@"{author}\{title}", (await store.LoadAsync()).Settings!.OutputTemplate);
+  }
+
   public void Dispose()
   {
     if (Directory.Exists(_root)) Directory.Delete(_root, true);

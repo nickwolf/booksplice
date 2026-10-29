@@ -19,6 +19,7 @@ public sealed record AppSettings(
   ValidationLevel ValidationLevel,
   LogLevel LogLevel,
   int? BooksAtOnce = null,
+  string OutputTemplate = OutputPathTemplate.DefaultText,
   bool NotificationsEnabled = false,
   bool NotificationsHideDetails = false)
 {

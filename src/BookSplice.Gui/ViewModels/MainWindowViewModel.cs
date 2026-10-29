@@ -245,17 +245,18 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     try
     {
       var result = await Task.Run(() => planner.CreateAsync(item.Analysis, item.CreateOptions(), CancellationToken.None));
-      item.Details = result.Plan is { } plan ? DescribePlan(plan) : DescribeRefusal(result);
+      item.Details = result.Plan is { } plan ? DescribePlan(plan, result.Diagnostics) : DescribeRefusal(result);
     }
     catch (Exception exception) { item.Details = exception.Message; }
     finally { item.IsBusy = false; }
   }
 
-  private static string DescribePlan(ConversionPlan plan)
+  private static string DescribePlan(ConversionPlan plan, IReadOnlyList<AnalysisDiagnostic>? notes = null)
   {
     var explanation = StrategyExplanation.Create(plan.Strategy, plan.StrategyReasonCodes);
     var lines = new List<string> { $"Output: {plan.OutputPath}", $"Audio: {DescribeAudio(plan)}", explanation.Summary };
     if (explanation.Reasons.Count > 0) { lines.Add("Why re-encode:"); lines.AddRange(explanation.Reasons.Select(reason => $"  - {reason}")); }
+    if (notes is not null) lines.AddRange(notes.Where(note => note.Code.StartsWith("output.", StringComparison.Ordinal)).Select(note => $"Note: {note.Message}"));
     lines.AddRange(SpaceEstimateDescription.Lines(plan.Space));
     lines.Add($"Validation: {plan.ValidationLevel} | Metadata: {MetadataProfileCatalog.PublicLabel(plan.MetadataProfileId)}");
     return string.Join(Environment.NewLine, lines);

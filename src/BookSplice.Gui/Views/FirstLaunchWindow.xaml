@@ -34,6 +34,9 @@
           <TextBlock Text="Converting more books at once finishes the whole queue sooner, but each book finishes later." TextWrapping="Wrap" Margin="0,4,0,0"/>
           <Label Content="Parallel _encodes per book (blank uses Automatic)" Target="{Binding ElementName=Jobs}" Margin="0,8,0,4"/>
           <ComboBox x:Name="Jobs" ItemsSource="{Binding JobChoices}" SelectedItem="{Binding ConversionJobs}" AutomationProperties.Name="Parallel encodes per book"/>
+          <Label Content="Folder and file _name template" Target="{Binding ElementName=TemplateBox}" Margin="0,8,0,4"/>
+          <TextBox x:Name="TemplateBox" Text="{Binding OutputTemplate}" AutomationProperties.Name="Folder and file name template"/>
+          <TextBlock Text="{Binding TemplateHelp}" TextWrapping="Wrap" Margin="0,4,0,0"/>
           <Label Content="Channel _handling" Target="{Binding ElementName=Channels}" Margin="0,8,0,4"/>
           <ComboBox x:Name="Channels" ItemsSource="{Binding ChannelPolicies}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding ChannelPolicy}" AutomationProperties.Name="Channel handling"/>
           <Label Content="_Metadata profile" Target="{Binding ElementName=MetadataProfile}" Margin="0,8,0,4"/>

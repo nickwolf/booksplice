@@ -102,16 +102,17 @@ public sealed class JsonSettingsStore : ISettingsStore
     ReadEnum<CollisionPolicy>(json, "collisionPolicy"), ReadString(json, "metadataProfileId") ?? string.Empty,
     ReadEnum<ValidationLevel>(json, "validationLevel"), ReadEnum<LogLevel>(json, "logLevel"),
     json.ContainsKey("booksAtOnce") ? ReadNullableInt(json, "booksAtOnce") : ReadNullableInt(json, "conversionJobs"),
+    ReadString(json, "outputTemplate") ?? OutputPathTemplate.DefaultText,
     ReadBool(json, "notificationsEnabled"), ReadBool(json, "notificationsHideDetails")) with
   { UnknownProperties = json.Where(p => !Known.Contains(p.Key)).ToDictionary(p => p.Key, p => JsonSerializer.Deserialize<JsonElement>(p.Value?.ToJsonString() ?? "null"), StringComparer.Ordinal) };
 
   private static JsonObject ToJson(AppSettings s)
   {
-    var json = new JsonObject { ["schemaVersion"] = s.SchemaVersion, ["outputDirectory"] = s.OutputDirectory, ["qualityProfileId"] = s.QualityProfileId, ["channelPolicy"] = s.ChannelPolicy.ToString(), ["createChapters"] = s.CreateChapters, ["conversionJobs"] = s.ConversionJobs, ["collisionPolicy"] = s.CollisionPolicy.ToString(), ["metadataProfileId"] = s.MetadataProfileId, ["validationLevel"] = s.ValidationLevel.ToString(), ["logLevel"] = s.LogLevel.ToString(), ["booksAtOnce"] = s.BooksAtOnce, ["notificationsEnabled"] = s.NotificationsEnabled, ["notificationsHideDetails"] = s.NotificationsHideDetails };
+    var json = new JsonObject { ["schemaVersion"] = s.SchemaVersion, ["outputDirectory"] = s.OutputDirectory, ["qualityProfileId"] = s.QualityProfileId, ["channelPolicy"] = s.ChannelPolicy.ToString(), ["createChapters"] = s.CreateChapters, ["conversionJobs"] = s.ConversionJobs, ["collisionPolicy"] = s.CollisionPolicy.ToString(), ["metadataProfileId"] = s.MetadataProfileId, ["validationLevel"] = s.ValidationLevel.ToString(), ["logLevel"] = s.LogLevel.ToString(), ["booksAtOnce"] = s.BooksAtOnce, ["outputTemplate"] = s.OutputTemplate, ["notificationsEnabled"] = s.NotificationsEnabled, ["notificationsHideDetails"] = s.NotificationsHideDetails };
     foreach (var pair in s.UnknownProperties) if (!Known.Contains(pair.Key)) json[pair.Key] = JsonNode.Parse(pair.Value.GetRawText());
     return json;
   }
-  private static readonly HashSet<string> Known = new(StringComparer.Ordinal) { "schemaVersion", "outputDirectory", "qualityProfileId", "channelPolicy", "createChapters", "conversionJobs", "collisionPolicy", "metadataProfileId", "validationLevel", "logLevel", "booksAtOnce", "notificationsEnabled", "notificationsHideDetails" };
+  private static readonly HashSet<string> Known = new(StringComparer.Ordinal) { "schemaVersion", "outputDirectory", "qualityProfileId", "channelPolicy", "createChapters", "conversionJobs", "collisionPolicy", "metadataProfileId", "validationLevel", "logLevel", "booksAtOnce", "outputTemplate", "notificationsEnabled", "notificationsHideDetails" };
   private static int? ReadInt(JsonObject o, string n) => o[n]?.GetValue<int?>();
   private static int? ReadNullableInt(JsonObject o, string n)
   {
