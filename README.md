@@ -78,7 +78,7 @@ The folder and file name template decides where each finished book goes under th
 | `{series}` | Series name |
 | `{seriesPosition}` | Position in the series, as written in the tags |
 | `{narrator}` | Narrator |
-| `{year}` | Year |
+| `{year}` | Year, exactly as tagged (a `DATE` tag can hold a full date such as `2019-05-03`) |
 
 The default is `{title}`, which puts `Title.m4b` directly in the destination folder as before. `{author}\{series}\{seriesPosition} - {title}` gives `Author\Series\2 - Title.m4b`.
 

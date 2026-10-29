@@ -139,6 +139,19 @@ public sealed class OutputTemplateTests
   public void Unknown_field_error_lists_the_supported_fields()
     => Assert.All(OutputPathTemplate.TokenNames, name => Assert.Contains("{" + name + "}", OutputPathTemplate.Validate("{nope}")));
 
+  [Theory]
+  [InlineData(@"C:\")]
+  [InlineData(@"\\server\share\")]
+  [InlineData(@"\\server\share")]
+  public void Root_destinations_work_with_default_and_folder_templates(string destination)
+  {
+    var planner = new OutputNamePlanner();
+    var occupied = new HashSet<string>();
+    var root = Path.GetFullPath(destination);
+    Assert.Equal(Path.Combine(root, "Book.m4b"), planner.Plan(destination, OutputPathTemplate.Default, new OutputTemplateValues("Book"), null, CollisionPolicy.AvoidCollision, occupied).Path);
+    Assert.Equal(Path.Combine(root, "Jane Doe", "Book.m4b"), planner.Plan(destination, OutputPathTemplate.Parse(@"{author}\{title}"), Full with { Title = "Book" }, null, CollisionPolicy.AvoidCollision, occupied).Path);
+  }
+
   [Fact]
   public void Collisions_are_checked_in_the_resolved_folder_and_reported()
   {

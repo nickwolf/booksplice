@@ -78,7 +78,7 @@ public sealed class OutputNamePlanner
 
     var path = Path.Combine(folder, candidate);
     var full = Path.GetFullPath(path);
-    var root = Path.TrimEndingDirectorySeparator(destination) + Path.DirectorySeparatorChar;
+    var root = Path.EndsInDirectorySeparator(destination) ? destination : destination + Path.DirectorySeparatorChar;
     if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("The output path left the destination folder.");
     return new OutputPathPlan(path, notes);
   }
