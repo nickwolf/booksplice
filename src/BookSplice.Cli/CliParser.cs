@@ -8,7 +8,7 @@ public static class CliParser
 {
   private static readonly HashSet<string> ValueOptions = new(StringComparer.Ordinal)
   {
-    "--output", "--quality", "--bitrate", "--jobs", "--order", "--metadata-profile", "--validation", "--channels",
+    "--output", "--quality", "--bitrate", "--jobs", "--order", "--metadata-profile", "--validation", "--channels", "--output-template",
   };
 
   public static CliParseResult Parse(IReadOnlyList<string> arguments)
@@ -73,12 +73,14 @@ public static class CliParser
     values.TryGetValue("--channels", out var channelsText);
     ChannelPolicy? channelPolicy = channelsText switch { "preserve" => ChannelPolicy.PreserveSourceChannels, "mono" => ChannelPolicy.ForceMono, "stereo" => ChannelPolicy.ForceStereo, _ => null };
     if (channelsText is not null && channelPolicy is null) diagnostics.Add(new("usage.channels", "Channels must be preserve, mono, or stereo."));
+    values.TryGetValue("--output-template", out var outputTemplate);
+    if (outputTemplate is not null && Core.Naming.OutputPathTemplate.Validate(outputTemplate) is { } templateError) diagnostics.Add(new("usage.output-template", templateError));
     if (diagnostics.Count != 0) return new(null, diagnostics.AsReadOnly());
     values.TryGetValue("--output", out var output);
     bool? chapters = switches.Contains("--chapters") ? true : switches.Contains("--no-chapters") ? false : null;
     return new(new CliOptions(
       sources[0], output, quality, bitrate, jobs, chapters,
-      switches.Contains("--overwrite"), switches.Contains("--dry-run"), switches.Contains("--json"), order, metadataProfile, validation, channelPolicy), []);
+      switches.Contains("--overwrite"), switches.Contains("--dry-run"), switches.Contains("--json"), order, metadataProfile, validation, channelPolicy, outputTemplate), []);
   }
 
   private static int? ParseRange(Dictionary<string, string> values, string option, int minimum, int maximum, string code, List<CliDiagnostic> diagnostics)

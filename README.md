@@ -48,9 +48,9 @@ The first update creates a managed folder named `.booksplice-managed-<id>` besid
 
 ## First launch and settings
 
-First launch asks where completed M4B files should go, which audio quality profile to use, and whether to create chapters from source-file boundaries. Advanced settings expose channel handling, books converted at once, parallel encodes per book, metadata profile, lightweight or full-decode validation, and logging level.
+First launch asks where completed M4B files should go, which audio quality profile to use, and whether to create chapters from source-file boundaries. Advanced settings expose channel handling, books converted at once, parallel encodes per book, the folder and file name template, metadata profile, lightweight or full-decode validation, and logging level.
 
-Each queued book starts with the saved settings. The **Output** tab can override the destination, audio quality, channel handling, metadata profile, and validation level for the selected book without changing the saved defaults.
+Each queued book starts with the saved settings. The **Output** tab can override the destination, audio quality, channel handling, folder and file name template, metadata profile, and validation level for the selected book without changing the saved defaults.
 
 Settings are stored in `%LOCALAPPDATA%\BookSplice\settings.json`. BookSplice does not silently replace a corrupt settings file or a file from a newer schema version.
 
@@ -67,13 +67,37 @@ Compatible AAC input can use stream copy when channel handling preserves the sou
 
 Before starting, the preview states whether audio is copied or re-encoded and, when re-encoding, lists the reasons in plain language. A reason that says BookSplice "could not confirm" compatibility means the probe did not report a detail, which is different from a detected incompatibility. More than 32 files are encoded in separate segments and joined afterward. The preview also shows estimated output size and temporary space with free space for each volume. Temporary files are written under `%LOCALAPPDATA%\BookSplice\temp`, so that drive is checked separately when it differs from the destination drive; both checks include a 10% margin. These are estimates: a preview that shows enough room can still run out if other programs use the disk during conversion.
 
+### Output folders and file names
+
+The folder and file name template decides where each finished book goes under the destination folder. Fields in braces are replaced with the book's metadata, and `\` (or `/`) separates folders. The last part is the file name; `.m4b` is added for you.
+
+| Field | Value |
+| --- | --- |
+| `{title}` | Book title (edited title if you changed it, otherwise the source folder name) |
+| `{author}` | Author |
+| `{series}` | Series name |
+| `{seriesPosition}` | Position in the series, as written in the tags |
+| `{narrator}` | Narrator |
+| `{year}` | Year |
+
+The default is `{title}`, which puts `Title.m4b` directly in the destination folder as before. `{author}\{series}\{seriesPosition} - {title}` gives `Author\Series\2 - Title.m4b`.
+
+- Fields are not case sensitive. Values come from the metadata after your edits, so changing the author or series in the review changes the path.
+- A folder whose fields are all empty is skipped, so a book with no series is saved in `Author\Title.m4b` rather than in an empty `Series` folder. Inside a part that has some fields filled, empty fields are left out and stray spaces, dashes, commas and dots at its ends are trimmed.
+- If the file name part comes out empty, BookSplice uses the title, then the source folder name, then `Audiobook`.
+- Characters Windows does not allow become `_`, so a value like `AC/DC` stays one folder. Reserved names such as `CON` get a `_` prefix, and each part is capped at 240 characters.
+- Templates must be relative to the destination folder: a leading `\`, a drive such as `C:`, `.` or `..` parts, unknown fields, and unbalanced braces are refused. A template can only create folders inside the destination, and source files are never moved or renamed.
+- The preview shows the resolved path. If a file of that name already exists in that folder, the preview shows the numbered name that will be used (`Title (2).m4b`), or says it will be replaced when overwrite is on. The check is repeated when the file is published, so a name taken in the meantime still gets the next free number. Folders are created at publish time, not by the preview or a dry run.
+
+The template is saved as `outputTemplate` in `settings.json`; older settings files without it use the default. On the command line, `--output-template` overrides it for one run.
+
 ## GUI workflow
 
 1. Drop one or more audiobook folders onto the main window, or use **Add folder**.
 2. Select a queued book and review its file count, duration, codec summary, metadata, chapters, and cover.
 3. If BookSplice finds more than one credible order, inspect each complete track list and choose one. Conversion remains disabled until an order is selected.
 4. Edit metadata or chapter titles, select different artwork, or choose not to embed artwork.
-5. Open **Output** to review or change that book's conversion settings, then use **Preview output** to check the planned output filename, whether audio is copied or re-encoded and why, and the estimated storage needed. Stream-copy previews do not present the unused transcode bitrate. A preview refused for lack of space still shows the estimate.
+5. Open **Output** to review or change that book's conversion settings, then use **Preview output** to check the planned output path and any notes about it (skipped folders, missing fields, name collisions), whether audio is copied or re-encoded and why, and the estimated storage needed. Stream-copy previews do not present the unused transcode bitrate. A preview refused for lack of space still shows the estimate.
 6. Convert the selected book or all ready books. The result card shows whether conversion completed, completed with warnings, was cancelled, or failed, along with the published output path and elapsed time. It names the lightweight checks and full audio decode separately. Warnings remain visible; expand **Validation checks** or **Diagnostics** for details. **Open output folder** is available when the published file exists. Use **Copy diagnostics** to copy a support summary and tool output with recognized local paths redacted.
 
 During conversion, the queue names the active operation, such as reanalyzing sources, encoding audio, assembling audio, checking output, validating full audio, or publishing output. The percentage and **Phase remaining** estimate apply only to the current measurable phase and can reset when the phase changes. An operation without a reliable measurement shows **Numeric progress unavailable** and an indeterminate bar. The estimate needs at least 3 seconds of advancing samples from a recent 30-second window; it disappears when the last numeric advance is more than 10 seconds old. After 30 seconds without an operation report, the queue says how long it has been since an update. If reports continue but an expected measurement does not advance for 30 seconds, it says that instead. These are activity advisories, not timeouts: they do not cancel conversion or decide whether validation passed. Cancel remains available while work is active; cleanup or an atomic publication step may finish before the request settles. The result card, including its validation evidence and warnings, remains the final outcome.
@@ -94,6 +118,7 @@ booksplice <source> [options]
   --metadata-profile <name>         Metadata profile ID (see below)
   --validation <lightweight|full>   Output validation level
   --channels <preserve|mono|stereo> Output channel handling
+  --output-template <template>      Folders and file name, e.g. {author}\{series}\{title}
   --chapters | --no-chapters        Chapter creation
   --overwrite                       Replace an existing output after validation
   --dry-run                         Plan without output, temporary files, or audit records
