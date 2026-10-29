@@ -129,6 +129,8 @@ An interactive terminal prompts when ordering needs a decision. Redirected input
 
 A dry run prints the same strategy explanation and storage estimate. In `--json` mode the final event's `plan` adds `strategyExplanation` (`summary` and `reasons`) and `space` (estimated and required bytes, free space, and the volume roots); existing fields are unchanged.
 
+In human-readable mode, informational notes (validation notes and output naming notes such as a skipped folder, a missing field, or a renamed file) are printed to standard output ahead of the result lines. Warnings, errors, and other diagnostics, including cancellation, go to standard error, so a script that treats standard error output as a failure only sees real problems. In `--json` mode standard output carries only the events, and notes go to standard error with the other diagnostics.
+
 `booksplice --help` lists the metadata profiles that are installed, and any profile files that were skipped with the reason.
 
 Exit codes are 0 for success, 1 for unexpected failure, 2 for usage error, 3 for invalid input or configuration, 4 for an unresolved ordering decision, 5 for conversion failure, 6 for validation failure, 7 for publication failure, and 8 for cancellation.

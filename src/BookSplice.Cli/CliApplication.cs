@@ -137,7 +137,9 @@ public sealed class CliApplication
     }
 
     var exitCode = CliExitCodes.FromStatus(result.Status);
-    WriteDiagnostics(standardError, result.Diagnostics.Select(value => value.Message), [options.Source]);
+    var notesToOutput = !options.Json;
+    WriteDiagnostics(standardError, result.Diagnostics.Where(value => !notesToOutput || !IsNote(value)).Select(value => value.Message), [options.Source]);
+    if (notesToOutput) WriteDiagnostics(standardOutput, result.Diagnostics.Where(IsNote).Select(value => value.Message), [options.Source]);
     if (options.Json)
     {
       var plan = result.Planning?.Plan;
@@ -221,6 +223,18 @@ public sealed class CliApplication
     if (json) WriteJson(standardOutput, new { SchemaVersion = 1, Event = "final", Status = status.ToString(), ExitCode = (int)exitCode }, new object());
     return exitCode;
   }
+
+  private static readonly HashSet<string> NoteCodes = new(StringComparer.Ordinal)
+  {
+    "validation.note",
+    "output.folder-skipped",
+    "output.field-missing",
+    "output.filename-fallback",
+    "output.collision-renamed",
+    "output.collision-overwrite",
+  };
+
+  private static bool IsNote(ServiceDiagnostic diagnostic) => NoteCodes.Contains(diagnostic.Code);
 
   private static void WriteDiagnostics(TextWriter writer, IEnumerable<string> diagnostics, IReadOnlyList<string>? exactPaths = null)
   {
