@@ -34,6 +34,18 @@ public sealed class CliParserTests
   }
 
   [Fact]
+  public void ParseAcceptsAndValidatesTheOutputTemplate()
+  {
+    var ok = CliParser.Parse(["book", "--output-template", @"{author}\{series}\{title}"]);
+    Assert.True(ok.IsSuccess);
+    Assert.Equal(@"{author}\{series}\{title}", ok.Options!.OutputTemplate);
+    Assert.Null(CliParser.Parse(["book"]).Options!.OutputTemplate);
+    foreach (var bad in new[] { @"..\{title}", "{nope}", @"C:\{title}" })
+      Assert.Contains(CliParser.Parse(["book", "--output-template", bad]).Diagnostics, d => d.Code == "usage.output-template");
+    Assert.Contains(CliParser.Parse(["book", "--output-template"]).Diagnostics, d => d.Code == "usage.missing-value");
+  }
+
+  [Fact]
   public void ParseLeavesOptionalOverridesUnset()
   {
     var result = CliParser.Parse(["book"]);

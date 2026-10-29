@@ -13,7 +13,8 @@ public sealed record CliOptions(
   Core.Ordering.OrderCandidateId? Order = null,
   string? MetadataProfileId = null,
   Core.Settings.ValidationLevel? Validation = null,
-  Core.Planning.ChannelPolicy? ChannelPolicy = null);
+  Core.Planning.ChannelPolicy? ChannelPolicy = null,
+  string? OutputTemplate = null);
 
 public sealed record CliDiagnostic(string Code, string Message);
 

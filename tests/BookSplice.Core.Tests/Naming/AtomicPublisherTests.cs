@@ -22,6 +22,23 @@ public sealed class AtomicPublisherTests
   }
 
   [Fact]
+  public async Task PublishAsync_creates_nested_template_folders_and_still_avoids_collisions()
+  {
+    using var root = new TemporaryDirectory();
+    var final = root.GetPath("staging", "Author", "Series", "Book.m4b");
+    var first = root.CreateFile("job1.m4b", "first");
+    var second = root.CreateFile("job2.m4b", "second");
+
+    var one = await new AtomicPublisher().PublishAsync(Plan(final), ValidationReport.Passed(first, [], TestPlanId), CancellationToken.None);
+    var two = await new AtomicPublisher().PublishAsync(Plan(final), ValidationReport.Passed(second, [], TestPlanId), CancellationToken.None);
+
+    Assert.Equal(Path.GetFullPath(final), one.FinalPath);
+    Assert.Equal(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(final))!, "Book (2).m4b"), two.FinalPath);
+    Assert.Equal("first", await File.ReadAllTextAsync(final));
+    Assert.Equal("second", await File.ReadAllTextAsync(two.FinalPath!));
+  }
+
+  [Fact]
   public async Task PublishAsync_rejects_a_report_for_a_different_temporary_file()
   {
     using var root = new TemporaryDirectory();

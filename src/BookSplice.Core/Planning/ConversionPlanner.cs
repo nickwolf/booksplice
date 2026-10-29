@@ -27,7 +27,11 @@ public sealed class ConversionPlanner : IConversionPlanner
     var title = metadata.Get(SemanticField.BookTitle).Value;
     if (string.IsNullOrWhiteSpace(title)) title = analysis.SourceRootName;
     if (string.IsNullOrWhiteSpace(options.DestinationDirectory) || !Directory.Exists(options.DestinationDirectory)) return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.destination-unavailable", AnalysisDiagnosticSeverity.Error, "The destination directory is unavailable.")]));
-    var output = _outputNames.CreateRequestedPath(options.DestinationDirectory, title, analysis.SourceRootName, options.CollisionPolicy);
+    if (!OutputPathTemplate.TryParse(options.Settings.OutputTemplate, out var template, out var templateError)) return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.output-template-invalid", AnalysisDiagnosticSeverity.Error, templateError!)]));
+    var values = new OutputTemplateValues(title, FieldValue(metadata, SemanticField.Author), FieldValue(metadata, SemanticField.Series), FieldValue(metadata, SemanticField.SeriesPart), FieldValue(metadata, SemanticField.Narrator), FieldValue(metadata, SemanticField.Year));
+    var outputPlan = _outputNames.Plan(options.DestinationDirectory, template!, values, analysis.SourceRootName, options.CollisionPolicy);
+    var output = outputPlan.Path;
+    diagnostics.AddRange(outputPlan.Notes);
     var eligibility = StreamCopyEligibility.Evaluate(analysis.OrderedFiles, options.Settings.ChannelPolicy);
     var strategy = eligibility.IsEligible ? AudioStrategy.AacStreamCopy : analysis.OrderedFiles.Count == 1 ? AudioStrategy.DirectTranscode : analysis.OrderedFiles.Count <= FilterConcatMaximumFiles ? AudioStrategy.FilterConcatTranscode : AudioStrategy.SegmentedTranscode;
     var reasons = eligibility.IsEligible ? Array.Empty<string>() : eligibility.ReasonCodes.Concat(strategy == AudioStrategy.SegmentedTranscode ? ["strategy.filter-concat-file-limit"] : []).ToArray();
@@ -55,6 +59,8 @@ public sealed class ConversionPlanner : IConversionPlanner
     var plan = new ConversionPlan(analysis.OrderedFiles.Select(file => file.FullPath).ToArray(), metadata, cover, chapters, options.QualityProfile, options.Settings.ValidationLevel, options.CollisionPolicy, output, strategy, reasons, space, jobs, options.Settings.ConversionJobs is null ? "benchmark-host-automatic-6" : "explicit-setting", metadataProfile, format.SampleRate, format.Channels, sourceDurationsMicroseconds: analysis.OrderedFiles.Select(SourceDurationEvidence.ReadMicroseconds).ToArray());
     return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Ready, plan, diagnostics, space, strategy, reasons));
   }
+
+  private static string? FieldValue(BookMetadata metadata, SemanticField field) => metadata.Get(field).Value;
 
   private static BookMetadata ApplyEdits(BookMetadata source, IReadOnlyDictionary<SemanticField, MetadataEdit> edits)
   {

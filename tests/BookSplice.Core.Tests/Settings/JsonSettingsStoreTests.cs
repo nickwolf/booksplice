@@ -123,6 +123,26 @@ public sealed class JsonSettingsStoreTests
   }
 
   [Fact]
+  public async Task Output_template_defaults_when_absent_round_trips_and_keeps_schema_one()
+  {
+    var root = Path.Combine(Path.GetTempPath(), "abc-settings-" + Guid.NewGuid()); var store = new JsonSettingsStore(root); Directory.CreateDirectory(Path.GetDirectoryName(store.SettingsPath)!);
+    await File.WriteAllTextAsync(store.SettingsPath, SettingsJson(root, "null", null));
+    var older = (await store.LoadAsync()).Settings!;
+    Assert.Equal("{title}", older.OutputTemplate); Assert.Equal("{title}", AppSettings.Defaults.OutputTemplate);
+    await store.SaveAsync(older with { OutputTemplate = @"{author}\{series}\{title}" });
+    var snapshot = JsonSettingsStore.ParseSnapshot(await File.ReadAllBytesAsync(store.SettingsPath));
+    Assert.Equal(SettingsLoadCode.Valid, snapshot.Code); Assert.Equal(1, snapshot.Settings!.SchemaVersion); Assert.Equal(@"{author}\{series}\{title}", snapshot.Settings.OutputTemplate);
+    Assert.Contains("\"outputTemplate\"", await File.ReadAllTextAsync(store.SettingsPath));
+  }
+
+  [Theory]
+  [InlineData("{nope}")]
+  [InlineData("..\\{title}")]
+  [InlineData("")]
+  public void Invalid_output_template_fails_validation(string template)
+    => Assert.False(SettingsValidator.Validate(AppSettings.Defaults with { OutputDirectory = Path.GetTempPath(), OutputTemplate = template }).IsValid);
+
+  [Fact]
   public async Task Missing_file_defaults_to_one_book_at_a_time_when_unset()
   {
     Assert.Null(AppSettings.Defaults.BooksAtOnce);

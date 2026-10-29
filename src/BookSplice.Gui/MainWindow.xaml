@@ -150,6 +150,9 @@
                 <ComboBox x:Name="BookChannels" ItemsSource="{Binding ChannelPolicies}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding ChannelPolicy}" AutomationProperties.Name="Selected book channel handling"/>
                 <Label Content="_Metadata profile" Target="{Binding ElementName=BookMetadataProfile}" Margin="0,8,0,0"/>
                 <ComboBox x:Name="BookMetadataProfile" ItemsSource="{Binding MetadataProfiles}" SelectedItem="{Binding MetadataProfileId}" AutomationProperties.Name="Selected book metadata profile"/>
+                <Label Content="Folder and file _name template" Target="{Binding ElementName=BookOutputTemplate}" Margin="0,8,0,0"/>
+                <TextBox x:Name="BookOutputTemplate" Text="{Binding OutputTemplate, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="Selected book folder and file name template"/>
+                <TextBlock Text="{Binding TemplateHelp}" TextWrapping="Wrap" Margin="0,4,0,0"/>
                 <Label Content="_Validation" Target="{Binding ElementName=BookValidation}" Margin="0,8,0,0"/>
                 <ComboBox x:Name="BookValidation" ItemsSource="{Binding ValidationLevels}" SelectedItem="{Binding ValidationLevel}" AutomationProperties.Name="Selected book validation level"/>
               </StackPanel>

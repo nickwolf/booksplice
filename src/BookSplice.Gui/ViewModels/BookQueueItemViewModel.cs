@@ -37,6 +37,8 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings, 
   public string OutputDirectory { get => Settings.OutputDirectory; set => UpdateSettings(Settings with { OutputDirectory = value }); }
   public string QualityProfileId { get => Settings.QualityProfileId; set { if (QualityProfileCatalog.FindById(value) is not null) UpdateSettings(Settings with { QualityProfileId = value }); } }
   public ChannelPolicy ChannelPolicy { get => Settings.ChannelPolicy; set => UpdateSettings(Settings with { ChannelPolicy = value }); }
+  public string OutputTemplate { get => Settings.OutputTemplate; set => UpdateSettings(Settings with { OutputTemplate = value.Trim() }); }
+  public string TemplateHelp { get; } = OutputTemplateHelp.Text;
   public ValidationLevel ValidationLevel { get => Settings.ValidationLevel; set => UpdateSettings(Settings with { ValidationLevel = value }); }
   public string MetadataProfileId { get => Settings.MetadataProfileId; set { if (_profiles.Find(value) is not null) UpdateSettings(Settings with { MetadataProfileId = value }); } }
   public BookAnalysis? Analysis { get; private set; }
@@ -90,7 +92,7 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings, 
   {
     if (value == _settings) return;
     _settings = value;
-    foreach (var property in new[] { nameof(Settings), nameof(OutputDirectory), nameof(QualityProfileId), nameof(ChannelPolicy), nameof(ValidationLevel), nameof(MetadataProfileId) }) Changed(property);
+    foreach (var property in new[] { nameof(Settings), nameof(OutputDirectory), nameof(QualityProfileId), nameof(ChannelPolicy), nameof(ValidationLevel), nameof(MetadataProfileId), nameof(OutputTemplate) }) Changed(property);
   }
 
   internal void SetAnalysis(BookAnalysis analysis)

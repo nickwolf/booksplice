@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using BookSplice.Core.Metadata;
+using BookSplice.Core.Naming;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Settings;
 
@@ -26,6 +27,8 @@ public sealed class FirstLaunchViewModel(FirstLaunchService service, AppSettings
   public string ErrorMessage { get => _errorMessage; private set { _errorMessage = value; Changed(); } }
   public int? ConversionJobs { get; set; } = initial.ConversionJobs;
   public int? BooksAtOnce { get; set; } = initial.BooksAtOnce ?? 1;
+  public string OutputTemplate { get; set; } = initial.OutputTemplate;
+  public string TemplateHelp { get; } = OutputTemplateHelp.Text;
   public ChannelPolicy ChannelPolicy { get; set; } = initial.ChannelPolicy;
   public string MetadataProfileId { get; set; } = (profiles ?? MetadataProfileCatalog.BuiltIn).Find(initial.MetadataProfileId) is not null ? initial.MetadataProfileId : Core.Metadata.MetadataProfiles.GenericMp4.Name;
   public ValidationLevel ValidationLevel { get; set; } = initial.ValidationLevel;
@@ -52,7 +55,8 @@ public sealed class FirstLaunchViewModel(FirstLaunchService service, AppSettings
     try
     {
       cancellationToken.ThrowIfCancellationRequested();
-      var settings = initial with { OutputDirectory = OutputDirectory.Trim(), QualityProfileId = QualityProfileId, CreateChapters = CreateChapters, ConversionJobs = ConversionJobs, BooksAtOnce = BooksAtOnce, ChannelPolicy = ChannelPolicy, MetadataProfileId = MetadataProfileId, ValidationLevel = ValidationLevel, LogLevel = LogLevel };
+      if (OutputPathTemplate.Validate(OutputTemplate) is { } templateError) { ErrorMessage = templateError; return false; }
+      var settings = initial with { OutputDirectory = OutputDirectory.Trim(), QualityProfileId = QualityProfileId, CreateChapters = CreateChapters, ConversionJobs = ConversionJobs, BooksAtOnce = BooksAtOnce, OutputTemplate = OutputTemplate.Trim(), ChannelPolicy = ChannelPolicy, MetadataProfileId = MetadataProfileId, ValidationLevel = ValidationLevel, LogLevel = LogLevel };
       var result = await service.CompleteAsync(settings, cancellationToken);
       if (!result.Completed)
       {

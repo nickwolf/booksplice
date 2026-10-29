@@ -30,6 +30,18 @@ public sealed class CliConfigurationTests
   }
 
   [Fact]
+  public void ResolveUsesTheSavedOutputTemplateUnlessOverridden()
+  {
+    var loaded = Settings("C:\\Saved", "balanced", 3, createChapters: true) with { OutputTemplate = @"{author}\{title}" };
+    var saved = CliConfiguration.Resolve(new CliOptions("book", null, null, null, null, null, false, false, false), new(SettingsLoadCode.Valid, loaded, []));
+    Assert.Equal(@"{author}\{title}", saved.Settings!.OutputTemplate);
+    var overridden = CliConfiguration.Resolve(new CliOptions("book", null, null, null, null, null, false, false, false, OutputTemplate: "{title}"), new(SettingsLoadCode.Valid, loaded, []));
+    Assert.Equal("{title}", overridden.Settings!.OutputTemplate);
+    Assert.Equal(@"{author}\{title}", loaded.OutputTemplate);
+    Assert.Equal("{title}", CliConfiguration.Resolve(new CliOptions("book", "C:\\Output", null, null, null, null, false, false, false), SettingsLoadResult.Missing(AppSettings.Defaults)).Settings!.OutputTemplate);
+  }
+
+  [Fact]
   public void ResolveUsesSafeDefaultsWhenSettingsAreMissingAndOutputIsProvided()
   {
     var options = new CliOptions("book", "C:\\Output", null, null, null, null, false, false, false);

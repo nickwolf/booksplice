@@ -18,7 +18,8 @@ public sealed record AppSettings(
   string MetadataProfileId,
   ValidationLevel ValidationLevel,
   LogLevel LogLevel,
-  int? BooksAtOnce = null)
+  int? BooksAtOnce = null,
+  string OutputTemplate = OutputPathTemplate.DefaultText)
 {
   internal IReadOnlyDictionary<string, JsonElement> UnknownProperties { get; init; } =
     new Dictionary<string, JsonElement>(StringComparer.Ordinal);

@@ -17,6 +17,7 @@ public static class CliHelp
         --metadata-profile <name>          Metadata profile ID (see below)
         --validation <lightweight|full>    Output validation level
         --channels <preserve|mono|stereo>   Output channel handling
+        --output-template <template>       Folders and file name, e.g. {author}\{series}\{title}
         --chapters | --no-chapters         Chapter creation
         --overwrite                       Replace an existing output after validation
         --dry-run                         Plan without writing output or audit files

@@ -41,6 +41,7 @@ public static class CliConfiguration
       QualityProfileId = profile.Id,
       ConversionJobs = options.Jobs ?? loaded.Settings.ConversionJobs,
       CreateChapters = options.CreateChapters ?? loaded.Settings.CreateChapters,
+      OutputTemplate = options.OutputTemplate ?? loaded.Settings.OutputTemplate,
       CollisionPolicy = options.Overwrite ? CollisionPolicy.Overwrite : CollisionPolicy.AvoidCollision,
     };
     return new(settings, profile, []);

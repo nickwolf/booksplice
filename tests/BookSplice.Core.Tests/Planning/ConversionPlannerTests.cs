@@ -43,6 +43,35 @@ public sealed class ConversionPlannerTests
   }
 
   [Fact]
+  public async Task CreateAsync_resolves_the_output_template_from_edited_metadata_and_reports_notes()
+  {
+    var destination = Directory.CreateTempSubdirectory("booksplice-plan-").FullName;
+    try
+    {
+      var settings = AppSettings.Defaults with { OutputDirectory = destination, OutputTemplate = @"{author}\{series}\{seriesPosition} {title}" };
+      var edits = new Dictionary<SemanticField, MetadataEdit> { [SemanticField.Series] = MetadataEdit.Set("Saga"), [SemanticField.SeriesPart] = MetadataEdit.Set("3") };
+      var full = await Planner().CreateAsync(Analysis(BookAnalysisStatus.Ready), new ConversionOptions(settings, QualityProfileCatalog.Version1[0], edits), CancellationToken.None);
+      Assert.Equal(Path.Combine(destination, "Author", "Saga", "3 Title.m4b"), full.Plan!.OutputPath);
+      Assert.Empty(full.Diagnostics);
+      Assert.False(Directory.Exists(Path.Combine(destination, "Author")));
+      var bare = await Planner().CreateAsync(Analysis(BookAnalysisStatus.Ready), new ConversionOptions(settings, QualityProfileCatalog.Version1[0]), CancellationToken.None);
+      Assert.Equal(Path.Combine(destination, "Author", "Title.m4b"), bare.Plan!.OutputPath);
+      Assert.Contains(bare.Diagnostics, d => d.Code == "output.folder-skipped");
+      Assert.Contains(bare.Diagnostics, d => d.Code == "output.field-missing");
+    }
+    finally { Directory.Delete(destination, true); }
+  }
+
+  [Fact]
+  public async Task CreateAsync_refuses_an_invalid_output_template()
+  {
+    var settings = AppSettings.Defaults with { OutputDirectory = Path.GetTempPath(), OutputTemplate = @"..\{title}" };
+    var result = await Planner().CreateAsync(Analysis(BookAnalysisStatus.Ready), new ConversionOptions(settings, QualityProfileCatalog.Version1[0]), CancellationToken.None);
+    Assert.Null(result.Plan);
+    Assert.Contains(result.Diagnostics, d => d.Code == "planning.output-template-invalid");
+  }
+
+  [Fact]
   public async Task CreateAsync_reports_space_failures_and_automatic_jobs()
   {
     var unavailable = await Planner(null).CreateAsync(Analysis(BookAnalysisStatus.Ready), Options(), CancellationToken.None);
