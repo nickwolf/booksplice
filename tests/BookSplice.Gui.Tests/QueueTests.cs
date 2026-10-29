@@ -155,6 +155,22 @@ public sealed class QueueTests
     Assert.DoesNotContain("SyntheticCustom", DiagnosticsTextBuilder.Build(item));
   }
   [Fact]
+  public async Task PerBookOutputTemplateReachesThePlannerAndPreviewShowsOutputNotes()
+  {
+    var planner = new RecordingPlanner(notes: [new("output.folder-skipped", AnalysisDiagnosticSeverity.Information, "The folder \"{series}\" was skipped because series is not available."), new("other.code", AnalysisDiagnosticSeverity.Information, "unrelated")]);
+    using var model = new MainWindowViewModel(new Analyzer(), new Converter(), AppSettings.Defaults, planner);
+    await model.AddAsync(Path.GetFullPath("book"));
+    var item = model.Items[0];
+    await model.ResolveOrderAsync(item, OrderCandidateId.NaturalPath);
+    item.OutputTemplate = @"  {author}\{series}\{title} ";
+
+    await model.PreviewAsync(item);
+
+    Assert.Equal(@"{author}\{series}\{title}", planner.Options!.Settings.OutputTemplate);
+    Assert.Contains("Note: The folder \"{series}\" was skipped because series is not available.", item.Details);
+    Assert.DoesNotContain("unrelated", item.Details);
+  }
+  [Fact]
   public async Task CopyPreviewSaysAudioIsNotReencodedAndShowsCombinedStorage()
   {
     var planner = new RecordingPlanner(AudioStrategy.AacStreamCopy, space: new SpaceEstimate(400_000_000, 400_000_000, 880_000_000, 50_000_000_000, 49_000_000_000, "D:\\"));
@@ -350,7 +366,7 @@ public sealed class QueueTests
     Assert.Single(model.Items, item => item.Status == "ExecutionFailed");
   }
 
-  private sealed class RecordingPlanner(AudioStrategy strategy = AudioStrategy.DirectTranscode, string[]? reasons = null, SpaceEstimate? space = null, bool refuse = false) : IConversionPlanner
+  private sealed class RecordingPlanner(AudioStrategy strategy = AudioStrategy.DirectTranscode, string[]? reasons = null, SpaceEstimate? space = null, bool refuse = false, AnalysisDiagnostic[]? notes = null) : IConversionPlanner
   {
     public ConversionOptions? Options { get; private set; }
     public Task<ConversionPlanningResult> CreateAsync(BookAnalysis analysis, ConversionOptions options, CancellationToken cancellationToken)
@@ -362,7 +378,7 @@ public sealed class QueueTests
         space ?? new SpaceEstimate(1, 1, 2, 3, 1), options.Settings.ConversionJobs ?? 6, "test", options.Settings.MetadataProfileId == MetadataProfiles.GenericMp4.Name ? MetadataProfiles.GenericMp4 : new MetadataProfile(options.Settings.MetadataProfileId, "1", [new(SemanticField.BookTitle, "TITLE")]), 44_100, channels);
       return Task.FromResult(refuse
         ? new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.insufficient-space", AnalysisDiagnosticSeverity.Error, "The destination does not have enough available space.")], plan.Space, strategy, reasons)
-        : new ConversionPlanningResult(BookAnalysisStatus.Ready, plan, []));
+        : new ConversionPlanningResult(BookAnalysisStatus.Ready, plan, notes ?? []));
     }
   }
   private sealed class BoundedConverter : IConversionService
