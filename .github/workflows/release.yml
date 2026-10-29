@@ -62,11 +62,8 @@ jobs:
           if ((git rev-parse HEAD).Trim() -ne $tagCommit) { throw "Checkout does not match release tag '$releaseTag'." }
           git merge-base --is-ancestor $tagCommit origin/main
           if ($LASTEXITCODE -ne 0) { throw "Release tag '$releaseTag' is not reachable from origin/main." }
-          $notes = ".\docs\releases\$releaseTag.md"
-          if (-not (Test-Path -LiteralPath $notes -PathType Leaf)) { throw "Release notes were not found at '$notes'." }
           "BOOKSPLICE_TAG=$releaseTag" | Out-File -FilePath $env:GITHUB_ENV -Append
           "BOOKSPLICE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "BOOKSPLICE_RELEASE_NOTES=$notes" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Require signing configuration
         shell: pwsh
         env:
@@ -114,10 +111,52 @@ jobs:
       - uses: actions/attest-build-provenance@v2
         with:
           subject-path: artifacts/release/BookSplice-*-win-x64.zip
+      - name: Build and verify SHA256SUMS
+        shell: pwsh
+        run: |
+          $v = $env:BOOKSPLICE_VERSION
+          $assets = @(
+            ".\artifacts\release\BookSplice-$v-win-x64.zip",
+            ".\artifacts\release\BookSplice-$v-win-x64.zip.sha256",
+            ".\artifacts\release-signed\BookSplice-$v-win-x64.update.json",
+            ".\artifacts\release-signed\BookSplice-$v-win-x64.update.sig.json",
+            '.\scripts\booksplice\Test-UpdateManifest.ps1',
+            '.\scripts\booksplice\UpdateSigning.ps1',
+            '.\scripts\Test-Release.ps1',
+            '.\scripts\ReleaseOwnedDirectory.ps1'
+          )
+          foreach ($asset in $assets) {
+            if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) { throw "Missing release asset '$asset'." }
+          }
+          foreach ($dir in '.\artifacts\release', '.\artifacts\release-signed') {
+            $found = @(Get-ChildItem -LiteralPath $dir -File)
+            $wanted = @($assets | Where-Object { (Split-Path -Parent $_) -eq $dir })
+            if ($found.Count -ne $wanted.Count) { throw "Expected $($wanted.Count) files in '$dir', found $($found.Count): $($found.Name -join ', ')." }
+          }
+          $sumsDir = '.\artifacts\release-sums'
+          New-Item -ItemType Directory -Force -Path $sumsDir | Out-Null
+          $sumsPath = Join-Path $sumsDir 'SHA256SUMS'
+          $lines = foreach ($asset in $assets) {
+            $hash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $(Split-Path -Leaf $asset)"
+          }
+          [IO.File]::WriteAllText($sumsPath, (($lines -join "`n") + "`n"))
+          $byName = @{}
+          foreach ($asset in $assets) { $byName[(Split-Path -Leaf $asset)] = $asset }
+          $entries = @(Get-Content -LiteralPath $sumsPath)
+          if ($entries.Count -ne $assets.Count) { throw "SHA256SUMS has $($entries.Count) entries, expected $($assets.Count)." }
+          foreach ($entry in $entries) {
+            $hash, $name = $entry -split '  ', 2
+            if (-not $byName.ContainsKey($name)) { throw "SHA256SUMS lists unexpected file '$name'." }
+            $actual = (Get-FileHash -LiteralPath $byName[$name] -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne $hash) { throw "SHA256SUMS mismatch for '$name'." }
+          }
+          Get-Content -LiteralPath $sumsPath
       - uses: softprops/action-gh-release@5113cdc90fd4d541c801c55356214017bf5ae34b # v3
         with:
           tag_name: ${{ env.BOOKSPLICE_TAG }}
-          body_path: ${{ env.BOOKSPLICE_RELEASE_NOTES }}
+          body: |
+            Automated build of BookSplice ${{ env.BOOKSPLICE_TAG }}. The release notes are added to this draft before it is published. Verify the ZIP against its .sha256 file or SHA256SUMS; the signed update files are BookSplice-${{ env.BOOKSPLICE_VERSION }}-win-x64.update.json and .update.sig.json.
           draft: true
           overwrite_files: false
           fail_on_unmatched_files: true
@@ -130,3 +169,4 @@ jobs:
             scripts/booksplice/UpdateSigning.ps1
             scripts/Test-Release.ps1
             scripts/ReleaseOwnedDirectory.ps1
+            artifacts/release-sums/SHA256SUMS

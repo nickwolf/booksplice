@@ -21,12 +21,13 @@ BookSplice does not modify source files. Existing M4B files can be inspected but
 
 ## Install on Windows
 
-1. Download `BookSplice-0.2.1-win-x64.zip` and `BookSplice-0.2.1-win-x64.zip.sha256` from the [GitHub release](https://github.com/nickwolf/booksplice/releases/latest).
-2. Verify the archive in PowerShell:
+1. Download `BookSplice-<version>-win-x64.zip` and `BookSplice-<version>-win-x64.zip.sha256` from the [GitHub release](https://github.com/nickwolf/booksplice/releases/latest).
+2. Verify the archive in PowerShell, replacing `<version>` with the version you downloaded:
 
 ```powershell
-$expected = (Get-Content .\BookSplice-0.2.1-win-x64.zip.sha256 -Raw).Split()[0]
-$actual = (Get-FileHash .\BookSplice-0.2.1-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+$version = '<version>'
+$expected = (Get-Content ".\BookSplice-$version-win-x64.zip.sha256" -Raw).Split()[0]
+$actual = (Get-FileHash ".\BookSplice-$version-win-x64.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actual -ne $expected) { throw 'BookSplice checksum mismatch.' }
 ```
 
