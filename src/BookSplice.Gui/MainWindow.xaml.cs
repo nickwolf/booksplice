@@ -6,6 +6,7 @@ using BookSplice.Core.Ordering;
 using BookSplice.Core.Settings;
 using BookSplice.Gui.Bootstrap;
 using BookSplice.Gui.Diagnostics;
+using BookSplice.Gui.Notifications;
 using BookSplice.Gui.Updates;
 using BookSplice.Gui.ViewModels;
 using BookSplice.Gui.Views;
@@ -32,7 +33,9 @@ public partial class MainWindow : Window
     _services = services;
     _settings = settings;
     _gate = new GuiOperationGate(Dispatcher);
-    if (services is not null) DataContext = _model = new MainWindowViewModel(services.Analyzer, services.Conversion, settings, services.Planner, _gate, services.Profiles);
+    if (services is not null) DataContext = _model = new MainWindowViewModel(services.Analyzer, services.Conversion, settings, services.Planner, _gate, services.Profiles,
+      new WindowsToastNotifier(Environment.ProcessPath, key => Dispatcher.BeginInvoke(() => ShowResult(key))));
+    WindowsToastNotifier.Sync(settings.NotificationsEnabled, Environment.ProcessPath);
     Destination.Text = $"Output folder: {settings.OutputDirectory}";
   }
 
@@ -67,6 +70,14 @@ public partial class MainWindow : Window
     return null;
   }
 
+  // Runs only while the window exists: brings it forward and selects the finished book, and never starts work.
+  private void ShowResult(string? key)
+  {
+    if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+    _ = Activate();
+    if (key is not null && _model?.Items.FirstOrDefault(item => item.Source == key) is { } item) Queue.SelectedItem = item;
+  }
+
   private void Settings_Click(object sender, RoutedEventArgs e)
   {
     using var operation = TryEnter("settings");
@@ -81,6 +92,7 @@ public partial class MainWindow : Window
     if (window.ShowDialog() != true) return;
     _settings = model.SavedSettings!;
     if (_model is not null) _model.Settings = _settings;
+    WindowsToastNotifier.Sync(_settings.NotificationsEnabled, Environment.ProcessPath);
     Destination.Text = $"Output folder: {_settings.OutputDirectory} (applies to newly added books)";
   }
 
