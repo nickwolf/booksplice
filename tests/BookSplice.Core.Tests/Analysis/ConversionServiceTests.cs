@@ -1,5 +1,7 @@
 using BookSplice.Core.Chapters;
 using BookSplice.Core.Analysis;
+using BookSplice.Core.Discovery;
+using BookSplice.Core.Tests.Discovery;
 using BookSplice.Core.Covers;
 using BookSplice.Core.Execution;
 using BookSplice.Core.Metadata;
@@ -267,6 +269,74 @@ public sealed class ConversionServiceTests
     Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "analysis.sources-changed");
   }
 
+  [Fact]
+  public async Task SelectionRequestAnalyzesOnlyTheSelectedFilesAtExecution()
+  {
+    using var tree = new SelectionTree();
+    var selected = new[] { tree.Write("book/Disc1/01.mp3"), tree.Write("book/Disc2/01.mp3") };
+    tree.Write("book/Disc1/02.mp3");
+    var hashes = selected.Select(SelectionTree.Hash).ToArray();
+    var fixture = new Fixture();
+    var selection = SourceSelection.Create(selected);
+
+    var result = await fixture.ServiceWith(SelectionTree.Analyzer()).ConvertAsync(fixture.Request() with { Source = selection.RootPath, Selection = selection }, CancellationToken.None);
+
+    Assert.Equal(ConversionTerminalStatus.Succeeded, result.Status);
+    Assert.Equal(selected.Order(StringComparer.OrdinalIgnoreCase), fixture.PlannedAnalysis!.OrderedFiles.Select(file => file.FullPath).Order(StringComparer.OrdinalIgnoreCase));
+    Assert.Equal(hashes, selected.Select(SelectionTree.Hash));
+  }
+
+  [Fact]
+  public async Task UnchangedReviewedSourcesProceedAndAChangedFileStopsBeforePlanning()
+  {
+    using var tree = new SelectionTree();
+    var selected = new[] { tree.Write("book/01.mp3"), tree.Write("book/02.mp3") };
+    var selection = SourceSelection.Create(selected);
+    var analyzer = SelectionTree.Analyzer();
+    var reviewed = await analyzer.AnalyzeAsync(selection, false);
+    var identities = reviewed.OrderedFiles.Select(file => file.Identity!).ToArray();
+    var paths = reviewed.OrderedFiles.Select(file => file.FullPath).ToArray();
+    var fixture = new Fixture();
+    var request = fixture.Request() with { Selection = selection, ExpectedSourcePaths = paths, ExpectedSources = identities };
+    Assert.Equal(ConversionTerminalStatus.Succeeded, (await fixture.ServiceWith(analyzer).ConvertAsync(request, CancellationToken.None)).Status);
+
+    File.AppendAllText(selected[1], "edited after review");
+    var changed = new Fixture();
+    var result = await changed.ServiceWith(analyzer).ConvertAsync(request, CancellationToken.None);
+
+    Assert.Equal(ConversionTerminalStatus.DecisionRequired, result.Status);
+    Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "analysis.sources-changed");
+    Assert.DoesNotContain("plan", changed.Calls);
+  }
+
+  [Fact]
+  public async Task ATimestampOnlyChangeAfterReviewIsDetected()
+  {
+    using var tree = new SelectionTree();
+    var path = tree.Write("book/01.mp3");
+    var selection = SourceSelection.Create([path]);
+    var analyzer = SelectionTree.Analyzer();
+    var identities = (await analyzer.AnalyzeAsync(selection, false)).OrderedFiles.Select(file => file.Identity!).ToArray();
+    File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddDays(-3));
+    var fixture = new Fixture();
+
+    var result = await fixture.ServiceWith(analyzer).ConvertAsync(fixture.Request() with { Selection = selection, ExpectedSources = identities }, CancellationToken.None);
+
+    Assert.Equal(ConversionTerminalStatus.DecisionRequired, result.Status);
+    Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "analysis.sources-changed");
+  }
+
+  [Fact]
+  public async Task ARequestWithASelectionRoutesToTheSelectionAnalyzer()
+  {
+    var fixture = new Fixture();
+    var selection = SourceSelection.Create([Path.Combine(Path.GetTempPath(), "a", "01.mp3"), Path.Combine(Path.GetTempPath(), "b", "01.mp3")]);
+
+    await fixture.Service.ConvertAsync(fixture.Request() with { Selection = selection }, CancellationToken.None);
+
+    Assert.Same(selection, fixture.AnalyzedSelection);
+  }
+
   private sealed class Fixture : IBookAnalyzer, IConversionPlanner, IConversionExecutor, IOutputValidator, IAtomicPublisher, ITemporaryArtifactCleaner, IJobLogWriter
   {
     public readonly List<string> Calls = [];
@@ -297,9 +367,18 @@ public sealed class ConversionServiceTests
       Publication = new(PublicationStatus.Published, PublishedPath);
     }
 
+    public BookAnalysis? PlannedAnalysis { get; private set; }
+    public ConversionService ServiceWith(IBookAnalyzer analyzer) => new(analyzer, this, this, this, this, this, this, () => DateTimeOffset.UnixEpoch);
     public ConversionService Service => new(this, this, this, this, this, this, this, () => DateTimeOffset.UnixEpoch);
 
     public ConversionRequest Request(bool dryRun = false) => new("book", true, new ConversionOptions(AppSettings.Defaults with { OutputDirectory = Path.GetDirectoryName(PublishedPath)! }, QualityProfileCatalog.Version1[0]), dryRun);
+
+    public SourceSelection? AnalyzedSelection { get; private set; }
+    public Task<BookAnalysis> AnalyzeAsync(SourceSelection selection, bool chaptersEnabled, BookAnalysisOptions? options = null, CancellationToken cancellationToken = default)
+    {
+      AnalyzedSelection = selection;
+      return AnalyzeAsync(selection.RootPath, chaptersEnabled, options, cancellationToken);
+    }
 
     public Task<BookAnalysis> AnalyzeAsync(string inputPath, bool chaptersEnabled, BookAnalysisOptions? options = null, CancellationToken cancellationToken = default)
     {
@@ -312,6 +391,7 @@ public sealed class ConversionServiceTests
     public Task<ConversionPlanningResult> CreateAsync(BookAnalysis analysis, ConversionOptions options, CancellationToken cancellationToken)
     {
       Calls.Add("plan");
+      PlannedAnalysis = analysis;
       ProgressCalls.Add("plan");
       return Task.FromResult(new ConversionPlanningResult(PlanningStatus, PlanningStatus == BookAnalysisStatus.Ready ? Plan() : null, []));
     }

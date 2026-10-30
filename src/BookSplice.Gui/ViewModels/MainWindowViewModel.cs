@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows.Threading;
 using BookSplice.Core.Analysis;
+using BookSplice.Core.Discovery;
 using BookSplice.Core.Execution;
 using BookSplice.Core.Metadata;
 using BookSplice.Core.Ordering;
@@ -13,6 +14,8 @@ using BookSplice.Gui.Notifications;
 using BookSplice.Gui.Updates;
 
 namespace BookSplice.Gui.ViewModels;
+
+public enum FileImportChoice { OneBook, SeparateBooks, Cancel }
 
 public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionService conversion, AppSettings settings, IConversionPlanner? planner = null, GuiOperationGate? gate = null, MetadataProfileCatalog? profiles = null, IConversionNotifier? notifier = null) : ObservableModel, IDisposable
 {
@@ -65,7 +68,7 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
       try
       {
         var path = Path.TrimEndingDirectorySeparator(Path.GetFullPath(raw));
-        if (Items.Any(item => string.Equals(item.Source, path, StringComparison.OrdinalIgnoreCase)))
+        if (Items.Any(item => item.Selection is null && string.Equals(item.Source, path, StringComparison.OrdinalIgnoreCase)))
         { problems.Add($"{Path.GetFileName(path)} is already in the queue."); continue; }
         var item = new BookQueueItemViewModel(path, Settings, profiles);
         item.MarkWaiting();
@@ -75,6 +78,37 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
       catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
       { problems.Add($"{raw}: {exception.Message}"); }
     }
+    await AnalyzeBatchAsync(batch, problems);
+  }
+
+  // More than one picked file asks first, so the grouping is decided before anything enters the queue.
+  public async Task AddFilesAsync(IReadOnlyList<string> files, Func<IReadOnlyList<string>, FileImportChoice> choose)
+  {
+    var choice = files.Count > 1 ? choose(files) : FileImportChoice.SeparateBooks;
+    if (choice == FileImportChoice.Cancel) return;
+    if (choice == FileImportChoice.SeparateBooks) { await AddManyAsync(files); return; }
+    SourceSelection selection;
+    try { selection = SourceSelection.Create(files); }
+    catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
+    { Message = exception.Message; return; }
+    if (selection.Paths.Count == 1) { await AddManyAsync(selection.Paths); return; }
+    using var operation = Enter("add");
+    if (operation is null) return;
+    var batch = new List<BookQueueItemViewModel>();
+    var problems = new List<string>();
+    if (Items.Any(item => selection.Equals(item.Selection))) problems.Add($"{selection.Name} is already in the queue with these files.");
+    else
+    {
+      var item = new BookQueueItemViewModel(selection.RootPath, Settings, profiles) { Selection = selection };
+      item.MarkWaiting();
+      Items.Add(item);
+      batch.Add(item);
+    }
+    await AnalyzeBatchAsync(batch, problems);
+  }
+
+  private async Task AnalyzeBatchAsync(List<BookQueueItemViewModel> batch, List<string> problems)
+  {
     Message = string.Join(Environment.NewLine, problems);
     var resolved = 0;
     try
@@ -115,12 +149,14 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     using var cancellation = new CancellationTokenSource();
     item.Cancellation = cancellation;
     var source = item.Source;
+    var selection = item.Selection;
     var createChapters = item.Settings.CreateChapters;
     var analysisOptions = new BookAnalysisOptions(item.SelectedOrder);
     try
     {
-      var result = await Task.Run(() => analyzer.AnalyzeAsync(source, createChapters,
-        analysisOptions, cancellation.Token));
+      var result = await Task.Run(() => selection is null
+        ? analyzer.AnalyzeAsync(source, createChapters, analysisOptions, cancellation.Token)
+        : analyzer.AnalyzeAsync(selection, createChapters, analysisOptions, cancellation.Token));
       item.SetAnalysis(result);
     }
     catch (OperationCanceledException) { item.Status = "Cancelled"; }
@@ -178,7 +214,8 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
       ApplySnapshot();
       timer.Start();
       var request = new ConversionRequest(item.Source, item.Settings.CreateChapters, item.CreateOptions(),
-        AnalysisOptions: new BookAnalysisOptions(item.SelectedOrder), ExpectedSourcePaths: item.Analysis!.OrderedFiles.Select(file => file.FullPath).ToArray());
+        AnalysisOptions: new BookAnalysisOptions(item.SelectedOrder), ExpectedSourcePaths: item.Analysis!.OrderedFiles.Select(file => file.FullPath).ToArray(),
+        Selection: item.Selection, ExpectedSources: ReviewedIdentities(item.Analysis));
       var run = Task.Run(() => conversion.ConvertAsync(request, cancellation.Token, progress));
       tracked.SetTask(run);
       var result = await run;
@@ -233,6 +270,12 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
       item.Percent = snapshot.Percent ?? 0;
       item.Details = display.Describe(elapsed.Elapsed);
     }
+  }
+
+  private static SourceIdentity[]? ReviewedIdentities(BookAnalysis analysis)
+  {
+    var identities = analysis.OrderedFiles.Select(file => file.Identity).OfType<SourceIdentity>().ToArray();
+    return identities.Length == analysis.OrderedFiles.Count ? identities : null;
   }
 
   public async Task PreviewAsync(BookQueueItemViewModel item)

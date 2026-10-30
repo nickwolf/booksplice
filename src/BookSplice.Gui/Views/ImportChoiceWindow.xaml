@@ -1,0 +1,15 @@
+<Window x:Class="BookSplice.Gui.Views.ImportChoiceWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Add selected files" Width="640" Height="440" MinWidth="440" MinHeight="300"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+  <DockPanel Margin="16">
+    <TextBlock x:Name="Heading" DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"/>
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+      <Button Content="_One audiobook" Click="OneBook_Click" IsDefault="True" Padding="16,6" Margin="0,0,8,0" AutomationProperties.Name="One audiobook"/>
+      <Button Content="_Separate books" Click="Separate_Click" Padding="16,6" Margin="0,0,8,0" AutomationProperties.Name="Separate books"/>
+      <Button Content="Cancel" IsCancel="True" Padding="16,6" AutomationProperties.Name="Cancel"/>
+    </StackPanel>
+    <ListBox x:Name="Files" AutomationProperties.Name="Selected files"/>
+  </DockPanel>
+</Window>

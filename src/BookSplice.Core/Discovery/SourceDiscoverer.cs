@@ -1,14 +1,12 @@
 using System.Collections.Concurrent;
-using System.Diagnostics.CodeAnalysis;
-using System.Runtime.InteropServices;
 using BookSplice.Core.Analysis;
-using Microsoft.Win32.SafeHandles;
 
 namespace BookSplice.Core.Discovery;
 
 public interface ISourceDiscoverer
 {
   Task<DiscoveryResult> DiscoverAsync(string inputPath, CancellationToken cancellationToken = default);
+  Task<DiscoveryResult> DiscoverAsync(SourceSelection selection, CancellationToken cancellationToken = default);
 }
 
 public sealed partial class SourceDiscoverer : ISourceDiscoverer
@@ -31,6 +29,33 @@ public sealed partial class SourceDiscoverer : ISourceDiscoverer
     var errors = new List<DiscoveryDiagnostic>();
     var warnings = new List<DiscoveryDiagnostic>();
     var candidates = DiscoverCandidates(inputPath, errors, warnings, cancellationToken);
+    return await ProbeAsync(candidates, errors, warnings, cancellationToken).ConfigureAwait(false);
+  }
+
+  public async Task<DiscoveryResult> DiscoverAsync(SourceSelection selection, CancellationToken cancellationToken = default)
+  {
+    ArgumentNullException.ThrowIfNull(selection);
+    cancellationToken.ThrowIfCancellationRequested();
+    var errors = new List<DiscoveryDiagnostic>();
+    var warnings = new List<DiscoveryDiagnostic>();
+    var candidates = new List<SourceCandidate>();
+    foreach (var path in selection.Paths)
+    {
+      cancellationToken.ThrowIfCancellationRequested();
+      var id = selection.FileId(path);
+      if (FindReparsePoint(path) is { } reparsePoint)
+        warnings.Add(new DiscoveryDiagnostic("discovery.reparse-point-skipped", "A reparse point was skipped during source discovery.", reparsePoint, id));
+      else if (!File.Exists(path))
+        errors.Add(new DiscoveryDiagnostic("discovery.input-unreadable", "The input path does not exist or cannot be read.", path, id));
+      else if (!SupportedAudio.IsSupported(path))
+        errors.Add(new DiscoveryDiagnostic("discovery.input-unsupported", "The input file is not a supported audio source.", path, id));
+      else candidates.Add(new SourceCandidate(path, id));
+    }
+    return await ProbeAsync(DeduplicateCandidates(candidates), errors, warnings, cancellationToken).ConfigureAwait(false);
+  }
+
+  private async Task<DiscoveryResult> ProbeAsync(SourceCandidate[] candidates, List<DiscoveryDiagnostic> errors, List<DiscoveryDiagnostic> warnings, CancellationToken cancellationToken)
+  {
     var files = new ConcurrentBag<SourceFile>();
     var probeErrors = new ConcurrentBag<DiscoveryDiagnostic>();
 
@@ -38,8 +63,9 @@ public sealed partial class SourceDiscoverer : ISourceDiscoverer
     {
       try
       {
+        var identity = SourceIdentity.Capture(candidate.FullPath);
         var result = await _mediaProbe.ProbeAsync(candidate.FullPath, token).ConfigureAwait(false);
-        files.Add(new SourceFile(candidate.FullPath, candidate.RelativePath, result));
+        files.Add(new SourceFile(candidate.FullPath, candidate.RelativePath, result, identity));
       }
       catch (OperationCanceledException) { throw; }
       catch (Exception exception)
@@ -92,7 +118,7 @@ public sealed partial class SourceDiscoverer : ISourceDiscoverer
       .ToArray();
 
     return normalized
-      .GroupBy(candidate => TryGetPhysicalIdentity(candidate.FullPath) ?? candidate.FullPath, StringComparer.OrdinalIgnoreCase)
+      .GroupBy(candidate => SourceIdentity.TryGetPhysicalId(candidate.FullPath) ?? candidate.FullPath, StringComparer.OrdinalIgnoreCase)
       .Select(group => group.First())
       .ToArray();
   }
@@ -153,43 +179,7 @@ public sealed partial class SourceDiscoverer : ISourceDiscoverer
     return null;
   }
 
-  // Platforms without a stable file identity retain the normalized lexical path fallback.
-  private static string? TryGetPhysicalIdentity(string path)
-  {
-    if (!OperatingSystem.IsWindows()) return null;
-    try
-    {
-      using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-      if (!GetFileInformationByHandle(stream.SafeFileHandle, out var information)) return null;
-      return $"{information.VolumeSerialNumber:X8}:{information.FileIndexHigh:X8}{information.FileIndexLow:X8}";
-    }
-    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { return null; }
-  }
-
   private static string RelativePath(string rootPath, string path) => Path.GetRelativePath(rootPath, path).Replace(Path.DirectorySeparatorChar, '/').Replace(Path.AltDirectorySeparatorChar, '/');
-
-  [SuppressMessage("Interoperability", "SYSLIB1054:Use 'LibraryImportAttribute' instead of 'DllImportAttribute' to generate P/Invoke marshalling code at compile time")]
-  [DllImport("kernel32.dll", SetLastError = true)]
-  [return: MarshalAs(UnmanagedType.Bool)]
-  private static extern bool GetFileInformationByHandle(SafeFileHandle file, out ByHandleFileInformation information);
-
-  [StructLayout(LayoutKind.Sequential)]
-  private struct ByHandleFileInformation
-  {
-    public uint FileAttributes;
-    public uint CreationTimeLow;
-    public uint CreationTimeHigh;
-    public uint LastAccessTimeLow;
-    public uint LastAccessTimeHigh;
-    public uint LastWriteTimeLow;
-    public uint LastWriteTimeHigh;
-    public uint VolumeSerialNumber;
-    public uint FileSizeHigh;
-    public uint FileSizeLow;
-    public uint NumberOfLinks;
-    public uint FileIndexHigh;
-    public uint FileIndexLow;
-  }
 
   private sealed record SourceCandidate(string FullPath, string RelativePath);
 }

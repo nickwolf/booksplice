@@ -9,6 +9,7 @@ namespace BookSplice.Core.Analysis;
 public interface IBookAnalyzer
 {
   Task<BookAnalysis> AnalyzeAsync(string inputPath, bool chaptersEnabled, BookAnalysisOptions? options = null, CancellationToken cancellationToken = default);
+  Task<BookAnalysis> AnalyzeAsync(SourceSelection selection, bool chaptersEnabled, BookAnalysisOptions? options = null, CancellationToken cancellationToken = default);
 }
 
 public sealed class BookAnalyzer : IBookAnalyzer
@@ -26,10 +27,24 @@ public sealed class BookAnalyzer : IBookAnalyzer
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(inputPath);
     cancellationToken.ThrowIfCancellationRequested();
-    options ??= new();
     var discovery = await _discoverer.DiscoverAsync(inputPath, cancellationToken).ConfigureAwait(false);
+    return await AnalyzeDiscoveredAsync(discovery, SourceRootPath(inputPath, discovery.Files), null, chaptersEnabled, options, cancellationToken).ConfigureAwait(false);
+  }
+
+  public async Task<BookAnalysis> AnalyzeAsync(SourceSelection selection, bool chaptersEnabled, BookAnalysisOptions? options = null, CancellationToken cancellationToken = default)
+  {
+    ArgumentNullException.ThrowIfNull(selection);
+    cancellationToken.ThrowIfCancellationRequested();
+    var discovery = await _discoverer.DiscoverAsync(selection, cancellationToken).ConfigureAwait(false);
+    // Files in one directory keep the recursive root search of a single file; a wider set searches only the directories it uses.
+    var coverDirectories = selection.Directories.Count == 1 ? null : selection.Directories.Prepend(selection.RootPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    return await AnalyzeDiscoveredAsync(discovery, selection.RootPath, coverDirectories, chaptersEnabled, options, cancellationToken).ConfigureAwait(false);
+  }
+
+  private async Task<BookAnalysis> AnalyzeDiscoveredAsync(DiscoveryResult discovery, string root, IReadOnlyList<string>? coverDirectories, bool chaptersEnabled, BookAnalysisOptions? options, CancellationToken cancellationToken)
+  {
+    options ??= new();
     var diagnostics = discovery.Errors.Select(d => new AnalysisDiagnostic(d.Code, AnalysisDiagnosticSeverity.Error, d.Message)).Concat(discovery.Warnings.Select(d => new AnalysisDiagnostic(d.Code, AnalysisDiagnosticSeverity.Warning, d.Message))).ToList();
-    var root = SourceRootPath(inputPath, discovery.Files);
     var rootName = SourceRootName(root);
     if (discovery.Files.Count == 0)
     {
@@ -52,7 +67,7 @@ public sealed class BookAnalyzer : IBookAnalyzer
     var ordered = candidate.FileIds.Select(id => byId[id]).ToArray();
     var metadata = _metadataAggregator.Aggregate(ordered);
     foreach (var field in metadata.Fields.Values.Where(value => value.State == AggregationState.Conflicting)) diagnostics.Add(new($"metadata.{field.Field}.conflict", AnalysisDiagnosticSeverity.Warning, $"Conflicting values were found for {field.Field}."));
-    var cover = await _coverDiscoverer.DiscoverAsync(root, ordered, new CoverDiscoveryOptions(options.PriorSelectedCoverHash), cancellationToken).ConfigureAwait(false);
+    var cover = await _coverDiscoverer.DiscoverAsync(root, ordered, new CoverDiscoveryOptions(options.PriorSelectedCoverHash, coverDirectories), cancellationToken).ConfigureAwait(false);
     foreach (var rejection in cover.Rejections) diagnostics.Add(new(rejection.Code, AnalysisDiagnosticSeverity.Warning, rejection.Message));
     var chapters = _chapterPlanner.Create(ordered, chaptersEnabled);
     if (!chapters.IsValid) diagnostics.Add(new(chapters.ErrorCode ?? "chapters.invalid", AnalysisDiagnosticSeverity.Error, chapters.ErrorMessage ?? "The chapter plan is invalid."));
@@ -69,5 +84,5 @@ public sealed class BookAnalyzer : IBookAnalyzer
     var candidate = Directory.Exists(inputPath) ? inputPath : Path.GetDirectoryName(files.Count == 0 ? inputPath : files[0].FullPath);
     return Path.GetFullPath(string.IsNullOrWhiteSpace(candidate) ? inputPath : candidate);
   }
-  private static string SourceRootName(string path) { var name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)); return string.IsNullOrWhiteSpace(name) || name.EndsWith(':') ? "Audiobook" : name; }
+  private static string SourceRootName(string path) => SourceSelection.RootName(path);
 }
