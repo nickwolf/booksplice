@@ -118,6 +118,26 @@ public sealed class SourceSelectionTests : IDisposable
   }
 
   [Fact]
+  public async Task Analyze_does_not_read_covers_from_a_directory_whose_file_was_refused()
+  {
+    var real = _tree.Write("real/01.mp3");
+    _tree.Write("real/cover.jpg", SelectionTree.TinyJpeg(30, 30));
+    var link = Path.Combine(_tree.Root, "book", "linked");
+    Directory.CreateDirectory(Path.GetDirectoryName(link)!);
+    await RunCmdAsync($"mklink /J \"{link}\" \"{Path.GetDirectoryName(real)}\"");
+    try
+    {
+      var kept = new[] { _tree.Write("book/Disc1/02.mp3"), _tree.Write("book/Disc2/03.mp3") };
+
+      var analysis = await SelectionTree.Analyzer().AnalyzeAsync(SourceSelection.Create(kept.Prepend(Path.Combine(link, "01.mp3"))), false);
+
+      Assert.Equal(2, analysis.OrderedFiles.Count);
+      Assert.Empty(analysis.Cover.Candidates);
+    }
+    finally { if (Directory.Exists(link)) Directory.Delete(link); }
+  }
+
+  [Fact]
   public async Task Discover_stops_when_cancelled_before_probing()
   {
     var selection = SourceSelection.Create([_tree.Write("book/01.mp3")]);
