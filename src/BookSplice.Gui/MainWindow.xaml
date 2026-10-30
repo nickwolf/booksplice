@@ -15,6 +15,9 @@
           <Button Content="Add _folder..." Click="AddFolder_Click" Padding="12,6" Margin="4"/>
           <Button Content="Add f_iles..." Click="AddFiles_Click" Padding="12,6" Margin="4"/>
           <Button Content="_Convert ready books" Click="ConvertAll_Click" Padding="12,6" Margin="4"/>
+          <Button x:Name="PauseQueueButton" Content="{Binding QueuePauseLabel, FallbackValue=Pause _queue}" Click="PauseQueue_Click" Padding="12,6" Margin="4"/>
+          <Button Content="Retr_y failed" Click="RetryFailed_Click" Padding="12,6" Margin="4"/>
+          <Button Content="Clear completed _books" Click="ClearCompleted_Click" Padding="12,6" Margin="4"/>
           <Button Content="_Settings" Click="Settings_Click" Padding="12,6" Margin="4"/>
           <Button x:Name="UpdatesButton" Content="Check for _updates..." Click="Updates_Click" Padding="12,6" Margin="4" Visibility="Collapsed"/>
           <Button x:Name="HistoryButton" Content="_History..." Click="History_Click" Padding="12,6" Margin="4" Visibility="Collapsed"/>
@@ -57,7 +60,9 @@
             <Button Content="_Convert selected" IsEnabled="{Binding CanConvert}" Click="Convert_Click" Padding="12,6" Margin="0,0,8,0"/>
             <Button Content="_Cancel" IsEnabled="{Binding CanCancel}" Click="Cancel_Click" Padding="12,6" Margin="0,0,8,0"/>
             <Button Content="Copy _diagnostics" Click="CopyDiagnostics_Click" Padding="12,6" Margin="0,0,8,0"/>
-            <Button Content="_Remove" IsEnabled="{Binding CanRemove}" Click="Remove_Click" Padding="12,6"/>
+            <Button Content="_Remove" IsEnabled="{Binding CanRemove}" Click="Remove_Click" Padding="12,6" Margin="0,0,8,0"/>
+            <Button Content="Move _earlier" Click="MoveEarlier_Click" Padding="12,6" Margin="0,0,8,0" AutomationProperties.HelpText="Starts this book sooner if it has not started yet"/>
+            <Button Content="Move _later" Click="MoveLater_Click" Padding="12,6" AutomationProperties.HelpText="Starts this book later if it has not started yet"/>
           </WrapPanel>
         </StackPanel>
         <Border x:Name="ConversionResultCard" DockPanel.Dock="Top" Margin="8,0,0,8" Padding="12" BorderBrush="Gray" BorderThickness="1"

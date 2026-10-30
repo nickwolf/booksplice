@@ -7,6 +7,7 @@ using BookSplice.Core.Metadata;
 using BookSplice.Core.Ordering;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Settings;
+using BookSplice.Gui.Notifications;
 
 namespace BookSplice.Gui.ViewModels;
 
@@ -76,6 +77,8 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings, 
   public bool CanEdit => !IsBusy && Status != "Complete";
   public bool CanConvert => !IsBusy && Analysis?.Status == BookAnalysisStatus.Ready && Status != "Complete";
   internal CancellationTokenSource? Cancellation { get; set; }
+  // The last conversion's outcome, so a batch retry can pick only the books that failed.
+  public BookOutcome? Outcome { get; internal set; }
   internal void MarkWaiting() { IsWaiting = true; Status = "Waiting"; }
   internal void CancelWaiting() { IsWaiting = false; Status = "Cancelled"; }
   public void Cancel()
