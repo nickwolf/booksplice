@@ -28,6 +28,7 @@
       <TextBlock x:Name="Destination" TextWrapping="Wrap"/>
       <TextBlock Text="Drop audiobook folders here. Each folder becomes one book. Add files can make one book from the selected tracks or one book per file." TextWrapping="Wrap" Margin="0,6"/>
       <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Foreground="Firebrick" AutomationProperties.LiveSetting="Polite"/>
+      <TextBlock Text="{Binding QueueNotice}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
       <StackPanel Visibility="{Binding IsBatchActive, Converter={StaticResource BooleanVisibility}}" Margin="0,4">
         <TextBlock Text="{Binding BatchProgress}" AutomationProperties.LiveSetting="Polite"/>
         <ProgressBar IsIndeterminate="True" Height="5" AutomationProperties.Name="Analysis progress"/>

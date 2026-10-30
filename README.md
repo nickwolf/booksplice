@@ -117,6 +117,8 @@ During conversion, the queue names the active operation, such as reanalyzing sou
 
 Changing source membership or playback order after review stops conversion and requires analysis again. Closing the application while work is active is blocked until cancellation and cleanup finish.
 
+The queue is saved in `queue.json` and comes back the next time BookSplice starts, in the same order and with each book's output settings, track order, cover choice, chapter titles and metadata edits. Each book is analyzed again and nothing starts on its own. A book whose files are missing or changed shows **Needs review** and keeps its edits until **Use selected order** checks it again, and a book whose saved profile no longer exists waits until one is picked. A book that was converting when the application closed comes back as **Interrupted**: it does not resume, and **Convert ready books** skips it. A finished book keeps its result. Track list edits that were not applied are not saved. An unreadable `queue.json` is kept under a new name and the queue starts empty; one written by a newer version is left alone and not saved over.
+
 **History...** lists the audit records in `logs\`, newest first, with outcome, elapsed time, strategy, validation level, warnings, and output. Search matches any of those. Open the output folder or copy diagnostics for an earlier job without rerunning it. An output file that has since been moved or deleted is shown as missing. Records that are corrupt, unfinished, or written by a newer version are listed separately and do not block the rest. Records are kept until you delete one or choose **Clear history...**, which removes only the records and never audio files. The newest 2000 records are loaded.
 
 The Windows application declares per-monitor V2 DPI awareness and exposes keyboard access keys and UI Automation names for routine controls. Its 760 by 520 minimum window fits a 1920 by 1080 work area at 200% scaling.
@@ -164,6 +166,7 @@ BookSplice stores local state under `%LOCALAPPDATA%\BookSplice`:
 | --- | --- |
 | `settings.json` | Persistent GUI and CLI defaults |
 | `presets.json` | Named conversion presets |
+| `queue.json` | The saved queue and each book's reviewed choices |
 | `logs\` | Atomic JSON audit records for non-dry-run jobs |
 | `temp\` | Per-job temporary files removed after success, failure, or cancellation |
 | `crash-reports\` | Up to 5 small JSON reports from unexpected GUI failures |

@@ -17,7 +17,7 @@ namespace BookSplice.Gui.ViewModels;
 
 public enum FileImportChoice { OneBook, SeparateBooks, Cancel }
 
-public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionService conversion, AppSettings settings, IConversionPlanner? planner = null, GuiOperationGate? gate = null, MetadataProfileCatalog? profiles = null, IConversionNotifier? notifier = null) : ObservableModel, IDisposable
+public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConversionService conversion, AppSettings settings, IConversionPlanner? planner = null, GuiOperationGate? gate = null, MetadataProfileCatalog? profiles = null, IConversionNotifier? notifier = null) : ObservableModel, IDisposable
 {
   private readonly QueueScheduler _scheduler = new(settings.BooksAtOnce ?? 1);
   private string _message = "";
@@ -179,11 +179,12 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
   public async Task ApplyTrackListAsync(BookQueueItemViewModel item)
   {
     if (item.IsBusy || !item.CanEdit) return;
-    if (item.IncludedTracks.Count == 0) { Message = "Include at least one track."; return; }
+    var recheckOnly = item.Analysis is null && item.SavedRecord is not null;
+    if (item.IncludedTracks.Count == 0 && !recheckOnly) { Message = "Include at least one track."; return; }
     using var operation = Enter("order");
     if (operation is null) return;
     Message = "";
-    item.ReviewedOrder = item.CreateReviewedOrder();
+    if (item.IncludedTracks.Count > 0) item.ReviewedOrder = item.CreateReviewedOrder();
     await AnalyzeAsync(item);
   }
 
@@ -196,6 +197,8 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     item.PublishedPath = null;
     item.IsCancellationRequested = false;
     item.IsWaiting = false;
+    item.ReviewReason = null;
+    if (!item.IdentityCheckPending) item.SavedIdentities = null;
     item.IsBusy = true;
     item.Status = "Analyzing";
     using var cancellation = new CancellationTokenSource();
@@ -228,6 +231,7 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     using var operation = Enter("conversion");
     if (operation is null) return null;
     item.IsBusy = true;
+    item.IsInterrupted = false;
     item.Status = "Converting";
     item.Result = null;
     item.PublishedPath = null;
@@ -263,6 +267,7 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
       await _scheduler.WaitAsync(item, Items.IndexOf(item), cancellation.Token);
       acquired = true;
       cancellation.Token.ThrowIfCancellationRequested();
+      item.ConversionStarted = true;
       item.Status = "Converting";
       elapsed.Start();
       ApplySnapshot();
@@ -288,7 +293,7 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     {
       finished = true;
       if (registeredJob is { } job) ActiveJobRegistry.Shared.Remove(job);
-      timer.Stop(); elapsed.Stop(); if (acquired) _scheduler.Release(); item.Cancellation = null; item.IsBusy = false;
+      timer.Stop(); elapsed.Stop(); if (acquired) _scheduler.Release(); item.Cancellation = null; item.ConversionStarted = false; item.IsBusy = false;
     }
     var outcome = Finished(item);
     item.Outcome = outcome.Outcome;
@@ -374,10 +379,10 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
 
   public void Dispose() { }
 
-  public Task ConvertAllAsync() => ConvertBatchAsync(Items.Where(item => item.CanConvert).ToArray());
+  public Task ConvertAllAsync() => ConvertBatchAsync(Items.Where(item => item.CanConvert && !item.IsInterrupted).ToArray());
 
   // Successful books are never retried; CanConvert already excludes them.
-  public Task RetryFailedAsync() => ConvertBatchAsync(Items.Where(item => item.Outcome == BookOutcome.Failure && item.CanConvert).ToArray());
+  public Task RetryFailedAsync() => ConvertBatchAsync(Items.Where(item => item.Outcome == BookOutcome.Failure && item.CanConvert && !item.IsInterrupted).ToArray());
 
   private async Task ConvertBatchAsync(BookQueueItemViewModel[] items)
   {
