@@ -323,14 +323,17 @@ public sealed class QueueRestoreTests : IDisposable
     var conversion = first.ConvertAsync(first.Items[0]);
     await running.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
     first.FlushQueue();
-    File.WriteAllText(Path.Combine(_directory, ".queue.json." + Guid.NewGuid().ToString("N") + ".tmp"), "{\"schemaVersion\":1,\"it");
+    var leftover = Path.Combine(_directory, ".queue.json." + Guid.NewGuid().ToString("N") + ".tmp");
+    File.WriteAllText(leftover, "{\"schemaVersion\":1,\"it");
 
     var second = await StartModelAsync(new QueueSnapshotStore(_directory), disk);
 
     var item = Assert.Single(second.Items);
     Assert.Equal("Interrupted", item.QueueStatus);
     Assert.Equal("Edited title", item.Metadata.Single(field => field.Field == SemanticField.BookTitle).Value);
-    Assert.Equal([Path.Combine(_directory, QueueSnapshotStore.FileName)], Directory.GetFiles(_directory));
+    // The first model's own background save can still have a temp file open, so check only the planted one.
+    Assert.False(File.Exists(leftover));
+    Assert.True(File.Exists(Path.Combine(_directory, QueueSnapshotStore.FileName)));
     running.Release.TrySetResult();
     await conversion;
   }
