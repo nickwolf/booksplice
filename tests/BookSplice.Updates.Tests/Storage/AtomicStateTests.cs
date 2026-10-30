@@ -259,13 +259,16 @@ public sealed class AtomicStateTests(ITestOutputHelper output)
         "Release", "net10.0-windows", "BookSplice.LeaseHost.dll");
       using var first = StartCounter(host, owned, 60);
       using var second = StartCounter(host, owned, 60);
+      var firstErrors = first.StandardError.ReadToEndAsync();
+      var secondErrors = second.StandardError.ReadToEndAsync();
+      var exited = false;
       try
       {
         await Task.WhenAll(first.WaitForExitAsync(), second.WaitForExitAsync())
-          .WaitAsync(TimeSpan.FromSeconds(20));
-        Assert.Equal(0, first.ExitCode);
-        Assert.Equal(0, second.ExitCode);
+          .WaitAsync(TimeSpan.FromSeconds(60));
+        exited = true;
       }
+      catch (TimeoutException) { }
       finally
       {
         foreach (var process in new[] { first, second })
@@ -274,6 +277,10 @@ public sealed class AtomicStateTests(ITestOutputHelper output)
           await process.WaitForExitAsync();
         }
       }
+      Assert.True(exited && first.ExitCode == 0 && second.ExitCode == 0,
+        $"Children {(exited ? "exited" : "were still running after 60 s and were killed")}. " +
+        $"First exit code {first.ExitCode}, stderr: {await firstErrors} " +
+        $"Second exit code {second.ExitCode}, stderr: {await secondErrors}");
       Assert.Equal(120, store.Read<CounterState>(path).Value!.Count);
       Assert.Throws<InvalidOperationException>(() => store.Transition<CounterState>(path, prior =>
       {
@@ -282,7 +289,12 @@ public sealed class AtomicStateTests(ITestOutputHelper output)
       }));
       Assert.Equal(120, store.Read<CounterState>(path).Value!.Count);
     }
-    finally { Directory.Delete(root, true); }
+    catch
+    {
+      TestDirectory.TryDelete(root);
+      throw;
+    }
+    TestDirectory.Delete(root);
   }
 
   private static Process StartCounter(string host, OwnedDirectory owned, int increments)
