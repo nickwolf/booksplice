@@ -76,36 +76,33 @@ public sealed class FFprobeMediaProbeTests
   {
     var runner = new SequenceRunner(
       """{"streams":[{"index":0,"codec_name":"mp3","codec_type":"audio","sample_rate":"44100","duration":"99","start_time":"0","time_base":"1/14112000"}],"format":{"duration":"99","format_name":"mp3"}}""",
-      """{"streams":[{"sample_rate":"44100","time_base":"1/14112000","nb_read_packets":"308"}]}""",
-      """{"packets":[{"duration":368640,"side_data_list":[{"side_data_type":"Skip Samples","skip_samples":1105,"discard_padding":0}]}]}""",
-      """{"packets":[{"duration":368640,"side_data_list":[{"side_data_type":"Skip Samples","skip_samples":0,"discard_padding":911}]}]}""");
+      Packets("368640,Skip Samples,1105,0", 306, "368640,Skip Samples,0,911"));
     var probe = new FFprobeMediaProbe(runner, new MediaToolSet("ffmpeg", "ffprobe", "", ""));
 
     var result = await probe.ProbeAsync("generated.mp3", CancellationToken.None);
 
     Assert.Equal(8m, result.Duration);
     Assert.Equal(8m, result.AudioStreams.Single().Duration);
-    Assert.Equal(4, runner.Specs.Count);
-    Assert.Contains("-count_packets", runner.Specs[1].Arguments);
-    Assert.Contains("%+#1", runner.Specs[2].Arguments);
-    Assert.Contains("-1%+#1000", runner.Specs[3].Arguments);
+    Assert.Equal(2, runner.Specs.Count);
+    Assert.Contains("-show_packets", runner.Specs[1].Arguments);
+    Assert.DoesNotContain("-read_intervals", runner.Specs[1].Arguments);
   }
   [Fact]
   public async Task ProbeAsyncSubtractsDiscardPaddingWhenFirstPacketHasNoSkipSamples()
   {
     var runner = new SequenceRunner(
       """{"streams":[{"index":0,"codec_name":"mp3","codec_type":"audio","sample_rate":"44100","duration":"99","start_time":"0","time_base":"1/14112000"}],"format":{"duration":"99","format_name":"mp3"}}""",
-      """{"streams":[{"sample_rate":"44100","time_base":"1/14112000","nb_read_packets":"100"}]}""",
-      """{"packets":[{"duration":368640}]}""",
-      """{"packets":[{"duration":368640,"side_data_list":[{"side_data_type":"Skip Samples","skip_samples":0,"discard_padding":576}]}]}""");
+      Packets("368640", 98, "368640,Skip Samples,0,576"));
     var probe = new FFprobeMediaProbe(runner, new MediaToolSet("ffmpeg", "ffprobe", "", ""));
 
     var result = await probe.ProbeAsync("generated.mp3", CancellationToken.None);
 
     Assert.Equal(114_624m / 44_100m, result.Duration);
-    Assert.Equal(4, runner.Specs.Count);
-    Assert.Contains("-1%+#1000", runner.Specs[3].Arguments);
+    Assert.Equal(2, runner.Specs.Count);
   }
+  private static string Packets(string first, int middle, string last)
+    => string.Join("\r\n", [first, .. Enumerable.Repeat("368640", middle), last]);
+
   [Fact]
   public async Task ProbeAsyncRetainsWarningsAndReportsNonzeroExit()
   {

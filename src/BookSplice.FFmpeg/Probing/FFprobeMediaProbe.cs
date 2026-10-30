@@ -32,7 +32,7 @@ public sealed class FFprobeMediaProbe : IMediaProbe
       chapters = NeroChapterReader.Read(inputPath, duration, chapters) ?? chapters;
     if (audio.Length == 1 && string.Equals(audio[0].CodecName, "mp3", StringComparison.OrdinalIgnoreCase))
     {
-      duration = await GetExactMp3DurationAsync(inputPath, cancellationToken).ConfigureAwait(false);
+      duration = await GetExactMp3DurationAsync(inputPath, audio[0], cancellationToken).ConfigureAwait(false);
       audio[0] = audio[0] with { Duration = duration };
     }
     var otherStreams = (document.Streams ?? []).Where(s => !string.Equals(s.CodecType, "audio", StringComparison.OrdinalIgnoreCase) && s.Disposition?.AttachedPic != 1)
@@ -40,56 +40,50 @@ public sealed class FFprobeMediaProbe : IMediaProbe
     return new MediaProbeResult(audio, covers, chapters, formatTags, ToRawTags(document.Format?.Tags), warnings, duration, document.Format?.FormatName, Long(document.Format?.Size), otherStreams);
   }
 
-  private async Task<decimal> GetExactMp3DurationAsync(string inputPath, CancellationToken cancellationToken)
+  // Every packet is read in order because the demuxer attaches the end padding only to the real last packet.
+  private async Task<decimal> GetExactMp3DurationAsync(string inputPath, AudioTrack track, CancellationToken cancellationToken)
   {
-    var count = await RunJsonAsync<FFprobeDocument>(
-      ["-v", "error", "-select_streams", "a:0", "-count_packets", "-show_entries", "stream=nb_read_packets,sample_rate,time_base", "-print_format", "json", inputPath],
-      cancellationToken).ConfigureAwait(false);
-    var stream = count.Streams?.SingleOrDefault() ?? throw new MediaProbeException("ffprobe did not return MP3 packet-count evidence.", []);
-    var packetCount = Long(stream.NbReadPackets);
-    var sampleRate = Int(stream.SampleRate);
-    var timeBase = Rational(stream.TimeBase);
-    if (packetCount is not > 0 || sampleRate is not > 0 || timeBase is null)
+    var result = await _runner.RunAsync(new ProcessSpec(_tools.FFprobePath,
+      ["-v", "error", "-select_streams", "a:0", "-show_packets", "-show_entries", "packet=duration:packet_side_data=side_data_type,skip_samples,discard_padding", "-of", "csv=p=0", inputPath]), null, cancellationToken).ConfigureAwait(false);
+    if (result.ExitCode != 0) throw new MediaProbeException("ffprobe could not read exact MP3 duration evidence.", result.StandardError.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries));
+    return Mp3Duration(result.StandardOutput, track);
+  }
+
+  private static decimal Mp3Duration(string packets, AudioTrack track)
+  {
+    long packetCount = 0;
+    string? first = null;
+    foreach (var line in packets.AsSpan().EnumerateLines())
+    {
+      if (line.IsWhiteSpace()) continue;
+      packetCount++;
+      first ??= line.Trim().ToString();
+    }
+    if (first is null) throw new MediaProbeException("ffprobe did not return MP3 packet evidence.", []);
+    var trimmed = packets.AsSpan().TrimEnd();
+    var last = trimmed[(trimmed.LastIndexOfAny('\r', '\n') + 1)..].Trim().ToString();
+    if (track.SampleRate is not > 0 || track.TimeBase is not { } timeBase)
       throw new MediaProbeException("ffprobe returned incomplete MP3 packet-count evidence.", []);
 
-    var first = await ReadPacketAsync(inputPath, "%+#1", takeLast: false, cancellationToken).ConfigureAwait(false);
-    var packetDuration = first.Duration;
-    if (packetDuration is not > 0) throw new MediaProbeException("ffprobe omitted the MP3 packet duration.", []);
-    var samplesPerPacketValue = checked((decimal)packetDuration.Value * timeBase.Numerator * sampleRate.Value / timeBase.Denominator);
+    var firstFields = first.Split(',');
+    if (!long.TryParse(firstFields[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var packetDuration) || packetDuration <= 0)
+      throw new MediaProbeException("ffprobe omitted the MP3 packet duration.", []);
+    var samplesPerPacketValue = checked((decimal)packetDuration * timeBase.Numerator * track.SampleRate.Value / timeBase.Denominator);
     var samplesPerPacket = checked((long)decimal.Round(samplesPerPacketValue, 0, MidpointRounding.ToEven));
     if (samplesPerPacket <= 0 || Math.Abs(samplesPerPacketValue - samplesPerPacket) > 0.000001m)
       throw new MediaProbeException("ffprobe returned an unsupported MP3 packet duration.", []);
 
-    var skipSamples = Gapless(first).SkipSamples;
-    var last = await ReadPacketAsync(inputPath, "-1%+#1000", takeLast: true, cancellationToken).ConfigureAwait(false);
-    var discardPadding = Gapless(last).DiscardPadding;
-    var decodedSamples = checked(packetCount.Value * samplesPerPacket - skipSamples - discardPadding);
+    var decodedSamples = checked(packetCount * samplesPerPacket - Gapless(firstFields).SkipSamples - Gapless(last.Split(',')).DiscardPadding);
     if (decodedSamples <= 0) throw new MediaProbeException("ffprobe returned a non-positive MP3 decoded duration.", []);
-    return checked((decimal)decodedSamples / sampleRate.Value);
+    return checked((decimal)decodedSamples / track.SampleRate.Value);
   }
 
-  private async Task<FFprobePacket> ReadPacketAsync(string inputPath, string interval, bool takeLast, CancellationToken cancellationToken)
+  private static (long SkipSamples, long DiscardPadding) Gapless(string[] fields)
   {
-    var document = await RunJsonAsync<FFprobePacketDocument>(
-      ["-v", "error", "-select_streams", "a:0", "-read_intervals", interval, "-show_packets", "-show_entries", "packet=duration,side_data_list", "-print_format", "json", inputPath],
-      cancellationToken).ConfigureAwait(false);
-    var packets = document.Packets ?? [];
-    if (packets.Count == 0) throw new MediaProbeException("ffprobe did not return MP3 packet boundary evidence.", []);
-    return takeLast ? packets[^1] : packets[0];
-  }
-
-  private async Task<T> RunJsonAsync<T>(IReadOnlyList<string> arguments, CancellationToken cancellationToken)
-  {
-    var result = await _runner.RunAsync(new ProcessSpec(_tools.FFprobePath, arguments), null, cancellationToken).ConfigureAwait(false);
-    if (result.ExitCode != 0) throw new MediaProbeException("ffprobe could not read exact MP3 duration evidence.", result.StandardError.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries));
-    try { return JsonSerializer.Deserialize<T>(result.StandardOutput, JsonOptions) ?? throw new JsonException("empty document"); }
-    catch (JsonException exception) { throw new MediaProbeException("ffprobe returned malformed MP3 duration evidence.", [], exception); }
-  }
-
-  private static (long SkipSamples, long DiscardPadding) Gapless(FFprobePacket packet)
-  {
-    var evidence = packet.SideData?.SingleOrDefault(item => string.Equals(item.Type, "Skip Samples", StringComparison.OrdinalIgnoreCase));
-    return evidence is null ? (0, 0) : (evidence.SkipSamples, evidence.DiscardPadding);
+    if (fields.Length < 4 || !string.Equals(fields[1], "Skip Samples", StringComparison.OrdinalIgnoreCase)) return (0, 0);
+    if (!long.TryParse(fields[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var skip) || !long.TryParse(fields[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out var discard))
+      throw new MediaProbeException("ffprobe returned malformed MP3 gapless evidence.", []);
+    return (skip, discard);
   }
 
   private static AudioTrack ToAudio(FFprobeStream s) => new(s.Index, s.CodecName, s.CodecType, s.Channels, Int(s.SampleRate), Decimal(s.Duration), Rational(s.TimeBase), ToRawTags(s.Tags), s.Profile, s.ChannelLayout, Decimal(s.StartTime), s.CodecTag, s.ExtradataHash, Long(s.BitRate));
