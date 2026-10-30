@@ -48,6 +48,29 @@ public sealed class QueueSnapshotStoreTests : IDisposable
   }
 
   [Fact]
+  public void SavingCompletesUnderAContextThatNeverRunsPostedWork()
+  {
+    // The window saves while it closes, on a dispatcher that cannot run continuations until the save returns.
+    var saved = false;
+    var thread = new Thread(() =>
+    {
+      SynchronizationContext.SetSynchronizationContext(new NeverRunsContext());
+      saved = Store().Save(Snapshot(FullItem()));
+    })
+    { IsBackground = true };
+    thread.Start();
+    Assert.True(thread.Join(TimeSpan.FromSeconds(30)), "Save did not return.");
+    Assert.True(saved);
+    Assert.Equal(QueueLoadCode.Loaded, Store().Load().Code);
+  }
+
+  private sealed class NeverRunsContext : SynchronizationContext
+  {
+    public override void Post(SendOrPostCallback d, object? state) { }
+    public override void Send(SendOrPostCallback d, object? state) => throw new InvalidOperationException();
+  }
+
+  [Fact]
   public void EveryPersistedFieldRoundTrips()
   {
     var store = Store();

@@ -23,8 +23,24 @@ internal static class AtomicFile
     finally { if (File.Exists(tempPath)) File.Delete(tempPath); }
   }
 
+  // Fully synchronous, so it is safe on the UI thread while the window closes.
   public static void Write(string path, byte[] content)
-    => WriteAsync(path, stream => stream.WriteAsync(content).AsTask()).GetAwaiter().GetResult();
+  {
+    var directory = Path.GetDirectoryName(path)!;
+    Directory.CreateDirectory(directory);
+    var tempPath = Path.Combine(directory, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+    try
+    {
+      using (var stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.SequentialScan))
+      {
+        stream.Write(content);
+        stream.Flush(flushToDisk: true);
+      }
+      if (File.Exists(path)) File.Replace(tempPath, path, null);
+      else File.Move(tempPath, path);
+    }
+    finally { if (File.Exists(tempPath)) File.Delete(tempPath); }
+  }
 
   public static void DeleteLeftovers(string directory, string fileName)
   {
