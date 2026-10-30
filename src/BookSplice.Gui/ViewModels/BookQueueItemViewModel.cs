@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using BookSplice.Core.Analysis;
 using BookSplice.Core.Covers;
+using BookSplice.Core.Discovery;
 using BookSplice.Core.Metadata;
 using BookSplice.Core.Ordering;
 using BookSplice.Core.Planning;
@@ -22,7 +23,8 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings, 
   private ConversionResultDisplay? _result;
   private AppSettings _settings = settings;
   public string Source { get; } = source;
-  public string Name => Path.GetFileName(Source.TrimEnd(Path.DirectorySeparatorChar));
+  public SourceSelection? Selection { get; init; }
+  public string Name => Selection?.Name ?? Path.GetFileName(Source.TrimEnd(Path.DirectorySeparatorChar));
   public AppSettings Settings => _settings;
   public IReadOnlyList<QualityProfile> QualityProfiles { get; } = QualityProfileCatalog.Version1;
   public IReadOnlyList<ChannelPolicyOption> ChannelPolicies { get; } =

@@ -129,7 +129,13 @@ public partial class MainWindow : Window
     using var operation = TryEnter("add files");
     if (operation is null) return;
     var dialog = new OpenFileDialog { Title = "Choose individual audiobook files", Multiselect = true, Filter = "Audio files|*.mp3;*.aac;*.m4a;*.m4b;*.flac;*.ogg;*.opus;*.wma" };
-    if (dialog.ShowDialog(this) == true) await AddPathsAsync(dialog.FileNames);
+    if (dialog.ShowDialog(this) != true || _model is null) return;
+    await _model.AddFilesAsync(dialog.FileNames, files =>
+    {
+      var choice = new ImportChoiceWindow(files) { Owner = this };
+      return choice.ShowDialog() == true ? choice.Choice : FileImportChoice.Cancel;
+    });
+    Queue.SelectedItem ??= _model.Items.FirstOrDefault();
   }
 
   private async Task AddPathsAsync(IEnumerable<string> paths)

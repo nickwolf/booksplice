@@ -1,4 +1,5 @@
 using BookSplice.Core.Analysis;
+using BookSplice.Core.Discovery;
 using BookSplice.Core.Chapters;
 using BookSplice.Core.Covers;
 using BookSplice.Core.Metadata;
@@ -59,6 +60,8 @@ public sealed class UpdateEntryPointTests
 
   private sealed class ReadyAnalyzer : IBookAnalyzer
   {
+    public Task<BookAnalysis> AnalyzeAsync(SourceSelection selection, bool chaptersEnabled, BookAnalysisOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
     public Task<BookAnalysis> AnalyzeAsync(string inputPath, bool chaptersEnabled, BookAnalysisOptions? options = null,
       CancellationToken cancellationToken = default)
     {
@@ -76,6 +79,8 @@ public sealed class UpdateEntryPointTests
     private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public int Calls { get; private set; }
     public void Release() => _gate.TrySetResult();
+
+    public Task<BookAnalysis> AnalyzeAsync(SourceSelection selection, bool chaptersEnabled, BookAnalysisOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
     public async Task<BookAnalysis> AnalyzeAsync(string inputPath, bool chaptersEnabled, BookAnalysisOptions? options = null,
       CancellationToken cancellationToken = default)

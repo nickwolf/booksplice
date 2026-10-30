@@ -41,14 +41,14 @@ public sealed class CoverDiscoverer : ICoverDiscoverer
     var rejections = new List<CoverRejection>();
     var root = ResolveRoot(sourceRoot, rejections);
     if (root is null) return new CoverDiscoveryResult([], rejections, null);
-    var references = ExternalPayloads(root, rejections, cancellationToken).Concat(EmbeddedPayloads(files));
+    var references = ExternalPayloads(root, options.SearchDirectories, rejections, cancellationToken).Concat(EmbeddedPayloads(files));
     var candidates = new List<CoverCandidate>();
     foreach (var payload in references.OrderBy(reference => reference.StableIdentity, StringComparer.Ordinal))
     {
       cancellationToken.ThrowIfCancellationRequested();
       var inspected = await InspectAsync(payload, cancellationToken).ConfigureAwait(false);
       if (inspected.Rejection is { } rejection) { rejections.Add(rejection); continue; }
-      candidates.Add(new CoverCandidate(inspected.Hash!, payload.Origin, payload.SourcePath, payload.EmbeddedPictureIndex, inspected.ContentType!, inspected.Width, inspected.Height, SemanticType(payload), payload.Origin == CoverOrigin.ExternalFile && string.Equals(Path.GetDirectoryName(payload.SourcePath), root, StringComparison.OrdinalIgnoreCase) && CanonicalNames.Contains(Path.GetFileName(payload.SourcePath))));
+      candidates.Add(new CoverCandidate(inspected.Hash!, payload.Origin, payload.SourcePath, payload.EmbeddedPictureIndex, inspected.ContentType!, inspected.Width, inspected.Height, SemanticType(payload), payload.Origin == CoverOrigin.ExternalFile && IsCanonicalDirectory(Path.GetDirectoryName(payload.SourcePath), root, options.SearchDirectories) && CanonicalNames.Contains(Path.GetFileName(payload.SourcePath))));
     }
     var representatives = candidates.GroupBy(candidate => candidate.ContentHash, StringComparer.OrdinalIgnoreCase).Select(group => _ranker.Select(group)!).ToArray();
     var ranked = _ranker.Rank(representatives, options.PriorSelectedContentHash);
@@ -71,16 +71,24 @@ public sealed class CoverDiscoverer : ICoverDiscoverer
     return File.Exists(full) ? Path.GetDirectoryName(full)! : full;
   }
 
-  private IEnumerable<CoverPayloadReference> ExternalPayloads(string root, List<CoverRejection> rejections, CancellationToken cancellationToken)
+  private static bool IsCanonicalDirectory(string? directory, string root, IReadOnlyList<string>? searchDirectories)
+    => string.Equals(directory, root, StringComparison.OrdinalIgnoreCase) || searchDirectories?.Any(search => string.Equals(directory, Path.GetFullPath(search), StringComparison.OrdinalIgnoreCase)) == true;
+
+  // Explicit search directories (a selected set of files) are read without descending into subfolders.
+  private IEnumerable<CoverPayloadReference> ExternalPayloads(string root, IReadOnlyList<string>? searchDirectories, List<CoverRejection> rejections, CancellationToken cancellationToken)
   {
-    if (!Directory.Exists(root)) yield break;
-    foreach (var path in Enumerate(root, root, rejections, _directoryEnumerator, cancellationToken))
+    (string Directory, bool Recurse)[] scopes = searchDirectories is null ? [(root, true)] : searchDirectories.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).Select(directory => (directory, false)).ToArray();
+    foreach (var (scope, recurse) in scopes)
     {
-      if (ImageExtensions.Contains(Path.GetExtension(path))) yield return new(CoverOrigin.ExternalFile, path, null, path, SourceRoot: root);
+      if (!Directory.Exists(scope)) continue;
+      foreach (var path in Enumerate(scope, scope, recurse, rejections, _directoryEnumerator, cancellationToken))
+      {
+        if (ImageExtensions.Contains(Path.GetExtension(path))) yield return new(CoverOrigin.ExternalFile, path, null, path, SourceRoot: scope);
+      }
     }
   }
 
-  private static IEnumerable<string> Enumerate(string root, string directory, List<CoverRejection> rejections, ICoverDirectoryEnumerator directoryEnumerator, CancellationToken cancellationToken)
+  private static IEnumerable<string> Enumerate(string root, string directory, bool recurse, List<CoverRejection> rejections, ICoverDirectoryEnumerator directoryEnumerator, CancellationToken cancellationToken)
   {
     List<string> entries = [];
     try
@@ -105,8 +113,9 @@ public sealed class CoverDiscoverer : ICoverDiscoverer
       if ((attributes & FileAttributes.ReparsePoint) != 0) { rejections.Add(new("cover.reparse-point-skipped", "A reparse point was skipped during cover discovery.", entry)); continue; }
       if ((attributes & FileAttributes.Directory) != 0)
       {
+        if (!recurse) continue;
         if (!IsUnderRoot(root, entry)) { rejections.Add(new("cover.path-outside-root", "A cover path outside the source root was skipped.", entry)); continue; }
-        foreach (var path in Enumerate(root, entry, rejections, directoryEnumerator, cancellationToken)) yield return path;
+        foreach (var path in Enumerate(root, entry, recurse, rejections, directoryEnumerator, cancellationToken)) yield return path;
       }
       else if (IsUnderRoot(root, entry)) yield return Path.GetFullPath(entry);
     }
