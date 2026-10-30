@@ -68,9 +68,9 @@ public sealed class PresetsViewModel(PresetStore store, MetadataProfileCatalog? 
     return true;
   }
 
-  public bool SaveNew(string name, AppSettings settings, bool includeOutputDirectory = false)
+  public bool SaveNew(string name, AppSettings settings, bool includeOutputDirectory = false, bool includeOutputTemplate = true)
   {
-    var preset = ConversionPreset.FromSettings(name, settings, includeOutputDirectory);
+    var preset = ConversionPreset.FromSettings(name, settings, includeOutputDirectory, includeOutputTemplate);
     if (Invalid(preset) is { } invalid) return Fail(invalid);
     return Mutate(list =>
     {
@@ -81,11 +81,11 @@ public sealed class PresetsViewModel(PresetStore store, MetadataProfileCatalog? 
     }, $"Saved preset '{preset.Name}'.");
   }
 
-  public bool UpdateFrom(string name, AppSettings settings, bool includeOutputDirectory = false)
+  public bool UpdateFrom(string name, AppSettings settings, bool includeOutputDirectory = false, bool includeOutputTemplate = true)
   {
     var existing = Find(name);
     if (existing is null) return Fail("Choose a preset first.");
-    var preset = ConversionPreset.FromSettings(existing.Name, settings, includeOutputDirectory);
+    var preset = ConversionPreset.FromSettings(existing.Name, settings, includeOutputDirectory, includeOutputTemplate);
     if (Invalid(preset) is { } invalid) return Fail(invalid);
     return Mutate(list =>
     {

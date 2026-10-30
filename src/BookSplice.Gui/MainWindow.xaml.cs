@@ -93,9 +93,9 @@ public partial class MainWindow : Window
   private void SavePreset_Click(object sender, RoutedEventArgs e)
   {
     if (Queue.SelectedItem is not BookQueueItemViewModel item) return;
-    var prompt = new PresetNameWindow("Save as preset", "Name the preset. It keeps this book's quality, channels, chapters, validation, metadata profile and name template.", "", offerFolder: true) { Owner = this };
+    var prompt = new PresetNameWindow("Save as preset", "Name the preset. It keeps this book's quality, channels, chapters, validation, metadata profile and name template.", "", offerOptional: true) { Owner = this };
     if (prompt.ShowDialog() != true) return;
-    if (!_presets.SaveNew(prompt.EnteredName, item.Settings, prompt.IncludeOutputFolder)) MessageBox.Show(this, _presets.Message, "Save as preset");
+    if (!_presets.SaveNew(prompt.EnteredName, item.Settings, prompt.IncludeOutputFolder, prompt.IncludeOutputTemplate)) MessageBox.Show(this, _presets.Message, "Save as preset");
   }
 
   private void Presets_Click(object sender, RoutedEventArgs e)

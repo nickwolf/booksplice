@@ -7,8 +7,10 @@
     <TextBlock x:Name="Prompt" TextWrapping="Wrap" Margin="0,0,0,8"/>
     <Label Content="_Name" Target="{Binding ElementName=NameBox}" Padding="0"/>
     <TextBox x:Name="NameBox" MaxLength="64" AutomationProperties.Name="Preset name"/>
-    <CheckBox x:Name="IncludeFolder" Content="Also save the _destination folder" Margin="0,8,0,0"
-              AutomationProperties.HelpText="Off by default. Without it, applying the preset leaves the book's folder alone"/>
+    <CheckBox x:Name="IncludeTemplate" Content="Also save the name _template" Margin="0,8,0,0"
+              AutomationProperties.HelpText="Without it, applying the preset leaves the book's name template alone"/>
+    <CheckBox x:Name="IncludeFolder" Content="Also save the _destination folder" Margin="0,6,0,0"
+              AutomationProperties.HelpText="Without it, applying the preset leaves the book's folder alone"/>
     <TextBlock x:Name="Problem" Foreground="Firebrick" TextWrapping="Wrap" Margin="0,8,0,0" AutomationProperties.LiveSetting="Polite"/>
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
       <Button Content="_Save" IsDefault="True" Click="Save_Click" Padding="16,6" Margin="0,0,8,0"/>

@@ -26,17 +26,17 @@ public partial class PresetManagerWindow : Window
   private void Rename_Click(object sender, RoutedEventArgs e)
   {
     if (SelectedName is not { } name) return;
-    var prompt = new PresetNameWindow("Rename preset", $"New name for '{name}'.", name, offerFolder: false) { Owner = this };
+    var prompt = new PresetNameWindow("Rename preset", $"New name for '{name}'.", name, offerOptional: false) { Owner = this };
     if (prompt.ShowDialog() == true) _model.Rename(name, prompt.EnteredName);
   }
 
   private void Update_Click(object sender, RoutedEventArgs e)
   {
-    if (SelectedName is not { } name) return;
+    if (List.SelectedItem is not PresetEntryViewModel { Name: var name, Preset: var current }) return;
     if (_selectedBook() is not { } book) { MessageBox.Show(this, "Select a book in the main window first.", "Update preset"); return; }
-    var prompt = new PresetNameWindow("Update preset", $"Replace the values of '{name}' with the settings of the selected book.", name, offerFolder: true) { Owner = this };
+    var prompt = new PresetNameWindow("Update preset", $"Replace the values of '{name}' with the settings of the selected book.", name, offerOptional: true, templateDefault: current.OutputTemplate is not null, folderDefault: current.OutputDirectory is not null) { Owner = this };
     prompt.NameBox.IsEnabled = false;
-    if (prompt.ShowDialog() == true) _model.UpdateFrom(name, book.Settings, prompt.IncludeOutputFolder);
+    if (prompt.ShowDialog() == true) _model.UpdateFrom(name, book.Settings, prompt.IncludeOutputFolder, prompt.IncludeOutputTemplate);
   }
 
   private void Delete_Click(object sender, RoutedEventArgs e)

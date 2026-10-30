@@ -16,11 +16,11 @@ public sealed record ConversionPreset(
   string? OutputTemplate = null,
   string? OutputDirectory = null)
 {
-  public static ConversionPreset FromSettings(string name, AppSettings settings, bool includeOutputDirectory = false)
+  public static ConversionPreset FromSettings(string name, AppSettings settings, bool includeOutputDirectory = false, bool includeOutputTemplate = true)
   {
     ArgumentNullException.ThrowIfNull(settings);
     return new(name.Trim(), settings.QualityProfileId, settings.ChannelPolicy, settings.CreateChapters, settings.ValidationLevel, settings.MetadataProfileId,
-      settings.OutputTemplate, includeOutputDirectory ? settings.OutputDirectory : null);
+      includeOutputTemplate ? settings.OutputTemplate : null, includeOutputDirectory ? settings.OutputDirectory : null);
   }
 }
 

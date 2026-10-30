@@ -137,6 +137,58 @@ public sealed class PresetGuiTests : IDisposable
   }
 
   [Fact]
+  public void SavingWithoutTheTemplateLeavesItOutOfThePreset()
+  {
+    var model = Model();
+
+    Assert.True(model.SaveNew("No template", _defaults, includeOutputTemplate: false));
+
+    Assert.Null(Store.Load().Find("No template")!.OutputTemplate);
+    var book = Book();
+    model.Apply(book, "No template");
+    Assert.Equal(_defaults.OutputTemplate, book.OutputTemplate);
+  }
+
+  [Fact]
+  public void UpdatingCanKeepAnExistingFolderAndTemplateChoice()
+  {
+    Store.Save([Commute() with { OutputDirectory = Path.Combine(_root, "kept"), OutputTemplate = null }]);
+    var model = Model();
+
+    Assert.True(model.UpdateFrom("Commute", _defaults with { QualityProfileId = "balanced" }, includeOutputDirectory: true, includeOutputTemplate: false));
+
+    var updated = Store.Load().Find("Commute")!;
+    Assert.Equal("balanced", updated.QualityProfileId);
+    Assert.Equal(_defaults.OutputDirectory, updated.OutputDirectory);
+    Assert.Null(updated.OutputTemplate);
+  }
+
+  [Fact]
+  public void NameWindowStartsFromTheExistingPresetsOptionalChoices()
+  {
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+      try
+      {
+        var fresh = new PresetNameWindow("Save", "Name", "", offerOptional: true);
+        Assert.True(fresh.IncludeOutputTemplate);
+        Assert.False(fresh.IncludeOutputFolder);
+        var existing = new PresetNameWindow("Update", "Name", "Commute", offerOptional: true, templateDefault: false, folderDefault: true);
+        Assert.False(existing.IncludeOutputTemplate);
+        Assert.True(existing.IncludeOutputFolder);
+        fresh.Close();
+        existing.Close();
+      }
+      catch (Exception exception) { failure = exception; }
+    });
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    Assert.True(thread.Join(TimeSpan.FromSeconds(15)));
+    Assert.Null(failure);
+  }
+
+  [Fact]
   public void SavingOverAnExistingNameIsReportedNotOverwritten()
   {
     Store.Save([Commute()]);
