@@ -74,23 +74,7 @@ public sealed class JsonSettingsStore : ISettingsStore
   {
     var validation = SettingsValidator.Validate(settings);
     if (!validation.IsValid) throw new ArgumentException(string.Join("; ", validation.Errors), nameof(settings));
-    var directory = Path.GetDirectoryName(SettingsPath)!;
-    Directory.CreateDirectory(directory);
-    var tempPath = Path.Combine(directory, $".{Path.GetFileName(SettingsPath)}.{Guid.NewGuid():N}.tmp");
-    try
-    {
-      await using (var stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.SequentialScan))
-      {
-        var json = ToJson(settings);
-        await JsonSerializer.SerializeAsync(stream, json, Options, cancellationToken);
-        await stream.FlushAsync(cancellationToken);
-        stream.Flush(flushToDisk: true);
-      }
-      cancellationToken.ThrowIfCancellationRequested();
-      if (File.Exists(SettingsPath)) File.Replace(tempPath, SettingsPath, null);
-      else File.Move(tempPath, SettingsPath);
-    }
-    finally { if (File.Exists(tempPath)) File.Delete(tempPath); }
+    await AtomicFile.WriteAsync(SettingsPath, stream => JsonSerializer.SerializeAsync(stream, ToJson(settings), Options, cancellationToken), cancellationToken);
   }
 
   private static AppSettings Parse(JsonObject json) => new AppSettings(
