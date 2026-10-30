@@ -14,7 +14,9 @@ public sealed record CliOptions(
   string? MetadataProfileId = null,
   Core.Settings.ValidationLevel? Validation = null,
   Core.Planning.ChannelPolicy? ChannelPolicy = null,
-  string? OutputTemplate = null);
+  string? OutputTemplate = null,
+  string? PresetName = null,
+  bool ListPresets = false);
 
 public sealed record CliDiagnostic(string Code, string Message);
 

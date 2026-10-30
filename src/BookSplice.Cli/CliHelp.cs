@@ -19,6 +19,8 @@ public static class CliHelp
         --channels <preserve|mono|stereo>   Output channel handling
         --output-template <template>       Folders and file name, e.g. {author}\{series}\{title}
         --chapters | --no-chapters         Chapter creation
+        --preset <name>                    Start from a saved preset; other options still win
+        --list-presets                     List saved presets and whether each is usable
         --overwrite                       Replace an existing output after validation
         --dry-run                         Plan without writing output or audit files
         --json                            Newline-delimited JSON; never prompts

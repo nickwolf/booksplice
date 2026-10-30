@@ -4,6 +4,7 @@ using BookSplice.Core.Execution;
 using BookSplice.Core.Metadata;
 using BookSplice.Core.Naming;
 using BookSplice.Core.Planning;
+using BookSplice.Core.Presets;
 using BookSplice.Core.Settings;
 
 namespace BookSplice.Cli;
@@ -18,8 +19,10 @@ public sealed class CliApplication
 
   private readonly MetadataProfileCatalog? _profiles;
 
-  public CliApplication(ISettingsStore settings, IConversionService service, IJobLogWriter? logs = null, MetadataProfileCatalog? profiles = null, TimeProvider? timeProvider = null)
-    => (_settings, _service, _logs, _profiles, _timeProvider) = (settings, service, logs, profiles, timeProvider ?? TimeProvider.System);
+  private readonly PresetStore? _presets;
+
+  public CliApplication(ISettingsStore settings, IConversionService service, IJobLogWriter? logs = null, MetadataProfileCatalog? profiles = null, TimeProvider? timeProvider = null, PresetStore? presets = null)
+    => (_settings, _service, _logs, _profiles, _timeProvider, _presets) = (settings, service, logs, profiles, timeProvider ?? TimeProvider.System, presets);
 
   public async Task<CliExitCode> RunAsync(IReadOnlyList<string> arguments, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken, TextReader? standardInput = null)
   {
@@ -37,6 +40,8 @@ public sealed class CliApplication
         standardOutput,
         standardError).ConfigureAwait(false);
     }
+
+    if (parsed.Options!.ListPresets) return ListPresets(parsed.Options.Json, standardOutput, standardError);
 
     SettingsLoadResult loaded;
     try { loaded = await _settings.LoadAsync(cancellationToken).ConfigureAwait(false); }
@@ -63,7 +68,8 @@ public sealed class CliApplication
         standardError).ConfigureAwait(false);
     }
 
-    var configured = CliConfiguration.Resolve(parsed.Options!, loaded, _profiles);
+    var presets = parsed.Options!.PresetName is not null ? _presets?.Load() : null;
+    var configured = CliConfiguration.Resolve(parsed.Options!, loaded, _profiles, presets);
     if (!configured.IsSuccess)
     {
       return await CompletePreServiceAsync(
@@ -170,6 +176,47 @@ public sealed class CliApplication
       else if (result.Status == ConversionTerminalStatus.Succeeded) standardOutput.WriteLine($"Published {result.PublishedPath}");
     }
     return exitCode;
+  }
+
+  private CliExitCode ListPresets(bool json, TextWriter standardOutput, TextWriter standardError)
+  {
+    var loaded = _presets?.Load();
+    if (loaded is null || loaded.Code is PresetLoadCode.Corrupt or PresetLoadCode.UnsupportedFutureSchema)
+    {
+      standardError.WriteLine(loaded is null ? "Presets are not available." : $"The presets file cannot be used: {string.Join(" ", loaded.Errors)}");
+      if (json) WriteJson(standardOutput, new { SchemaVersion = 1, Event = "final", Status = "InvalidInput", ExitCode = (int)CliExitCode.InvalidInput }, new object());
+      return CliExitCode.InvalidInput;
+    }
+    var catalog = _profiles ?? MetadataProfileCatalog.BuiltIn;
+    var rows = loaded.Presets.Select(preset => (Preset: preset, Errors: PresetValidator.Validate(preset, catalog))).ToArray();
+    if (json)
+    {
+      var presets = rows.Select(row => new
+      {
+        row.Preset.Name,
+        QualityProfileId = row.Preset.QualityProfileId,
+        ChannelPolicy = row.Preset.ChannelPolicy.ToString(),
+        row.Preset.CreateChapters,
+        ValidationLevel = row.Preset.ValidationLevel.ToString(),
+        row.Preset.MetadataProfileId,
+        row.Preset.OutputTemplate,
+        HasOutputDirectory = row.Preset.OutputDirectory is not null,
+        IsValid = row.Errors.Count == 0,
+        row.Errors,
+      });
+      WriteJson(standardOutput, new { SchemaVersion = 1, Event = "presets", Presets = presets, FileProblems = loaded.Errors }, new object());
+      return CliExitCode.Success;
+    }
+    if (rows.Length == 0 && loaded.Errors.Count == 0) standardOutput.WriteLine("No presets are saved.");
+    foreach (var (preset, errors) in rows)
+    {
+      var template = preset.OutputTemplate is null ? "" : $", template {preset.OutputTemplate}";
+      var folder = preset.OutputDirectory is null ? "" : ", sets the output folder";
+      standardOutput.WriteLine($"{preset.Name}: quality {preset.QualityProfileId}, channels {preset.ChannelPolicy}, chapters {(preset.CreateChapters ? "on" : "off")}, validation {preset.ValidationLevel}, metadata {preset.MetadataProfileId}{template}{folder}");
+      foreach (var error in errors) standardOutput.WriteLine($"  Needs fixing: {error}");
+    }
+    foreach (var error in loaded.Errors) standardOutput.WriteLine($"Needs fixing: {error}");
+    return CliExitCode.Success;
   }
 
   private async Task<ConversionServiceResult> RunAttemptAsync(ConversionRequest request, TextWriter output, bool json, CancellationToken cancellationToken)
