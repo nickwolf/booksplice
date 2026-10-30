@@ -8,7 +8,7 @@ public static class CliParser
 {
   private static readonly HashSet<string> ValueOptions = new(StringComparer.Ordinal)
   {
-    "--output", "--quality", "--bitrate", "--jobs", "--order", "--metadata-profile", "--validation", "--channels", "--output-template",
+    "--output", "--quality", "--bitrate", "--jobs", "--order", "--metadata-profile", "--validation", "--channels", "--output-template", "--preset",
   };
 
   public static CliParseResult Parse(IReadOnlyList<string> arguments)
@@ -44,7 +44,7 @@ public static class CliParser
         continue;
       }
 
-      if (argument is "--chapters" or "--no-chapters" or "--overwrite" or "--dry-run" or "--json")
+      if (argument is "--chapters" or "--no-chapters" or "--overwrite" or "--dry-run" or "--json" or "--list-presets")
       {
         switches.Add(argument);
         continue;
@@ -53,7 +53,13 @@ public static class CliParser
       diagnostics.Add(new("usage.unknown-option", $"Unknown option '{argument}'."));
     }
 
-    if (sources.Count != 1) diagnostics.Add(new("usage.source-count", "Exactly one source path is required."));
+    var listPresets = switches.Contains("--list-presets");
+    if (listPresets)
+    {
+      if (sources.Count != 0 || values.Count != 0 || switches.Any(value => value is not ("--list-presets" or "--json")))
+        diagnostics.Add(new("usage.list-presets-alone", "Option '--list-presets' takes no source and may be combined only with --json."));
+    }
+    else if (sources.Count != 1) diagnostics.Add(new("usage.source-count", "Exactly one source path is required."));
     if (switches.Contains("--chapters") && switches.Contains("--no-chapters")) diagnostics.Add(new("usage.chapter-conflict", "Specify either --chapters or --no-chapters."));
 
     var bitrate = ParseRange(values, "--bitrate", 32, 320, "usage.bitrate-range", diagnostics);
@@ -75,12 +81,15 @@ public static class CliParser
     if (channelsText is not null && channelPolicy is null) diagnostics.Add(new("usage.channels", "Channels must be preserve, mono, or stereo."));
     values.TryGetValue("--output-template", out var outputTemplate);
     if (outputTemplate is not null && Core.Naming.OutputPathTemplate.Validate(outputTemplate) is { } templateError) diagnostics.Add(new("usage.output-template", templateError));
+    values.TryGetValue("--preset", out var presetName);
+    if (presetName is not null && Core.Presets.PresetNames.Check(presetName) is { } presetError) diagnostics.Add(new("usage.preset", presetError));
     if (diagnostics.Count != 0) return new(null, diagnostics.AsReadOnly());
+    if (listPresets) return new(new CliOptions("", null, null, null, null, null, false, false, switches.Contains("--json"), ListPresets: true), []);
     values.TryGetValue("--output", out var output);
     bool? chapters = switches.Contains("--chapters") ? true : switches.Contains("--no-chapters") ? false : null;
     return new(new CliOptions(
       sources[0], output, quality, bitrate, jobs, chapters,
-      switches.Contains("--overwrite"), switches.Contains("--dry-run"), switches.Contains("--json"), order, metadataProfile, validation, channelPolicy, outputTemplate), []);
+      switches.Contains("--overwrite"), switches.Contains("--dry-run"), switches.Contains("--json"), order, metadataProfile, validation, channelPolicy, outputTemplate, presetName), []);
   }
 
   private static int? ParseRange(Dictionary<string, string> values, string option, int minimum, int maximum, string code, List<CliDiagnostic> diagnostics)

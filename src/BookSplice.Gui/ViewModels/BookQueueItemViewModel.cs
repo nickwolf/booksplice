@@ -6,6 +6,7 @@ using BookSplice.Core.Discovery;
 using BookSplice.Core.Metadata;
 using BookSplice.Core.Ordering;
 using BookSplice.Core.Planning;
+using BookSplice.Core.Presets;
 using BookSplice.Core.Settings;
 using BookSplice.Gui.Notifications;
 
@@ -107,6 +108,15 @@ public sealed partial class BookQueueItemViewModel(string source, AppSettings se
     _settings = value;
     ClearBlockNote();
     foreach (var property in new[] { nameof(BlockReason), nameof(CanConvert), nameof(QueueStatus), nameof(Settings), nameof(OutputDirectory), nameof(QualityProfileId), nameof(ChannelPolicy), nameof(ValidationLevel), nameof(MetadataProfileId), nameof(OutputTemplate) }) Changed(property);
+  }
+
+  // Copies the preset's values into this book. Later edits to the preset never reach it.
+  public PresetApplyResult ApplyPreset(ConversionPreset preset)
+  {
+    if (!CanEdit) return new(null, [IsBusy ? "This book is converting. Wait for it to finish before applying a preset." : "This book is already finished, so a preset cannot change it."]);
+    var result = PresetApplier.Apply(Settings, preset, _profiles);
+    if (result.Settings is { } applied) UpdateSettings(applied);
+    return result;
   }
 
   public void LoadTrackList(IEnumerable<string> included, IEnumerable<string> excluded)

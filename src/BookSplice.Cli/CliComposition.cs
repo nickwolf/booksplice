@@ -27,6 +27,7 @@ public static class CliComposition
     var logDirectory = Path.Combine(localDirectory, "logs");
     var logs = new JsonJobLogWriter(logDirectory);
     var profiles = MetadataProfileCatalog.Load(ProfilesDirectory(localAppDataRoot));
+    var presets = new Core.Presets.PresetStore(Core.Presets.PresetStore.DefaultPath(Path.GetFullPath(localAppDataRoot)));
     MediaToolSet tools;
     try
     {
@@ -37,7 +38,7 @@ public static class CliComposition
       return new CliApplication(
         new JsonSettingsStore(localAppDataRoot),
         new UnavailableToolConversionService(logs),
-        logs, profiles);
+        logs, profiles, presets: presets);
     }
     var runner = new ProcessRunner();
     var probe = new FFprobeMediaProbe(runner, tools);
@@ -58,7 +59,7 @@ public static class CliComposition
       new AtomicPublisher(),
       new TemporaryArtifactCleaner(temporaryRoot),
       logs);
-    return new CliApplication(new JsonSettingsStore(localAppDataRoot), service, logs, profiles);
+    return new CliApplication(new JsonSettingsStore(localAppDataRoot), service, logs, profiles, presets: presets);
   }
 
   private sealed class UnavailableToolConversionService(IJobLogWriter logs) : IConversionService
