@@ -15,7 +15,16 @@ public sealed class SourceSelection : IEquatable<SourceSelection>
   public IReadOnlyList<string> Directories { get; }
   public string Name => RootName(RootPath);
 
-  public static SourceSelection Create(IEnumerable<string> paths)
+  public static SourceSelection Create(IEnumerable<string> paths) => CreateCore(paths, null);
+
+  /// <summary>Names the book after <paramref name="rootPath"/>, which must contain every file, instead of the deepest common directory.</summary>
+  public static SourceSelection Create(IEnumerable<string> paths, string rootPath)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(rootPath);
+    return CreateCore(paths, rootPath);
+  }
+
+  private static SourceSelection CreateCore(IEnumerable<string> paths, string? rootPath)
   {
     ArgumentNullException.ThrowIfNull(paths);
     var full = new List<string>();
@@ -29,6 +38,12 @@ public sealed class SourceSelection : IEquatable<SourceSelection>
     if (full.Count == 0) throw new ArgumentException("At least one file is required.", nameof(paths));
     var directories = full.Select(path => Path.GetDirectoryName(path) ?? path).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     var common = CommonAncestor(directories);
+    if (rootPath is not null)
+    {
+      var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootPath));
+      if (common is null || !IsSameOrUnder(root, common)) throw new ArgumentException("Every file must be inside the root folder.", nameof(rootPath));
+      common = root;
+    }
     return new SourceSelection(Array.AsReadOnly(full.ToArray()), common ?? directories[0], common is not null, Array.AsReadOnly(directories));
   }
 
@@ -54,7 +69,13 @@ public sealed class SourceSelection : IEquatable<SourceSelection>
     return hash;
   }
 
-  private static string? CommonAncestor(string[] directories)
+  private static bool IsSameOrUnder(string root, string directory)
+  {
+    var relative = Path.GetRelativePath(root, directory);
+    return relative == "." || (!Path.IsPathRooted(relative) && relative != ".." && !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal));
+  }
+
+  internal static string? CommonAncestor(IReadOnlyList<string> directories)
   {
     var root = Path.GetPathRoot(directories[0]);
     if (string.IsNullOrEmpty(root) || directories.Any(directory => !string.Equals(Path.GetPathRoot(directory), root, StringComparison.OrdinalIgnoreCase))) return null;

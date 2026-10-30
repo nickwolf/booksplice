@@ -162,7 +162,7 @@ public sealed partial class SourceDiscoverer : ISourceDiscoverer
     }
   }
 
-  private static string? FindReparsePoint(string fullPath)
+  internal static string? FindReparsePoint(string fullPath)
   {
     var root = Path.GetPathRoot(fullPath);
     if (string.IsNullOrEmpty(root)) return null;
