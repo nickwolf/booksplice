@@ -11,7 +11,7 @@ using BookSplice.Gui.Notifications;
 
 namespace BookSplice.Gui.ViewModels;
 
-public sealed class BookQueueItemViewModel(string source, AppSettings settings, MetadataProfileCatalog? profiles = null) : ObservableModel
+public sealed partial class BookQueueItemViewModel(string source, AppSettings settings, MetadataProfileCatalog? profiles = null) : ObservableModel
 {
   private string _status = "Queued";
   private string _details = "";
@@ -51,9 +51,11 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings, 
   public ObservableCollection<string> IncludedTracks { get; } = [];
   public ObservableCollection<string> ExcludedTracks { get; } = [];
   public bool IsTrackListEdited { get; private set; }
-  public bool CanApplyTrackList => IncludedTracks.Count > 0;
-  public CoverCandidate? SelectedCover { get; set; }
-  public bool OmitCover { get; set; }
+  public bool CanApplyTrackList => IncludedTracks.Count > 0 || (Analysis is null && SavedRecord is not null);
+  private CoverCandidate? _selectedCover;
+  private bool _omitCover;
+  public CoverCandidate? SelectedCover { get => _selectedCover; set { _selectedCover = value; Changed(); RaiseChoicesChanged(); } }
+  public bool OmitCover { get => _omitCover; set { _omitCover = value; Changed(); RaiseChoicesChanged(); } }
   public ObservableCollection<ChapterViewModel> Chapters { get; } = [];
   public ObservableCollection<MetadataFieldViewModel> Metadata { get; } = [];
   public IReadOnlyList<OrderCandidate> OrderCandidates => Analysis?.OrderResolution?.Candidates.Where(candidate => candidate.IsCredible).ToArray() ?? [];
@@ -61,7 +63,7 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings, 
   public IReadOnlyList<string> OrderedFiles => Analysis?.OrderedFiles.Select(file => file.RelativePath).ToArray() ?? [];
   public string Summary => Analysis is null ? "" : $"{Analysis.OrderedFiles.Count} files{(Analysis.ExcludedFiles.Count > 0 ? $" ({Analysis.ExcludedFiles.Count} excluded)" : "")} | {TimeSpan.FromMicroseconds(Analysis.Chapters.TotalDurationMicroseconds):g} | {string.Join(", ", Analysis.OrderedFiles.SelectMany(file => file.ProbeResult.AudioStreams).Select(stream => stream.CodecName).Distinct())}";
   public string Status { get => _status; internal set { _status = value; Changed(); Changed(nameof(QueueStatus)); Changed(nameof(CanConvert)); } }
-  public string QueueStatus => Result?.Title ?? (IsBusy && IsCancellationRequested ? $"{Status} · Cancellation requested" : Status);
+  public string QueueStatus => Result?.Title ?? (IsBusy && IsCancellationRequested ? $"{Status} · Cancellation requested" : AttentionStatus ?? Status);
   public ConversionResultDisplay? Result { get => _result; internal set { _result = value; Changed(); Changed(nameof(HasResult)); Changed(nameof(QueueStatus)); } }
   public bool HasResult => Result is not null;
   public string Details { get => _details; internal set { _details = value; Changed(); } }
@@ -75,7 +77,7 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings, 
   public bool CanCancel => IsBusy || IsWaiting;
   public bool CanRemove => !IsBusy;
   public bool CanEdit => !IsBusy && Status != "Complete";
-  public bool CanConvert => !IsBusy && Analysis?.Status == BookAnalysisStatus.Ready && Status != "Complete";
+  public bool CanConvert => !IsBusy && Analysis?.Status == BookAnalysisStatus.Ready && Status != "Complete" && BlockReason is null && ReviewReason is null;
   internal CancellationTokenSource? Cancellation { get; set; }
   // The last conversion's outcome, so a batch retry can pick only the books that failed.
   public BookOutcome? Outcome { get; internal set; }
@@ -103,7 +105,8 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings, 
   {
     if (value == _settings) return;
     _settings = value;
-    foreach (var property in new[] { nameof(Settings), nameof(OutputDirectory), nameof(QualityProfileId), nameof(ChannelPolicy), nameof(ValidationLevel), nameof(MetadataProfileId), nameof(OutputTemplate) }) Changed(property);
+    ClearBlockNote();
+    foreach (var property in new[] { nameof(BlockReason), nameof(CanConvert), nameof(QueueStatus), nameof(Settings), nameof(OutputDirectory), nameof(QualityProfileId), nameof(ChannelPolicy), nameof(ValidationLevel), nameof(MetadataProfileId), nameof(OutputTemplate) }) Changed(property);
   }
 
   public void LoadTrackList(IEnumerable<string> included, IEnumerable<string> excluded)
@@ -189,6 +192,7 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings, 
     foreach (var chapter in analysis.Chapters.Entries)
       Chapters.Add(new ChapterViewModel(chapter) { Title = chapterEdits.GetValueOrDefault(chapter.SourceRelativePath, chapter.Title) });
     SelectedCover = analysis.Cover.Candidates.FirstOrDefault(cover => cover.ContentHash == SelectedCover?.ContentHash) ?? analysis.Cover.Selected;
+    var restoreNotes = ApplyRestoredState(analysis);
     Status = analysis.Status switch
     {
       BookAnalysisStatus.NeedsDecision => "Choose track order",
@@ -196,7 +200,8 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings, 
       BookAnalysisStatus.InspectOnly => "M4B inspection only",
       _ => "Invalid input"
     };
-    Details = string.Join(Environment.NewLine, analysis.Diagnostics.Select(diagnostic => diagnostic.Message).Concat(trackListNote is null ? [] : [trackListNote]));
+    Details = string.Join(Environment.NewLine, analysis.Diagnostics.Select(diagnostic => diagnostic.Message).Concat(trackListNote is null ? [] : [trackListNote]).Concat(restoreNotes));
+    WatchReviewedChoices();
     foreach (var property in new[] { nameof(Analysis), nameof(OrderCandidates), nameof(Covers), nameof(SelectedCover), nameof(OrderedFiles), nameof(Summary), nameof(CanConvert) }) Changed(property);
   }
 }
