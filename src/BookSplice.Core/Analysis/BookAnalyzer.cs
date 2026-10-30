@@ -54,19 +54,34 @@ public sealed class BookAnalyzer : IBookAnalyzer
       return Empty(BookAnalysisStatus.Invalid, root, rootName, diagnostics);
     }
     var resolution = _orderResolver.Resolve(discovery.Files);
-    var candidate = SelectCandidate(resolution, options.SelectedOrderCandidateId);
-    if (candidate is null)
-    {
-      diagnostics.Add(new("analysis.order-decision-required", AnalysisDiagnosticSeverity.Warning, "A credible source order must be selected before conversion."));
-      return Empty(BookAnalysisStatus.NeedsDecision, root, rootName, diagnostics, resolution);
-    }
     var byId = discovery.Files.ToDictionary(file => file.RelativePath, StringComparer.Ordinal);
-    if (candidate.FileIds.Any(id => !byId.ContainsKey(id)) || candidate.FileIds.Distinct(StringComparer.Ordinal).Count() != discovery.Files.Count)
+    SourceFile[] ordered;
+    SourceFile[] excluded = [];
+    if (options.ReviewedOrder is { } reviewed)
     {
-      diagnostics.Add(new("analysis.order-invalid", AnalysisDiagnosticSeverity.Error, "The selected source order does not identify every discovered file exactly once."));
-      return Empty(BookAnalysisStatus.Invalid, root, rootName, diagnostics, resolution);
+      if (ReviewedOrderProblem(reviewed, byId) is { } problem)
+      {
+        diagnostics.Add(problem.Diagnostic);
+        return Empty(problem.Status, root, rootName, diagnostics, resolution);
+      }
+      ordered = reviewed.Included.Select(id => byId[id]).ToArray();
+      excluded = reviewed.Excluded.Select(id => byId[id]).ToArray();
     }
-    var ordered = candidate.FileIds.Select(id => byId[id]).ToArray();
+    else
+    {
+      var candidate = SelectCandidate(resolution, options.SelectedOrderCandidateId);
+      if (candidate is null)
+      {
+        diagnostics.Add(new("analysis.order-decision-required", AnalysisDiagnosticSeverity.Warning, "A credible source order must be selected before conversion."));
+        return Empty(BookAnalysisStatus.NeedsDecision, root, rootName, diagnostics, resolution);
+      }
+      if (candidate.FileIds.Any(id => !byId.ContainsKey(id)) || candidate.FileIds.Distinct(StringComparer.Ordinal).Count() != discovery.Files.Count)
+      {
+        diagnostics.Add(new("analysis.order-invalid", AnalysisDiagnosticSeverity.Error, "The selected source order does not identify every discovered file exactly once."));
+        return Empty(BookAnalysisStatus.Invalid, root, rootName, diagnostics, resolution);
+      }
+      ordered = candidate.FileIds.Select(id => byId[id]).ToArray();
+    }
     var metadata = _metadataAggregator.Aggregate(ordered);
     foreach (var field in metadata.Fields.Values.Where(value => value.State == AggregationState.Conflicting)) diagnostics.Add(new($"metadata.{field.Field}.conflict", AnalysisDiagnosticSeverity.Warning, $"Conflicting values were found for {field.Field}."));
     var cover = await _coverDiscoverer.DiscoverAsync(coverRoot ?? root, ordered, new CoverDiscoveryOptions(options.PriorSelectedCoverHash, coverDirectories), cancellationToken).ConfigureAwait(false);
@@ -75,9 +90,19 @@ public sealed class BookAnalyzer : IBookAnalyzer
     if (!chapters.IsValid) diagnostics.Add(new(chapters.ErrorCode ?? "chapters.invalid", AnalysisDiagnosticSeverity.Error, chapters.ErrorMessage ?? "The chapter plan is invalid."));
     var existingM4b = ordered.Length == 1 && string.Equals(Path.GetExtension(ordered[0].FullPath), ".m4b", StringComparison.OrdinalIgnoreCase);
     var status = existingM4b ? BookAnalysisStatus.InspectOnly : diagnostics.Any(d => d.Severity == AnalysisDiagnosticSeverity.Error) ? BookAnalysisStatus.Invalid : BookAnalysisStatus.Ready;
-    return new BookAnalysis(status, root, rootName, ordered, resolution, metadata, cover, chapters, diagnostics);
+    return new BookAnalysis(status, root, rootName, ordered, resolution, metadata, cover, chapters, diagnostics, excluded);
   }
 
+  private static (BookAnalysisStatus Status, AnalysisDiagnostic Diagnostic)? ReviewedOrderProblem(ReviewedTrackOrder reviewed, IReadOnlyDictionary<string, SourceFile> byId)
+  {
+    if (reviewed.Included.Count == 0) return (BookAnalysisStatus.Invalid, new("analysis.order-empty", AnalysisDiagnosticSeverity.Error, "At least one track must be included."));
+    var listed = reviewed.Included.Concat(reviewed.Excluded).ToArray();
+    if (listed.Distinct(StringComparer.Ordinal).Count() != listed.Length)
+      return (BookAnalysisStatus.Invalid, new("analysis.order-invalid", AnalysisDiagnosticSeverity.Error, "The reviewed track list names a file more than once."));
+    if (listed.Any(id => !byId.ContainsKey(id)) || byId.Keys.Any(id => !listed.Contains(id, StringComparer.Ordinal)))
+      return (BookAnalysisStatus.NeedsDecision, new("analysis.order-sources-changed", AnalysisDiagnosticSeverity.Warning, "The files in the source changed since the track list was reviewed. Review the track order again."));
+    return null;
+  }
   private static OrderCandidate? SelectCandidate(OrderResolution resolution, OrderCandidateId? requested)
     => requested is { } id ? resolution.Candidates.SingleOrDefault(candidate => candidate.Id == id && candidate.IsCredible) : resolution.Status == OrderStatus.Resolved ? resolution.SelectedCandidate : null;
   private static BookAnalysis Empty(BookAnalysisStatus status, string root, string name, IEnumerable<AnalysisDiagnostic> diagnostics, OrderResolution? resolution = null) => new(status, root, name, [], resolution, new BookMetadata(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>()), new CoverDiscoveryResult([], [], null), ChapterPlan.Valid([], 0), diagnostics);

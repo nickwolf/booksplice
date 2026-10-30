@@ -65,6 +65,44 @@ public sealed class BookAnalyzerTests
     Assert.Equal(BookAnalysisStatus.InspectOnly, (await Analyzer(new DiscoveryResult([File("01.m4b")], [], [])).AnalyzeAsync("book", true)).Status);
   }
 
+  [Fact]
+  public async Task AnalyzeAsync_applies_a_reviewed_order_to_every_derived_value_and_exposes_the_excluded_files()
+  {
+    var files = new[] { File("00.mp3"), File("01.mp3"), File("02.mp3") };
+    var metadata = new Metadata(); var cover = new Covers(); var chapters = new Chapters();
+    var reviewed = new ReviewedTrackOrder(["02.mp3", "01.mp3"], ["00.mp3"]);
+    var analysis = await Analyzer(new DiscoveryResult(files, [], []), metadata: metadata, covers: cover, chapters: chapters).AnalyzeAsync("book", true, new BookAnalysisOptions(ReviewedOrder: reviewed));
+
+    Assert.Equal(BookAnalysisStatus.Ready, analysis.Status);
+    Assert.Equal(["02.mp3", "01.mp3"], analysis.OrderedFiles.Select(file => file.RelativePath));
+    Assert.Equal(["00.mp3"], analysis.ExcludedFiles.Select(file => file.RelativePath));
+    Assert.Equal(["02.mp3", "01.mp3"], metadata.Seen); Assert.Equal(["02.mp3", "01.mp3"], cover.Seen); Assert.Equal(["02.mp3", "01.mp3"], chapters.Seen);
+  }
+
+  [Fact]
+  public async Task AnalyzeAsync_applies_a_reviewed_order_to_a_grouped_selection()
+  {
+    var files = new[] { File("Disc1/01.mp3"), File("Disc2/01.mp3") };
+    var selection = SourceSelection.Create(["C:/book/Disc1/01.mp3", "C:/book/Disc2/01.mp3"]);
+    var analysis = await Analyzer(new DiscoveryResult(files, [], [])).AnalyzeAsync(selection, true, new BookAnalysisOptions(ReviewedOrder: new(["Disc2/01.mp3"], ["Disc1/01.mp3"])));
+    Assert.Equal(BookAnalysisStatus.Ready, analysis.Status);
+    Assert.Equal(["Disc2/01.mp3"], analysis.OrderedFiles.Select(file => file.RelativePath));
+  }
+
+  [Theory]
+  [InlineData(new string[0], new[] { "01.mp3", "02.mp3" }, BookAnalysisStatus.Invalid, "analysis.order-empty")]
+  [InlineData(new[] { "01.mp3", "01.mp3" }, new[] { "02.mp3" }, BookAnalysisStatus.Invalid, "analysis.order-invalid")]
+  [InlineData(new[] { "01.mp3" }, new[] { "01.mp3", "02.mp3" }, BookAnalysisStatus.Invalid, "analysis.order-invalid")]
+  [InlineData(new[] { "01.mp3", "03.mp3" }, new[] { "02.mp3" }, BookAnalysisStatus.NeedsDecision, "analysis.order-sources-changed")]
+  [InlineData(new[] { "01.mp3" }, new string[0], BookAnalysisStatus.NeedsDecision, "analysis.order-sources-changed")]
+  public async Task AnalyzeAsync_refuses_a_reviewed_order_that_does_not_match_the_discovered_files(string[] included, string[] excluded, BookAnalysisStatus status, string code)
+  {
+    var analysis = await Analyzer(new DiscoveryResult([File("01.mp3"), File("02.mp3")], [], [])).AnalyzeAsync("book", true, new BookAnalysisOptions(ReviewedOrder: new(included, excluded)));
+    Assert.Equal(status, analysis.Status);
+    Assert.Contains(analysis.Diagnostics, d => d.Code == code);
+    Assert.Empty(analysis.OrderedFiles);
+  }
+
   private static BookAnalyzer Analyzer(DiscoveryResult result, OrderResolution? resolution = null, Metadata? metadata = null, Covers? covers = null, Chapters? chapters = null)
   {
     var candidate = Candidate(OrderCandidateId.NaturalPath, result.Files.Select(file => file.RelativePath));
@@ -74,7 +112,7 @@ public sealed class BookAnalyzerTests
   private static OrderCandidate Candidate(OrderCandidateId id, IEnumerable<string> paths) => new(id, paths, true, OrderConfidence.High, []);
   private sealed class Discoverer(DiscoveryResult result) : ISourceDiscoverer { public int Calls { get; private set; } public Task<DiscoveryResult> DiscoverAsync(string path, CancellationToken token = default) { Calls++; return Task.FromResult(result); } public Task<DiscoveryResult> DiscoverAsync(SourceSelection selection, CancellationToken token = default) { Calls++; return Task.FromResult(result); } }
   private sealed class Orders(OrderResolution result) : IOrderResolver { public OrderResolution Resolve(IReadOnlyList<SourceFile> files) => result; }
-  private sealed class Metadata(bool conflict = false) : IMetadataAggregator { public int Calls { get; private set; } public BookMetadata Aggregate(IReadOnlyList<SourceFile> files) { Calls++; var state = conflict ? AggregationState.Conflicting : AggregationState.Consistent; return new BookMetadata(new Dictionary<SemanticField, AggregatedValue> { [SemanticField.BookTitle] = new(SemanticField.BookTitle, AggregationState.Consistent, "Title", []), [SemanticField.Author] = new(SemanticField.Author, state, "Author", []) }, new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>()); } }
-  private sealed class Covers(CoverDiscoveryResult? result = null) : ICoverDiscoverer { public int Calls { get; private set; } public string? PriorHash { get; private set; } public Task<CoverDiscoveryResult> DiscoverAsync(string root, IReadOnlyList<SourceFile> files, CancellationToken token) => DiscoverAsync(root, files, new(), token); public Task<CoverDiscoveryResult> DiscoverAsync(string root, IReadOnlyList<SourceFile> files, CoverDiscoveryOptions options, CancellationToken token) { Calls++; PriorHash = options.PriorSelectedContentHash; return Task.FromResult(result ?? new CoverDiscoveryResult([], [], null)); } }
-  private sealed class Chapters(ChapterPlan? plan = null) : IChapterPlanner { public int Calls { get; private set; } public ChapterPlan Create(IReadOnlyList<SourceFile> files, bool enabled) { Calls++; return plan ?? ChapterPlan.Valid([], enabled ? 1_000_000 : 0); } }
+  private sealed class Metadata(bool conflict = false) : IMetadataAggregator { public int Calls { get; private set; } public string[] Seen { get; private set; } = []; public BookMetadata Aggregate(IReadOnlyList<SourceFile> files) { Calls++; Seen = files.Select(file => file.RelativePath).ToArray(); var state = conflict ? AggregationState.Conflicting : AggregationState.Consistent; return new BookMetadata(new Dictionary<SemanticField, AggregatedValue> { [SemanticField.BookTitle] = new(SemanticField.BookTitle, AggregationState.Consistent, "Title", []), [SemanticField.Author] = new(SemanticField.Author, state, "Author", []) }, new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>()); } }
+  private sealed class Covers(CoverDiscoveryResult? result = null) : ICoverDiscoverer { public int Calls { get; private set; } public string? PriorHash { get; private set; } public string[] Seen { get; private set; } = []; public Task<CoverDiscoveryResult> DiscoverAsync(string root, IReadOnlyList<SourceFile> files, CancellationToken token) => DiscoverAsync(root, files, new(), token); public Task<CoverDiscoveryResult> DiscoverAsync(string root, IReadOnlyList<SourceFile> files, CoverDiscoveryOptions options, CancellationToken token) { Calls++; Seen = files.Select(file => file.RelativePath).ToArray(); PriorHash = options.PriorSelectedContentHash; return Task.FromResult(result ?? new CoverDiscoveryResult([], [], null)); } }
+  private sealed class Chapters(ChapterPlan? plan = null) : IChapterPlanner { public int Calls { get; private set; } public string[] Seen { get; private set; } = []; public ChapterPlan Create(IReadOnlyList<SourceFile> files, bool enabled) { Calls++; Seen = files.Select(file => file.RelativePath).ToArray(); return plan ?? ChapterPlan.Valid([], enabled ? 1_000_000 : 0); } }
 }
