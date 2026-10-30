@@ -844,7 +844,7 @@ public sealed class PackageStagerTests
     {
       _transport.Dispose();
       _key.Dispose();
-      Directory.Delete(_root, true);
+      TestDirectory.Delete(_root);
     }
   }
 
