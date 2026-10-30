@@ -51,8 +51,27 @@ public sealed class CustomTrackOrderIntegrationTests
     Assert.Empty(facts.AttachedPictures);
     Assert.Equal(2, facts.Chapters.Count);
     Assert.Equal(before, fixture.Hashes());
-    foreach (var log in Directory.EnumerateFiles(fixture.Logs, "*", SearchOption.AllDirectories))
-      Assert.DoesNotContain(fixture.Source, await File.ReadAllTextAsync(log), StringComparison.OrdinalIgnoreCase);
+    var log = Assert.Single(Directory.EnumerateFiles(fixture.Logs, "*.json"));
+    using var audit = System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(log));
+    Assert.Equal(analysis.OrderedFiles.Select(file => file.FullPath), audit.RootElement.GetProperty("orderedSources").EnumerateArray().Select(value => value.GetString()));
+    Assert.DoesNotContain(intro, audit.RootElement.GetRawText(), StringComparison.OrdinalIgnoreCase);
+  }
+
+  [PinnedMediaFact]
+  public async Task StoragePlanningFollowsTheIncludedTracks()
+  {
+    using var fixture = await Fixture.CreateAsync();
+    await fixture.GenerateAsync("short.m4a", 440, 1);
+    await fixture.GenerateAsync("long.m4a", 550, 20);
+    var all = new ReviewedTrackOrder(["short.m4a", "long.m4a"], []);
+    var shortOnly = new ReviewedTrackOrder(["short.m4a"], ["long.m4a"]);
+
+    var full = await fixture.Service.ConvertAsync(fixture.Request(await fixture.Analyzer.AnalyzeAsync(fixture.Source, true, new BookAnalysisOptions(ReviewedOrder: all)), all, dryRun: true), CancellationToken.None);
+    var reduced = await fixture.Service.ConvertAsync(fixture.Request(await fixture.Analyzer.AnalyzeAsync(fixture.Source, true, new BookAnalysisOptions(ReviewedOrder: shortOnly)), shortOnly, dryRun: true), CancellationToken.None);
+
+    Assert.Equal(ConversionTerminalStatus.DryRun, full.Status);
+    Assert.Equal(ConversionTerminalStatus.DryRun, reduced.Status);
+    Assert.True(reduced.Planning!.Plan!.Space.FinalBytes < full.Planning!.Plan!.Space.FinalBytes);
   }
 
   [PinnedMediaFact]
