@@ -57,6 +57,21 @@ public sealed class FFprobeMediaProbeTests
   }
 
   [Fact]
+  public async Task ProbeAsyncKeepsTheFirstNonEmptyValueWhenATagRepeatsInADifferentCase()
+  {
+    var runner = new FixtureRunner(
+      """{"streams":[{"index":0,"codec_name":"aac","codec_type":"audio","sample_rate":"44100","duration":"2","start_time":"0","time_base":"1/44100","tags":{"encoder":"LAME","ENCODER":"other"}}],"format":{"duration":"2","format_name":"aac","tags":{"encoder":"-b=128","Encoder":"Lame 3.98.4","title":"","TITLE":"The Ugly Truth"}}}""");
+    var probe = new FFprobeMediaProbe(runner, new MediaToolSet("ffmpeg", "ffprobe", "", ""));
+
+    var result = await probe.ProbeAsync("generated.aac", CancellationToken.None);
+
+    Assert.Equal("-b=128", result.FormatTags["Encoder"]);
+    Assert.Equal("The Ugly Truth", result.FormatTags["title"]);
+    Assert.Equal(2, result.RawTags.Count);
+    Assert.Equal("LAME", result.AudioStreams.Single().RawTags["Encoder"]);
+  }
+
+  [Fact]
   public async Task ProbeAsyncUsesMp3PacketCountAndGaplessPaddingForDuration()
   {
     var runner = new SequenceRunner(

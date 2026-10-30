@@ -94,7 +94,17 @@ public sealed class FFprobeMediaProbe : IMediaProbe
 
   private static AudioTrack ToAudio(FFprobeStream s) => new(s.Index, s.CodecName, s.CodecType, s.Channels, Int(s.SampleRate), Decimal(s.Duration), Rational(s.TimeBase), ToRawTags(s.Tags), s.Profile, s.ChannelLayout, Decimal(s.StartTime), s.CodecTag, s.ExtradataHash, Long(s.BitRate));
   private static TagCollection ToTags(Dictionary<string, JsonElement>? tags) => new(ToRawTags(tags));
-  private static Dictionary<string, string> ToRawTags(Dictionary<string, JsonElement>? tags) => (tags ?? []).ToDictionary(p => p.Key, p => p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() ?? "" : p.Value.ToString(), StringComparer.Ordinal);
+  // Tag names are case-insensitive, and some files carry one twice (encoder and Encoder). The first non-empty value wins.
+  private static Dictionary<string, string> ToRawTags(Dictionary<string, JsonElement>? tags)
+  {
+    var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    foreach (var (key, element) in tags ?? [])
+    {
+      var value = element.ValueKind == JsonValueKind.String ? element.GetString() ?? "" : element.ToString();
+      if (!result.TryGetValue(key, out var existing) || existing.Length == 0) result[key] = value;
+    }
+    return result;
+  }
   private static int? Int(string? value) => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : null;
   private static long? Long(string? value) => long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : null;
   private static decimal? Decimal(string? value) => decimal.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var n) ? n : null;
