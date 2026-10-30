@@ -59,6 +59,32 @@ public sealed class AccessibilityContractTests
   }
 
   [Fact]
+  public void ImportChoiceDialogListsTheFilesAndNamesItsButtons()
+  {
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+      try
+      {
+        IReadOnlyList<string> files = [@"C:\book\Disc1\01.mp3", @"C:\book\Disc2\01.mp3"];
+        var window = new ImportChoiceWindow(files);
+        window.Measure(new Size(window.MinWidth, window.MinHeight));
+        window.Arrange(new Rect(0, 0, window.MinWidth, window.MinHeight));
+        window.UpdateLayout();
+        Assert.Equal(files, Assert.Single(Descendants<ListBox>(window)).ItemsSource);
+        Assert.Equal(["One audiobook", "Separate books", "Cancel"], Descendants<Button>(window).Select(button => new ButtonAutomationPeer(button).GetName()));
+        Assert.Equal(FileImportChoice.Cancel, window.Choice);
+        window.Close();
+      }
+      catch (Exception exception) { failure = exception; }
+    });
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    Assert.True(thread.Join(TimeSpan.FromSeconds(15)));
+    Assert.Null(failure);
+  }
+
+  [Fact]
   public void MainActionsRemainVisibleAtMinimumWindowSize()
   {
     Exception? failure = null;

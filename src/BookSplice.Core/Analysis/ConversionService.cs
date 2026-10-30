@@ -1,3 +1,4 @@
+using BookSplice.Core.Discovery;
 using BookSplice.Core.Execution;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Validation;
@@ -21,7 +22,7 @@ public enum ConversionStage { Analysis, Planning, Execution, Validation, Publica
 public enum ServiceDiagnosticSeverity { Error, Warning, Information }
 public sealed record ServiceDiagnostic(string Code, ServiceDiagnosticSeverity Severity, string Message);
 public sealed record ServiceStageTiming(ConversionStage Stage, DateTimeOffset StartedAt, DateTimeOffset FinishedAt);
-public sealed record ConversionRequest(string Source, bool CreateChapters, ConversionOptions Options, bool DryRun = false, BookAnalysisOptions? AnalysisOptions = null, IReadOnlyList<string>? ExpectedSourcePaths = null);
+public sealed record ConversionRequest(string Source, bool CreateChapters, ConversionOptions Options, bool DryRun = false, BookAnalysisOptions? AnalysisOptions = null, IReadOnlyList<string>? ExpectedSourcePaths = null, SourceSelection? Selection = null, IReadOnlyList<SourceIdentity>? ExpectedSources = null);
 
 public sealed record ConversionServiceResult(
   Guid JobId,
@@ -72,7 +73,7 @@ public sealed class ConversionService : IConversionService
 
     try
     {
-      analysis = await TimedPhaseAsync(progressSession, ConversionPhase.Analysis, ConversionStage.Analysis, token => _analyzer.AnalyzeAsync(request.Source, request.CreateChapters, request.AnalysisOptions, token), timings, cancellationToken).ConfigureAwait(false);
+      analysis = await TimedPhaseAsync(progressSession, ConversionPhase.Analysis, ConversionStage.Analysis, token => request.Selection is { } selection ? _analyzer.AnalyzeAsync(selection, request.CreateChapters, request.AnalysisOptions, token) : _analyzer.AnalyzeAsync(request.Source, request.CreateChapters, request.AnalysisOptions, token), timings, cancellationToken).ConfigureAwait(false);
       AddAnalysisDiagnostics(analysis.Diagnostics, diagnostics);
       if (analysis.Status != BookAnalysisStatus.Ready)
       {
@@ -80,7 +81,7 @@ public sealed class ConversionService : IConversionService
         return await FinishAsync(Result(status, ConversionStage.Analysis), request.DryRun, started, progressSession).ConfigureAwait(false);
       }
 
-      if (request.ExpectedSourcePaths is { } reviewed && !reviewed.SequenceEqual(analysis.OrderedFiles.Select(file => file.FullPath), StringComparer.OrdinalIgnoreCase))
+      if (SourcesChanged(request, analysis))
       {
         diagnostics.Add(new("analysis.sources-changed", ServiceDiagnosticSeverity.Warning, "Source files or playback order changed after review. Analyze the book again before converting."));
         return await FinishAsync(Result(ConversionTerminalStatus.DecisionRequired, ConversionStage.Analysis), request.DryRun, started, progressSession).ConfigureAwait(false);
@@ -143,6 +144,13 @@ public sealed class ConversionService : IConversionService
     }
 
     ConversionServiceResult Result(ConversionTerminalStatus status, ConversionStage resultStage) => new(jobId, status, resultStage, analysis, planning, execution, validation, publication, diagnostics.AsReadOnly(), timings.AsReadOnly(), publication?.FinalPath);
+  }
+
+  private static bool SourcesChanged(ConversionRequest request, BookAnalysis analysis)
+  {
+    if (request.ExpectedSourcePaths is { } paths && !paths.SequenceEqual(analysis.OrderedFiles.Select(file => file.FullPath), StringComparer.OrdinalIgnoreCase)) return true;
+    if (request.ExpectedSources is not { } reviewed) return false;
+    return reviewed.Count != analysis.OrderedFiles.Count || reviewed.Where((identity, index) => analysis.OrderedFiles[index].Identity?.Matches(identity) != true).Any();
   }
 
   private async Task<ConversionServiceResult> FinishAsync(ConversionServiceResult result, bool dryRun, DateTimeOffset started, ConversionProgressSession progressSession)

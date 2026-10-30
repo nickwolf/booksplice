@@ -1,4 +1,5 @@
 using BookSplice.Core.Analysis;
+using BookSplice.Core.Discovery;
 using BookSplice.Core.Chapters;
 using BookSplice.Core.Covers;
 using BookSplice.Core.Execution;
@@ -399,6 +400,13 @@ public sealed class QueueTests
 
   internal sealed class Analyzer : IBookAnalyzer
   {
+    public List<SourceSelection> Selections { get; } = [];
+    public Task<BookAnalysis> AnalyzeAsync(SourceSelection selection, bool chaptersEnabled, BookAnalysisOptions? options = null, CancellationToken cancellationToken = default)
+    {
+      Selections.Add(selection);
+      return AnalyzeAsync(selection.RootPath, chaptersEnabled, options, cancellationToken);
+    }
+
     public Task<BookAnalysis> AnalyzeAsync(string inputPath, bool chaptersEnabled, BookAnalysisOptions? options = null, CancellationToken cancellationToken = default)
     {
       var natural = new OrderCandidate(OrderCandidateId.NaturalPath, ["1.mp3", "2.mp3"], true, OrderConfidence.High, []);
@@ -421,6 +429,8 @@ public sealed class QueueTests
     private readonly Analyzer _inner = new();
     public List<string> Calls { get; } = [];
     public string? FailOn { get; init; }
+
+    public Task<BookAnalysis> AnalyzeAsync(SourceSelection selection, bool chaptersEnabled, BookAnalysisOptions? options = null, CancellationToken cancellationToken = default) => AnalyzeAsync(selection.RootPath, chaptersEnabled, options, cancellationToken);
 
     public async Task<BookAnalysis> AnalyzeAsync(string inputPath, bool chaptersEnabled, BookAnalysisOptions? options = null, CancellationToken cancellationToken = default)
     {

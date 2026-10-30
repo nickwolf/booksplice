@@ -2,7 +2,7 @@ namespace BookSplice.Core.Covers;
 
 public sealed record CoverRejection(string Code, string Message, string SourceIdentity);
 
-public sealed record CoverDiscoveryOptions(string? PriorSelectedContentHash = null);
+public sealed record CoverDiscoveryOptions(string? PriorSelectedContentHash = null, IReadOnlyList<string>? SearchDirectories = null);
 
 public sealed record CoverDiscoveryResult(
   IReadOnlyList<CoverCandidate> Candidates,

@@ -24,7 +24,7 @@
         </WrapPanel>
       </StackPanel>
       <TextBlock x:Name="Destination" TextWrapping="Wrap"/>
-      <TextBlock Text="Drop audiobook folders here. Each folder becomes one book. Add files selects individual books." TextWrapping="Wrap" Margin="0,6"/>
+      <TextBlock Text="Drop audiobook folders here. Each folder becomes one book. Add files can make one book from the selected tracks or one book per file." TextWrapping="Wrap" Margin="0,6"/>
       <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Foreground="Firebrick" AutomationProperties.LiveSetting="Polite"/>
       <StackPanel Visibility="{Binding IsBatchActive, Converter={StaticResource BooleanVisibility}}" Margin="0,4">
         <TextBlock Text="{Binding BatchProgress}" AutomationProperties.LiveSetting="Polite"/>

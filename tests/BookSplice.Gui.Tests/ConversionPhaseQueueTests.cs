@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Windows.Threading;
 using BookSplice.Core.Analysis;
+using BookSplice.Core.Discovery;
 using BookSplice.Core.Execution;
 using BookSplice.Core.Ordering;
 using BookSplice.Core.Settings;
@@ -267,6 +268,8 @@ public sealed class ConversionPhaseQueueTests
 
   private sealed class CancellingAnalyzer : IBookAnalyzer
   {
+    public Task<BookAnalysis> AnalyzeAsync(SourceSelection selection, bool chaptersEnabled, BookAnalysisOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
     public async Task<BookAnalysis> AnalyzeAsync(string inputPath, bool chaptersEnabled, BookAnalysisOptions? options = null, CancellationToken cancellationToken = default)
     {
       await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
