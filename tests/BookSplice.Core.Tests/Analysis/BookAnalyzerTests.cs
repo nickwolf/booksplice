@@ -89,6 +89,30 @@ public sealed class BookAnalyzerTests
     Assert.Equal(["Disc2/01.mp3"], analysis.OrderedFiles.Select(file => file.RelativePath));
   }
 
+  [Fact]
+  public async Task AnalyzeAsync_searches_covers_only_where_included_files_live()
+  {
+    var files = new[] { Located("Disc1/01.mp3"), Located("Disc2/01.mp3"), Located("Disc3/01.mp3") };
+    var selection = SourceSelection.Create(files.Select(file => file.FullPath).ToList());
+    var covers = new Covers();
+    var many = await Analyzer(new DiscoveryResult(files, [], []), covers: covers).AnalyzeAsync(selection, true, new BookAnalysisOptions(ReviewedOrder: new(["Disc1/01.mp3", "Disc2/01.mp3"], ["Disc3/01.mp3"])));
+    Assert.Equal(BookAnalysisStatus.Ready, many.Status);
+    Assert.Equal([Path.GetFullPath("C:/book/Disc1"), Path.GetFullPath("C:/book/Disc2")], covers.Directories!.Where(directory => directory != selection.RootPath).Select(Path.GetFullPath));
+    Assert.DoesNotContain(covers.Directories!, directory => directory.Contains("Disc3", StringComparison.Ordinal));
+
+    var single = new Covers();
+    await Analyzer(new DiscoveryResult(files, [], []), covers: single).AnalyzeAsync(selection, true, new BookAnalysisOptions(ReviewedOrder: new(["Disc2/01.mp3"], ["Disc1/01.mp3", "Disc3/01.mp3"])));
+    Assert.Null(single.Directories);
+    Assert.Equal(Path.GetFullPath("C:/book/Disc2"), Path.GetFullPath(single.Root!));
+  }
+
+  [Fact]
+  public async Task AnalyzeAsync_reports_the_discovered_ids_when_a_reviewed_order_no_longer_matches()
+  {
+    var analysis = await Analyzer(new DiscoveryResult([File("01.mp3"), File("02.mp3")], [], [])).AnalyzeAsync("book", true, new BookAnalysisOptions(ReviewedOrder: new(["01.mp3"], [])));
+    Assert.Equal(["01.mp3", "02.mp3"], analysis.DiscoveredFileIds);
+  }
+
   [Theory]
   [InlineData(new string[0], new[] { "01.mp3", "02.mp3" }, BookAnalysisStatus.Invalid, "analysis.order-empty")]
   [InlineData(new[] { "01.mp3", "01.mp3" }, new[] { "02.mp3" }, BookAnalysisStatus.Invalid, "analysis.order-invalid")]
@@ -108,11 +132,12 @@ public sealed class BookAnalyzerTests
     var candidate = Candidate(OrderCandidateId.NaturalPath, result.Files.Select(file => file.RelativePath));
     return new BookAnalyzer(new Discoverer(result), new Orders(resolution ?? new(OrderStatus.Resolved, candidate, [candidate], [])), metadata ?? new(), covers ?? new(), chapters ?? new());
   }
+  private static SourceFile Located(string relative) { var file = File(relative); return new(Path.GetFullPath("C:/book/" + relative), relative, file.ProbeResult); }
   private static SourceFile File(string path) => new(path, path, new MediaProbeResult([new AudioTrack(0, "mp3", "audio", 1, 44100, 1m, new Rational(1, 44100), new Dictionary<string, string>())], [], [], new TagCollection([]), new Dictionary<string, string>(), [], 1m));
   private static OrderCandidate Candidate(OrderCandidateId id, IEnumerable<string> paths) => new(id, paths, true, OrderConfidence.High, []);
   private sealed class Discoverer(DiscoveryResult result) : ISourceDiscoverer { public int Calls { get; private set; } public Task<DiscoveryResult> DiscoverAsync(string path, CancellationToken token = default) { Calls++; return Task.FromResult(result); } public Task<DiscoveryResult> DiscoverAsync(SourceSelection selection, CancellationToken token = default) { Calls++; return Task.FromResult(result); } }
   private sealed class Orders(OrderResolution result) : IOrderResolver { public OrderResolution Resolve(IReadOnlyList<SourceFile> files) => result; }
   private sealed class Metadata(bool conflict = false) : IMetadataAggregator { public int Calls { get; private set; } public string[] Seen { get; private set; } = []; public BookMetadata Aggregate(IReadOnlyList<SourceFile> files) { Calls++; Seen = files.Select(file => file.RelativePath).ToArray(); var state = conflict ? AggregationState.Conflicting : AggregationState.Consistent; return new BookMetadata(new Dictionary<SemanticField, AggregatedValue> { [SemanticField.BookTitle] = new(SemanticField.BookTitle, AggregationState.Consistent, "Title", []), [SemanticField.Author] = new(SemanticField.Author, state, "Author", []) }, new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>()); } }
-  private sealed class Covers(CoverDiscoveryResult? result = null) : ICoverDiscoverer { public int Calls { get; private set; } public string? PriorHash { get; private set; } public string[] Seen { get; private set; } = []; public Task<CoverDiscoveryResult> DiscoverAsync(string root, IReadOnlyList<SourceFile> files, CancellationToken token) => DiscoverAsync(root, files, new(), token); public Task<CoverDiscoveryResult> DiscoverAsync(string root, IReadOnlyList<SourceFile> files, CoverDiscoveryOptions options, CancellationToken token) { Calls++; Seen = files.Select(file => file.RelativePath).ToArray(); PriorHash = options.PriorSelectedContentHash; return Task.FromResult(result ?? new CoverDiscoveryResult([], [], null)); } }
+  private sealed class Covers(CoverDiscoveryResult? result = null) : ICoverDiscoverer { public int Calls { get; private set; } public string? PriorHash { get; private set; } public string[] Seen { get; private set; } = []; public string? Root { get; private set; } public IReadOnlyList<string>? Directories { get; private set; } public Task<CoverDiscoveryResult> DiscoverAsync(string root, IReadOnlyList<SourceFile> files, CancellationToken token) => DiscoverAsync(root, files, new(), token); public Task<CoverDiscoveryResult> DiscoverAsync(string root, IReadOnlyList<SourceFile> files, CoverDiscoveryOptions options, CancellationToken token) { Calls++; Root = root; Directories = options.SearchDirectories; Root = root; Directories = options.SearchDirectories; Seen = files.Select(file => file.RelativePath).ToArray(); PriorHash = options.PriorSelectedContentHash; return Task.FromResult(result ?? new CoverDiscoveryResult([], [], null)); } }
   private sealed class Chapters(ChapterPlan? plan = null) : IChapterPlanner { public int Calls { get; private set; } public string[] Seen { get; private set; } = []; public ChapterPlan Create(IReadOnlyList<SourceFile> files, bool enabled) { Calls++; Seen = files.Select(file => file.RelativePath).ToArray(); return plan ?? ChapterPlan.Valid([], enabled ? 1_000_000 : 0); } }
 }

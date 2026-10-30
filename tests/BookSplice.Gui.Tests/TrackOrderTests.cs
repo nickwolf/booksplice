@@ -155,11 +155,14 @@ public sealed class TrackOrderTests
   }
 
   [Fact]
-  public async Task ASourceChangeAfterReviewKeepsTheDraftAndBlocksConversion()
+  public async Task ANewFileAfterReviewJoinsTheDraftAsExcludedAndTheOldSequenceStillApplies()
   {
     var (model, item, analyzer, converter) = await StartAsync();
-    item.ExcludeTrack("a.mp3");
-    analyzer.ChangedSources = true;
+    item.MoveTrack("c.mp3", -2);
+    item.ExcludeTrack("b.mp3");
+    await model.ApplyTrackListAsync(item);
+    analyzer.Discovered = ["a.mp3", "b.mp3", "c.mp3", "d.mp3"];
+    analyzer.NoCandidates = true;
 
     await model.ApplyTrackListAsync(item);
     await model.ConvertAsync(item);
@@ -167,8 +170,34 @@ public sealed class TrackOrderTests
     Assert.Equal(BookAnalysisStatus.NeedsDecision, item.Analysis!.Status);
     Assert.False(item.CanConvert);
     Assert.Empty(converter.Requests);
-    Assert.Equal(["b.mp3", "c.mp3"], item.IncludedTracks);
+    Assert.Equal(["c.mp3", "a.mp3"], item.IncludedTracks);
+    Assert.Equal(["b.mp3", "d.mp3"], item.ExcludedTracks);
+    Assert.Contains("1 new file", item.Details, StringComparison.Ordinal);
+
+    await model.ApplyTrackListAsync(item);
+    await model.ConvertAsync(item);
+
+    Assert.Equal(BookAnalysisStatus.Ready, item.Analysis!.Status);
+    Assert.Equal([Path.Combine(Root, "c.mp3"), Path.Combine(Root, "a.mp3")], Assert.Single(converter.Requests).ExpectedSourcePaths);
+  }
+
+  [Fact]
+  public async Task AnIncludedFileDeletedAfterReviewLeavesTheDraftAndApplyWorks()
+  {
+    var (model, item, analyzer, converter) = await StartAsync();
+    item.ExcludeTrack("a.mp3");
+    await model.ApplyTrackListAsync(item);
+    analyzer.Discovered = ["a.mp3", "c.mp3"];
+
+    await model.ApplyTrackListAsync(item);
+
+    Assert.Equal(["c.mp3"], item.IncludedTracks);
     Assert.Equal(["a.mp3"], item.ExcludedTracks);
+    Assert.Contains("1 missing file", item.Details, StringComparison.Ordinal);
+    await model.ApplyTrackListAsync(item);
+    Assert.Equal(BookAnalysisStatus.Ready, item.Analysis!.Status);
+    await model.ConvertAsync(item);
+    Assert.Equal([Path.Combine(Root, "c.mp3")], Assert.Single(converter.Requests).ExpectedSourcePaths);
   }
 
   [Fact]
@@ -202,23 +231,26 @@ public sealed class TrackOrderTests
   private sealed class Analyzer : IBookAnalyzer
   {
     public List<BookAnalysisOptions?> Options { get; } = [];
-    public bool ChangedSources { get; set; }
+    public string[] Discovered { get; set; } = ["a.mp3", "b.mp3", "c.mp3"];
+    public bool NoCandidates { get; set; }
 
     public Task<BookAnalysis> AnalyzeAsync(SourceSelection selection, bool chaptersEnabled, BookAnalysisOptions? options = null, CancellationToken cancellationToken = default) => AnalyzeAsync(selection.RootPath, chaptersEnabled, options, cancellationToken);
 
     public Task<BookAnalysis> AnalyzeAsync(string inputPath, bool chaptersEnabled, BookAnalysisOptions? options = null, CancellationToken cancellationToken = default)
     {
       Options.Add(options);
-      string[] all = ["a.mp3", "b.mp3", "c.mp3"];
+      string[] all = Discovered;
       var natural = new OrderCandidate(OrderCandidateId.NaturalPath, all, true, OrderConfidence.High, []);
       var tags = new OrderCandidate(OrderCandidateId.Metadata, all, true, OrderConfidence.High, []);
-      var resolution = new OrderResolution(OrderStatus.Resolved, natural, [natural, tags], []);
+      var resolution = NoCandidates ? new OrderResolution(OrderStatus.NeedsDecision, null, [], []) : new OrderResolution(OrderStatus.Resolved, natural, [natural, tags], []);
       var metadata = new BookMetadata(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>());
-      var included = options?.ReviewedOrder?.Included ?? all;
-      var excluded = options?.ReviewedOrder?.Excluded ?? [];
-      var status = ChangedSources && options?.ReviewedOrder is not null ? BookAnalysisStatus.NeedsDecision : BookAnalysisStatus.Ready;
-      return Task.FromResult(new BookAnalysis(status, inputPath, "trackbook", status == BookAnalysisStatus.Ready ? included.Select(File) : [], resolution, metadata,
-        new CoverDiscoveryResult([], [], null), ChapterPlan.Valid([], 0), [], status == BookAnalysisStatus.Ready ? excluded.Select(File) : []));
+      var reviewed = options?.ReviewedOrder;
+      var listed = reviewed is null ? all : reviewed.Included.Concat(reviewed.Excluded).ToArray();
+      var matches = listed.Order().SequenceEqual(all.Order());
+      var status = matches ? BookAnalysisStatus.Ready : BookAnalysisStatus.NeedsDecision;
+      IEnumerable<AnalysisDiagnostic> diagnostics = matches ? [] : [new("analysis.order-sources-changed", AnalysisDiagnosticSeverity.Warning, "The files in the source changed.")];
+      return Task.FromResult(new BookAnalysis(status, inputPath, "trackbook", matches ? (reviewed?.Included ?? all).Select(File) : [], resolution, metadata,
+        new CoverDiscoveryResult([], [], null), ChapterPlan.Valid([], 0), diagnostics, matches ? (reviewed?.Excluded ?? []).Select(File) : [], all));
     }
   }
 

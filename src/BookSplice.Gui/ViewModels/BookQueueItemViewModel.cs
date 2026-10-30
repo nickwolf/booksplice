@@ -147,6 +147,20 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings, 
     _ => false,
   };
 
+  // Keeps the reviewed choices for files that are still there; a new file is never included without a decision.
+  private string ReconcileTrackList(IReadOnlyList<string> discovered)
+  {
+    var present = discovered.ToHashSet(StringComparer.Ordinal);
+    var known = IncludedTracks.Concat(ExcludedTracks).ToHashSet(StringComparer.Ordinal);
+    var included = IncludedTracks.Where(present.Contains).ToArray();
+    var excluded = ExcludedTracks.Where(present.Contains).ToList();
+    var added = discovered.Where(id => !known.Contains(id)).ToArray();
+    excluded.AddRange(added);
+    var removed = known.Count - (included.Length + excluded.Count - added.Length);
+    LoadTrackList(included, excluded);
+    return $"The track list was updated to match the source: {added.Length} new file(s) were added to the excluded list and {removed} missing file(s) were removed. Review the lists, then apply.";
+  }
+
   public ReviewedTrackOrder CreateReviewedOrder() => new(IncludedTracks.ToArray(), ExcludedTracks.ToArray());
 
   private void SetTrackListEdited(bool edited)
@@ -159,7 +173,9 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings, 
   internal void SetAnalysis(BookAnalysis analysis)
   {
     Analysis = analysis;
+    string? trackListNote = null;
     if (analysis.OrderedFiles.Count > 0) LoadTrackList(analysis.OrderedFiles.Select(file => file.RelativePath), analysis.ExcludedFiles.Select(file => file.RelativePath));
+    else if (analysis.Diagnostics.Any(diagnostic => diagnostic.Code == "analysis.order-sources-changed")) trackListNote = ReconcileTrackList(analysis.DiscoveredFileIds);
     var edits = Metadata.Where(field => field.IsEdited).ToDictionary(field => field.Field, field => field.Value);
     Metadata.Clear();
     foreach (var field in Enum.GetValues<Core.Metadata.SemanticField>().Where(field => field is not (Core.Metadata.SemanticField.Track or Core.Metadata.SemanticField.Disc)))
@@ -177,7 +193,7 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings, 
       BookAnalysisStatus.InspectOnly => "M4B inspection only",
       _ => "Invalid input"
     };
-    Details = string.Join(Environment.NewLine, analysis.Diagnostics.Select(diagnostic => diagnostic.Message));
+    Details = string.Join(Environment.NewLine, analysis.Diagnostics.Select(diagnostic => diagnostic.Message).Concat(trackListNote is null ? [] : [trackListNote]));
     foreach (var property in new[] { nameof(Analysis), nameof(OrderCandidates), nameof(Covers), nameof(SelectedCover), nameof(OrderedFiles), nameof(Summary), nameof(CanConvert) }) Changed(property);
   }
 }

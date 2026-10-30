@@ -36,14 +36,10 @@ public sealed class BookAnalyzer : IBookAnalyzer
     ArgumentNullException.ThrowIfNull(selection);
     cancellationToken.ThrowIfCancellationRequested();
     var discovery = await _discoverer.DiscoverAsync(selection, cancellationToken).ConfigureAwait(false);
-    // Files in one directory keep the recursive root search of a single file; a wider set searches only the directories of accepted files.
-    var directories = discovery.Files.Select(file => Path.GetDirectoryName(file.FullPath)!).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-    return directories.Length <= 1
-      ? await AnalyzeDiscoveredAsync(discovery, selection.RootPath, directories.FirstOrDefault(), null, chaptersEnabled, options, cancellationToken).ConfigureAwait(false)
-      : await AnalyzeDiscoveredAsync(discovery, selection.RootPath, null, directories.Prepend(selection.RootPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), chaptersEnabled, options, cancellationToken).ConfigureAwait(false);
+    return await AnalyzeDiscoveredAsync(discovery, selection.RootPath, null, null, chaptersEnabled, options, cancellationToken, selection: true).ConfigureAwait(false);
   }
 
-  private async Task<BookAnalysis> AnalyzeDiscoveredAsync(DiscoveryResult discovery, string root, string? coverRoot, IReadOnlyList<string>? coverDirectories, bool chaptersEnabled, BookAnalysisOptions? options, CancellationToken cancellationToken)
+  private async Task<BookAnalysis> AnalyzeDiscoveredAsync(DiscoveryResult discovery, string root, string? coverRoot, IReadOnlyList<string>? coverDirectories, bool chaptersEnabled, BookAnalysisOptions? options, CancellationToken cancellationToken, bool selection = false)
   {
     options ??= new();
     var diagnostics = discovery.Errors.Select(d => new AnalysisDiagnostic(d.Code, AnalysisDiagnosticSeverity.Error, d.Message)).Concat(discovery.Warnings.Select(d => new AnalysisDiagnostic(d.Code, AnalysisDiagnosticSeverity.Warning, d.Message))).ToList();
@@ -62,7 +58,7 @@ public sealed class BookAnalyzer : IBookAnalyzer
       if (ReviewedOrderProblem(reviewed, byId) is { } problem)
       {
         diagnostics.Add(problem.Diagnostic);
-        return Empty(problem.Status, root, rootName, diagnostics, resolution);
+        return Empty(problem.Status, root, rootName, diagnostics, resolution, discovery.Files.Select(file => file.RelativePath));
       }
       ordered = reviewed.Included.Select(id => byId[id]).ToArray();
       excluded = reviewed.Excluded.Select(id => byId[id]).ToArray();
@@ -84,6 +80,13 @@ public sealed class BookAnalyzer : IBookAnalyzer
     }
     var metadata = _metadataAggregator.Aggregate(ordered);
     foreach (var field in metadata.Fields.Values.Where(value => value.State == AggregationState.Conflicting)) diagnostics.Add(new($"metadata.{field.Field}.conflict", AnalysisDiagnosticSeverity.Warning, $"Conflicting values were found for {field.Field}."));
+    if (selection)
+    {
+      // Files in one directory keep the recursive root search of a single file; a wider set searches only the directories of included files.
+      var directories = ordered.Select(file => Path.GetDirectoryName(file.FullPath)!).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+      if (directories.Length <= 1) coverRoot = directories.FirstOrDefault();
+      else coverDirectories = directories.Prepend(root).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
     var cover = await _coverDiscoverer.DiscoverAsync(coverRoot ?? root, ordered, new CoverDiscoveryOptions(options.PriorSelectedCoverHash, coverDirectories), cancellationToken).ConfigureAwait(false);
     foreach (var rejection in cover.Rejections) diagnostics.Add(new(rejection.Code, AnalysisDiagnosticSeverity.Warning, rejection.Message));
     var chapters = _chapterPlanner.Create(ordered, chaptersEnabled);
@@ -105,7 +108,7 @@ public sealed class BookAnalyzer : IBookAnalyzer
   }
   private static OrderCandidate? SelectCandidate(OrderResolution resolution, OrderCandidateId? requested)
     => requested is { } id ? resolution.Candidates.SingleOrDefault(candidate => candidate.Id == id && candidate.IsCredible) : resolution.Status == OrderStatus.Resolved ? resolution.SelectedCandidate : null;
-  private static BookAnalysis Empty(BookAnalysisStatus status, string root, string name, IEnumerable<AnalysisDiagnostic> diagnostics, OrderResolution? resolution = null) => new(status, root, name, [], resolution, new BookMetadata(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>()), new CoverDiscoveryResult([], [], null), ChapterPlan.Valid([], 0), diagnostics);
+  private static BookAnalysis Empty(BookAnalysisStatus status, string root, string name, IEnumerable<AnalysisDiagnostic> diagnostics, OrderResolution? resolution = null, IEnumerable<string>? discoveredFileIds = null) => new(status, root, name, [], resolution, new BookMetadata(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>()), new CoverDiscoveryResult([], [], null), ChapterPlan.Valid([], 0), diagnostics, null, discoveredFileIds);
   private static string SourceRootPath(string inputPath, IReadOnlyList<SourceFile> files)
   {
     var candidate = Directory.Exists(inputPath) ? inputPath : Path.GetDirectoryName(files.Count == 0 ? inputPath : files[0].FullPath);
