@@ -1,0 +1,30 @@
+<Window x:Class="BookSplice.Gui.Views.PresetManagerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Presets" Width="760" Height="520" MinWidth="560" MinHeight="360"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+  <DockPanel Margin="16">
+    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Text="A preset is copied into a book when you apply it. Changing, renaming or deleting a preset does not change books that already used it."/>
+    <TextBlock DockPanel.Dock="Top" Text="{Binding FileProblem}" Foreground="Firebrick" TextWrapping="Wrap" Margin="0,8,0,0" AutomationProperties.LiveSetting="Polite"/>
+    <TextBox DockPanel.Dock="Bottom" Text="{Binding Message, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="110" MinHeight="40"
+             VerticalScrollBarVisibility="Auto" Margin="0,8,0,0" AutomationProperties.Name="Preset status"/>
+    <StackPanel DockPanel.Dock="Right" Margin="12,8,0,0" Width="190">
+      <Button Content="_Rename..." Click="Rename_Click" IsEnabled="{Binding CanChange}" Padding="12,6" Margin="0,0,0,6"/>
+      <Button x:Name="UpdateButton" Content="_Update from selected book" Click="Update_Click" IsEnabled="{Binding CanChange}" Padding="12,6" Margin="0,0,0,6"
+              AutomationProperties.HelpText="Replaces the preset's values with the selected book's current settings"/>
+      <Button Content="_Delete" Click="Delete_Click" IsEnabled="{Binding CanChange}" Padding="12,6" Margin="0,0,0,18"/>
+      <Button Content="_Export..." Click="Export_Click" Padding="12,6" Margin="0,0,0,6"
+              AutomationProperties.HelpText="Exports the selected presets, or all of them when none is selected"/>
+      <Button Content="_Import..." Click="Import_Click" IsEnabled="{Binding CanChange}" Padding="12,6" Margin="0,0,0,18"/>
+      <Button Content="Close" IsCancel="True" Padding="12,6"/>
+    </StackPanel>
+    <Grid Margin="0,8,0,0">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="*"/>
+      </Grid.ColumnDefinitions>
+      <ListBox x:Name="List" ItemsSource="{Binding Presets}" DisplayMemberPath="Display" SelectionMode="Extended" SelectionChanged="List_Changed" AutomationProperties.Name="Saved presets"/>
+      <TextBox x:Name="Details" Grid.Column="1" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Margin="8,0,0,0" AutomationProperties.Name="Selected preset details"/>
+    </Grid>
+  </DockPanel>
+</Window>
