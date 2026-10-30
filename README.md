@@ -91,13 +91,26 @@ The default is `{title}`, which puts `Title.m4b` directly in the destination fol
 
 The template is saved as `outputTemplate` in `settings.json`; older settings files without it use the default. On the command line, `--output-template` overrides it for one run.
 
+### Presets
+
+A preset is a named set of conversion settings: audio quality, channel handling, chapters, validation level, metadata profile, and optionally a folder and file name template and a destination folder. Use it to switch between recurring workflows without changing each control.
+
+- In the **Output** tab, pick a preset and choose **Apply to this book**. **Save as new preset** keeps the selected book's current settings under a name you type. **Manage presets** renames, updates, deletes, imports and exports presets.
+- Applying a preset copies its values into that one book. Editing, renaming or deleting the preset later does not change books that already used it. A book that is converting or finished cannot have a preset applied.
+- A preset without a name template or destination folder leaves the book's own value alone.
+- A preset that names a quality profile or metadata profile that is no longer available, or has an invalid template, is marked **needs fixing** and is refused with a message that names the preset and the field. Nothing is applied and nothing falls back to a default. Fix it by updating the preset from a book with valid settings, or by editing `presets.json`.
+- Export shows the exact file text before it is saved. The destination folder is left out unless you tick **Include the output folder**, because it is a path on this computer. Import checks each preset, adds the valid ones, and reports names that already exist or values that are not valid. It never overwrites an existing preset.
+- Presets are saved in `presets.json` next to `settings.json`. If that file is damaged or was written by a newer version, BookSplice reports it, leaves it untouched, and does not save presets until it is fixed.
+
+On the command line, `--preset <name>` applies a preset on top of the saved defaults, and any option you also pass wins over the preset. `--list-presets` shows the saved presets and which ones need fixing. Preset names are not case sensitive.
+
 ## GUI workflow
 
 1. Drop one or more audiobook folders onto the main window, or use **Add folder**. Each folder becomes one book. To queue a parent folder that holds several books, use **Add jobs from folder**: it previews one proposed book per subfolder (disc folders such as `Disc 1` or `CD2` merge into the book above them) and lets you combine, split or remove groups before anything is added.
 2. Select a queued book and review its file count, duration, codec summary, metadata, chapters, and cover.
 3. If BookSplice finds more than one credible order, inspect each complete track list and choose one. Conversion remains disabled until an order is selected.
 4. Edit metadata or chapter titles, select different artwork, or choose not to embed artwork.
-5. Open **Output** to review or change that book's conversion settings, then use **Preview output** to check the planned output path and any notes about it (skipped folders, missing fields, name collisions), whether audio is copied or re-encoded and why, and the estimated storage needed. Stream-copy previews do not present the unused transcode bitrate. A preview refused for lack of space still shows the estimate.
+5. Open **Output** to review or change that book's conversion settings, optionally apply a preset (see Presets above), then use **Preview output** to check the planned output path and any notes about it (skipped folders, missing fields, name collisions), whether audio is copied or re-encoded and why, and the estimated storage needed. Stream-copy previews do not present the unused transcode bitrate. A preview refused for lack of space still shows the estimate.
 6. Convert the selected book or all ready books. The result card shows whether conversion completed, completed with warnings, was cancelled, or failed, along with the published output path and elapsed time. It names the lightweight checks and full audio decode separately. Warnings remain visible; expand **Validation checks** or **Diagnostics** for details. **Open output folder** is available when the published file exists. Use **Copy diagnostics** to copy a support summary and tool output with recognized local paths redacted.
 
 During conversion, the queue names the active operation, such as reanalyzing sources, encoding audio, assembling audio, checking output, validating full audio, or publishing output. The percentage and **Phase remaining** estimate apply only to the current measurable phase and can reset when the phase changes. An operation without a reliable measurement shows **Numeric progress unavailable** and an indeterminate bar. The estimate needs at least 3 seconds of advancing samples from a recent 30-second window; it disappears when the last numeric advance is more than 10 seconds old. After 30 seconds without an operation report, the queue says how long it has been since an update. If reports continue but an expected measurement does not advance for 30 seconds, it says that instead. These are activity advisories, not timeouts: they do not cancel conversion or decide whether validation passed. Cancel remains available while work is active; cleanup or an atomic publication step may finish before the request settles. The result card, including its validation evidence and warnings, remains the final outcome.
@@ -122,6 +135,8 @@ booksplice <source> [options]
   --channels <preserve|mono|stereo> Output channel handling
   --output-template <template>      Folders and file name, e.g. {author}\{series}\{title}
   --chapters | --no-chapters        Chapter creation
+  --preset <name>                   Start from a saved preset; other options still win
+  --list-presets                    List saved presets and whether each is usable
   --overwrite                       Replace an existing output after validation
   --dry-run                         Plan without output, temporary files, or audit records
   --json                            Newline-delimited JSON; never prompts
@@ -146,6 +161,7 @@ BookSplice stores local state under `%LOCALAPPDATA%\BookSplice`:
 | Path | Contents |
 | --- | --- |
 | `settings.json` | Persistent GUI and CLI defaults |
+| `presets.json` | Named conversion presets |
 | `logs\` | Atomic JSON audit records for non-dry-run jobs |
 | `temp\` | Per-job temporary files removed after success, failure, or cancellation |
 | `crash-reports\` | Up to 5 small JSON reports from unexpected GUI failures |
