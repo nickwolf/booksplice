@@ -151,6 +151,24 @@ public sealed class PresetStoreTests : IDisposable
     Assert.Contains(loaded.Errors, error => error.Contains("appears more than once"));
   }
 
+  [Theory]
+  [InlineData("{\"schemaVersion\":1,\"schemaVersion\":1,\"presets\":[]}")]
+  [InlineData("{\"schemaVersion\":1,\"presets\":[{\"name\":\"A\",\"name\":\"B\"}]}")]
+  public void Duplicate_json_keys_are_reported_not_thrown(string text)
+  {
+    Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+    File.WriteAllText(FilePath, text);
+
+    var loaded = Store().Load();
+    var imported = PresetPortable.Import(Encoding.UTF8.GetBytes(text), [], MetadataProfileCatalog.BuiltIn);
+
+    Assert.True(loaded.HasProblem);
+    Assert.False(loaded.CanSave);
+    Assert.NotEmpty(loaded.Errors);
+    Assert.Empty(imported.Accepted);
+    Assert.Equal(text, File.ReadAllText(FilePath));
+  }
+
   [Fact]
   public void Validator_names_the_preset_and_each_bad_field()
   {

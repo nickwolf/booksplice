@@ -47,6 +47,13 @@ internal static class PresetFormat
 
   public static ParsedPresetFile Parse(byte[] bytes)
   {
+    try { return ParseCore(bytes); }
+    catch (Exception exception) when (exception is JsonException or ArgumentException or FormatException or InvalidOperationException or NotSupportedException)
+    { return Fail(PresetLoadCode.Corrupt, $"The file is not valid presets JSON: {exception.Message}"); }
+  }
+
+  private static ParsedPresetFile ParseCore(byte[] bytes)
+  {
     if (bytes.Length > MaximumFileBytes) return Fail(PresetLoadCode.Corrupt, $"The file is larger than {MaximumFileBytes} bytes.");
     JsonNode? node;
     try { node = JsonNode.Parse(bytes, documentOptions: new JsonDocumentOptions { MaxDepth = 16 }); }
