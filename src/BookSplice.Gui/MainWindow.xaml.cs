@@ -210,6 +210,30 @@ public partial class MainWindow : Window
     if (_model is not null) await _model.ConvertAllAsync();
   }
 
+  private async void RetryFailed_Click(object sender, RoutedEventArgs e)
+  {
+    if (_model is not null) await _model.RetryFailedAsync();
+  }
+
+  private void PauseQueue_Click(object sender, RoutedEventArgs e)
+  {
+    if (_model is null) return;
+    if (_model.IsQueuePaused) _model.ResumeQueue();
+    else _model.PauseQueue();
+  }
+
+  private void ClearCompleted_Click(object sender, RoutedEventArgs e) => _model?.ClearCompleted();
+
+  private void MoveEarlier_Click(object sender, RoutedEventArgs e) => MoveSelected(-1);
+  private void MoveLater_Click(object sender, RoutedEventArgs e) => MoveSelected(1);
+
+  private void MoveSelected(int offset)
+  {
+    if (_model is null || Queue.SelectedItem is not BookQueueItemViewModel item) return;
+    _model.Move(item, offset);
+    Queue.SelectedItem = item;
+  }
+
   private void Cancel_Click(object sender, RoutedEventArgs e)
   {
     if (Queue.SelectedItem is BookQueueItemViewModel item) item.Cancel();
