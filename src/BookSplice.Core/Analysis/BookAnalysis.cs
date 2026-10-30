@@ -9,17 +9,20 @@ namespace BookSplice.Core.Analysis;
 public enum BookAnalysisStatus { Ready, NeedsDecision, Invalid, InspectOnly }
 public enum AnalysisDiagnosticSeverity { Error, Warning, Information }
 public sealed record AnalysisDiagnostic(string Code, AnalysisDiagnosticSeverity Severity, string Message);
-public sealed record BookAnalysisOptions(OrderCandidateId? SelectedOrderCandidateId = null, string? PriorSelectedCoverHash = null);
+public sealed record ReviewedTrackOrder(IReadOnlyList<string> Included, IReadOnlyList<string> Excluded);
+public sealed record BookAnalysisOptions(OrderCandidateId? SelectedOrderCandidateId = null, string? PriorSelectedCoverHash = null, ReviewedTrackOrder? ReviewedOrder = null);
 
 public sealed class BookAnalysis
 {
   public BookAnalysis(BookAnalysisStatus status, string sourceRoot, IEnumerable<SourceFile> orderedFiles, OrderResolution? orderResolution, BookMetadata bookMetadata, CoverDiscoveryResult cover, ChapterPlan chapters, IEnumerable<AnalysisDiagnostic> diagnostics) : this(status, sourceRoot, SourceName(sourceRoot), orderedFiles, orderResolution, bookMetadata, cover, chapters, diagnostics) { }
-  public BookAnalysis(BookAnalysisStatus status, string sourceRootPath, string sourceRootName, IEnumerable<SourceFile> orderedFiles, OrderResolution? orderResolution, BookMetadata bookMetadata, CoverDiscoveryResult cover, ChapterPlan chapters, IEnumerable<AnalysisDiagnostic> diagnostics)
+  public BookAnalysis(BookAnalysisStatus status, string sourceRootPath, string sourceRootName, IEnumerable<SourceFile> orderedFiles, OrderResolution? orderResolution, BookMetadata bookMetadata, CoverDiscoveryResult cover, ChapterPlan chapters, IEnumerable<AnalysisDiagnostic> diagnostics, IEnumerable<SourceFile>? excludedFiles = null, IEnumerable<string>? discoveredFileIds = null)
   {
     Status = status;
     SourceRootPath = sourceRootPath;
     SourceRootName = string.IsNullOrWhiteSpace(sourceRootName) ? "Audiobook" : sourceRootName;
     OrderedFiles = Array.AsReadOnly(orderedFiles.Select(CopyFile).ToArray());
+    ExcludedFiles = Array.AsReadOnly((excludedFiles ?? []).Select(CopyFile).ToArray());
+    DiscoveredFileIds = Array.AsReadOnly((discoveredFileIds ?? OrderedFiles.Concat(ExcludedFiles).Select(file => file.RelativePath)).ToArray());
     OrderResolution = CopyOrder(orderResolution);
     BookMetadata = CopyMetadata(bookMetadata);
     Cover = new CoverDiscoveryResult(Array.AsReadOnly(cover.Candidates.ToArray()), Array.AsReadOnly(cover.Rejections.ToArray()), cover.Selected);
@@ -31,6 +34,8 @@ public sealed class BookAnalysis
   public string SourceRootName { get; }
   public string SourceRoot => SourceRootName;
   public IReadOnlyList<SourceFile> OrderedFiles { get; }
+  public IReadOnlyList<SourceFile> ExcludedFiles { get; }
+  public IReadOnlyList<string> DiscoveredFileIds { get; }
   public OrderResolution? OrderResolution { get; }
   public BookMetadata BookMetadata { get; }
   public CoverDiscoveryResult Cover { get; }

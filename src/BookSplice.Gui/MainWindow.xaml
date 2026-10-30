@@ -125,14 +125,34 @@
             </DataGrid>
           </TabItem>
           <TabItem Header="_Track order">
-            <DockPanel Margin="8">
-              <StackPanel DockPanel.Dock="Top" IsEnabled="{Binding CanEdit}">
-                <TextBlock Text="Review a candidate's complete track list, then apply it." TextWrapping="Wrap"/>
-                <ComboBox x:Name="OrderChoice" ItemsSource="{Binding OrderCandidates}" DisplayMemberPath="Id" AutomationProperties.Name="Ordering candidate" Margin="0,8"/>
-                <Button Content="_Use selected order" Click="Order_Click" Padding="12,6" HorizontalAlignment="Left"/>
-                <TextBlock Text="Candidate preview" FontWeight="SemiBold" Margin="0,12,0,6"/>
+            <DockPanel Margin="8" IsEnabled="{Binding CanEdit}">
+              <StackPanel DockPanel.Dock="Top">
+                <TextBlock Text="Start from a candidate order, then move or exclude tracks. Alt+Up and Alt+Down move the selected track, Delete excludes it, Enter puts an excluded track back." TextWrapping="Wrap"/>
+                <ComboBox x:Name="OrderChoice" ItemsSource="{Binding OrderCandidates}" DisplayMemberPath="Id" SelectionChanged="OrderChoice_Changed" AutomationProperties.Name="Ordering candidate" Margin="0,8"/>
               </StackPanel>
-              <ListBox ItemsSource="{Binding SelectedItem.FileIds, ElementName=OrderChoice}" AutomationProperties.Name="Candidate track order"/>
+              <Button DockPanel.Dock="Bottom" Content="_Use selected order" IsEnabled="{Binding CanApplyTrackList}" Click="Order_Click" Padding="12,6" Margin="0,8,0,0" HorizontalAlignment="Left"/>
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <DockPanel Margin="0,0,8,0">
+                  <TextBlock DockPanel.Dock="Top" Text="Included tracks" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                  <WrapPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                    <Button Content="Move hi_gher" Click="TrackUp_Click" Padding="12,6" Margin="0,0,8,0"/>
+                    <Button Content="Move lo_wer" Click="TrackDown_Click" Padding="12,6" Margin="0,0,8,0"/>
+                    <Button Content="E_xclude" Click="TrackExclude_Click" Padding="12,6"/>
+                  </WrapPanel>
+                  <ListBox x:Name="IncludedList" ItemsSource="{Binding IncludedTracks}" PreviewKeyDown="IncludedList_KeyDown" AutomationProperties.Name="Included tracks in conversion order"/>
+                </DockPanel>
+                <DockPanel Grid.Column="1">
+                  <TextBlock DockPanel.Dock="Top" Text="Excluded tracks" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                  <WrapPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                    <Button Content="Put bac_k" Click="TrackInclude_Click" Padding="12,6"/>
+                  </WrapPanel>
+                  <ListBox x:Name="ExcludedList" ItemsSource="{Binding ExcludedTracks}" PreviewKeyDown="ExcludedList_KeyDown" AutomationProperties.Name="Excluded tracks"/>
+                </DockPanel>
+              </Grid>
             </DockPanel>
           </TabItem>
           <TabItem Header="_Cover">

@@ -46,6 +46,12 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings, 
   public string MetadataProfileId { get => Settings.MetadataProfileId; set { if (_profiles.Find(value) is not null) UpdateSettings(Settings with { MetadataProfileId = value }); } }
   public BookAnalysis? Analysis { get; private set; }
   public OrderCandidateId? SelectedOrder { get; set; }
+  public ReviewedTrackOrder? ReviewedOrder { get; internal set; }
+  public BookAnalysisOptions AnalysisOptions => new(SelectedOrder, ReviewedOrder: ReviewedOrder);
+  public ObservableCollection<string> IncludedTracks { get; } = [];
+  public ObservableCollection<string> ExcludedTracks { get; } = [];
+  public bool IsTrackListEdited { get; private set; }
+  public bool CanApplyTrackList => IncludedTracks.Count > 0;
   public CoverCandidate? SelectedCover { get; set; }
   public bool OmitCover { get; set; }
   public ObservableCollection<ChapterViewModel> Chapters { get; } = [];
@@ -53,7 +59,7 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings, 
   public IReadOnlyList<OrderCandidate> OrderCandidates => Analysis?.OrderResolution?.Candidates.Where(candidate => candidate.IsCredible).ToArray() ?? [];
   public IReadOnlyList<CoverCandidate> Covers => Analysis?.Cover.Candidates ?? [];
   public IReadOnlyList<string> OrderedFiles => Analysis?.OrderedFiles.Select(file => file.RelativePath).ToArray() ?? [];
-  public string Summary => Analysis is null ? "" : $"{Analysis.OrderedFiles.Count} files | {TimeSpan.FromMicroseconds(Analysis.Chapters.TotalDurationMicroseconds):g} | {string.Join(", ", Analysis.OrderedFiles.SelectMany(file => file.ProbeResult.AudioStreams).Select(stream => stream.CodecName).Distinct())}";
+  public string Summary => Analysis is null ? "" : $"{Analysis.OrderedFiles.Count} files{(Analysis.ExcludedFiles.Count > 0 ? $" ({Analysis.ExcludedFiles.Count} excluded)" : "")} | {TimeSpan.FromMicroseconds(Analysis.Chapters.TotalDurationMicroseconds):g} | {string.Join(", ", Analysis.OrderedFiles.SelectMany(file => file.ProbeResult.AudioStreams).Select(stream => stream.CodecName).Distinct())}";
   public string Status { get => _status; internal set { _status = value; Changed(); Changed(nameof(QueueStatus)); Changed(nameof(CanConvert)); } }
   public string QueueStatus => Result?.Title ?? (IsBusy && IsCancellationRequested ? $"{Status} · Cancellation requested" : Status);
   public ConversionResultDisplay? Result { get => _result; internal set { _result = value; Changed(); Changed(nameof(HasResult)); Changed(nameof(QueueStatus)); } }
@@ -100,9 +106,79 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings, 
     foreach (var property in new[] { nameof(Settings), nameof(OutputDirectory), nameof(QualityProfileId), nameof(ChannelPolicy), nameof(ValidationLevel), nameof(MetadataProfileId), nameof(OutputTemplate) }) Changed(property);
   }
 
+  public void LoadTrackList(IEnumerable<string> included, IEnumerable<string> excluded)
+  {
+    IncludedTracks.Clear();
+    foreach (var id in included) IncludedTracks.Add(id);
+    ExcludedTracks.Clear();
+    foreach (var id in excluded) ExcludedTracks.Add(id);
+    SetTrackListEdited(false);
+  }
+
+  public bool MoveTrack(string id, int offset)
+  {
+    var index = IncludedTracks.IndexOf(id);
+    var target = index + offset;
+    if (!CanEdit || index < 0 || target < 0 || target >= IncludedTracks.Count) return false;
+    IncludedTracks.Move(index, target);
+    SetTrackListEdited(true);
+    return true;
+  }
+
+  public bool ExcludeTrack(string id)
+  {
+    if (!CanEdit || !IncludedTracks.Remove(id)) return false;
+    ExcludedTracks.Add(id);
+    SetTrackListEdited(true);
+    return true;
+  }
+
+  public bool IncludeTrack(string id)
+  {
+    if (!CanEdit || !ExcludedTracks.Remove(id)) return false;
+    IncludedTracks.Add(id);
+    SetTrackListEdited(true);
+    return true;
+  }
+
+  public bool ApplyTrackAction(TrackListAction action, string id) => action switch
+  {
+    TrackListAction.MoveUp => MoveTrack(id, -1),
+    TrackListAction.MoveDown => MoveTrack(id, 1),
+    TrackListAction.Exclude => ExcludeTrack(id),
+    TrackListAction.Include => IncludeTrack(id),
+    _ => false,
+  };
+
+  // Keeps the reviewed choices for files that are still there; a new file is never included without a decision.
+  private string ReconcileTrackList(IReadOnlyList<string> discovered)
+  {
+    var present = discovered.ToHashSet(StringComparer.Ordinal);
+    var known = IncludedTracks.Concat(ExcludedTracks).ToHashSet(StringComparer.Ordinal);
+    var included = IncludedTracks.Where(present.Contains).ToArray();
+    var excluded = ExcludedTracks.Where(present.Contains).ToList();
+    var added = discovered.Where(id => !known.Contains(id)).ToArray();
+    excluded.AddRange(added);
+    var removed = known.Count - (included.Length + excluded.Count - added.Length);
+    LoadTrackList(included, excluded);
+    return $"The track list was updated to match the source: {added.Length} new file(s) were added to the excluded list and {removed} missing file(s) were removed. Review the lists, then apply.";
+  }
+
+  public ReviewedTrackOrder CreateReviewedOrder() => new(IncludedTracks.ToArray(), ExcludedTracks.ToArray());
+
+  private void SetTrackListEdited(bool edited)
+  {
+    IsTrackListEdited = edited;
+    Changed(nameof(IsTrackListEdited));
+    Changed(nameof(CanApplyTrackList));
+  }
+
   internal void SetAnalysis(BookAnalysis analysis)
   {
     Analysis = analysis;
+    string? trackListNote = null;
+    if (analysis.OrderedFiles.Count > 0) LoadTrackList(analysis.OrderedFiles.Select(file => file.RelativePath), analysis.ExcludedFiles.Select(file => file.RelativePath));
+    else if (analysis.Diagnostics.Any(diagnostic => diagnostic.Code == "analysis.order-sources-changed")) trackListNote = ReconcileTrackList(analysis.DiscoveredFileIds);
     var edits = Metadata.Where(field => field.IsEdited).ToDictionary(field => field.Field, field => field.Value);
     Metadata.Clear();
     foreach (var field in Enum.GetValues<Core.Metadata.SemanticField>().Where(field => field is not (Core.Metadata.SemanticField.Track or Core.Metadata.SemanticField.Disc)))
@@ -120,7 +196,7 @@ public sealed class BookQueueItemViewModel(string source, AppSettings settings, 
       BookAnalysisStatus.InspectOnly => "M4B inspection only",
       _ => "Invalid input"
     };
-    Details = string.Join(Environment.NewLine, analysis.Diagnostics.Select(diagnostic => diagnostic.Message));
+    Details = string.Join(Environment.NewLine, analysis.Diagnostics.Select(diagnostic => diagnostic.Message).Concat(trackListNote is null ? [] : [trackListNote]));
     foreach (var property in new[] { nameof(Analysis), nameof(OrderCandidates), nameof(Covers), nameof(SelectedCover), nameof(OrderedFiles), nameof(Summary), nameof(CanConvert) }) Changed(property);
   }
 }

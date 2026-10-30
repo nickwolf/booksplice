@@ -136,8 +136,23 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     using var operation = Enter("order");
     if (operation is null) return;
     item.SelectedOrder = candidate;
+    item.ReviewedOrder = null;
     await AnalyzeAsync(item);
   }
+
+  public async Task ApplyTrackListAsync(BookQueueItemViewModel item)
+  {
+    if (item.IsBusy || !item.CanEdit) return;
+    if (item.IncludedTracks.Count == 0) { Message = "Include at least one track."; return; }
+    using var operation = Enter("order");
+    if (operation is null) return;
+    Message = "";
+    item.ReviewedOrder = item.CreateReviewedOrder();
+    await AnalyzeAsync(item);
+  }
+
+  public Task UseTrackListAsync(BookQueueItemViewModel item, OrderCandidateId? candidate)
+    => item.IsTrackListEdited || candidate is null ? ApplyTrackListAsync(item) : ResolveOrderAsync(item, candidate.Value);
 
   private async Task AnalyzeAsync(BookQueueItemViewModel item)
   {
@@ -152,7 +167,7 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     var source = item.Source;
     var selection = item.Selection;
     var createChapters = item.Settings.CreateChapters;
-    var analysisOptions = new BookAnalysisOptions(item.SelectedOrder);
+    var analysisOptions = item.AnalysisOptions;
     try
     {
       var result = await Task.Run(() => selection is null
@@ -217,7 +232,7 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
       ApplySnapshot();
       timer.Start();
       var request = new ConversionRequest(item.Source, item.Settings.CreateChapters, item.CreateOptions(),
-        AnalysisOptions: new BookAnalysisOptions(item.SelectedOrder), ExpectedSourcePaths: item.Analysis!.OrderedFiles.Select(file => file.FullPath).ToArray(),
+        AnalysisOptions: item.AnalysisOptions, ExpectedSourcePaths: item.Analysis!.OrderedFiles.Select(file => file.FullPath).ToArray(),
         Selection: item.Selection, ExpectedSources: ReviewedIdentities(item.Analysis));
       var run = Task.Run(() => conversion.ConvertAsync(request, cancellation.Token, progress));
       tracked.SetTask(run);

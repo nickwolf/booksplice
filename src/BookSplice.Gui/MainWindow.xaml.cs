@@ -161,8 +161,44 @@ public partial class MainWindow : Window
 
   private async void Order_Click(object sender, RoutedEventArgs e)
   {
-    if (_model is not null && Queue.SelectedItem is BookQueueItemViewModel item && OrderChoice.SelectedItem is OrderCandidate candidate)
-      await _model.ResolveOrderAsync(item, candidate.Id);
+    if (_model is not null && Queue.SelectedItem is BookQueueItemViewModel item)
+      await _model.UseTrackListAsync(item, (OrderChoice.SelectedItem as OrderCandidate)?.Id);
+  }
+
+  private void OrderChoice_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+  {
+    if (Queue.SelectedItem is BookQueueItemViewModel { CanEdit: true } item && OrderChoice.SelectedItem is OrderCandidate candidate)
+      item.LoadTrackList(candidate.FileIds, []);
+  }
+
+  private void TrackUp_Click(object sender, RoutedEventArgs e) => ApplyTrackAction(TrackListAction.MoveUp, IncludedList);
+  private void TrackDown_Click(object sender, RoutedEventArgs e) => ApplyTrackAction(TrackListAction.MoveDown, IncludedList);
+  private void TrackExclude_Click(object sender, RoutedEventArgs e) => ApplyTrackAction(TrackListAction.Exclude, IncludedList);
+  private void TrackInclude_Click(object sender, RoutedEventArgs e) => ApplyTrackAction(TrackListAction.Include, ExcludedList);
+  private void IncludedList_KeyDown(object sender, System.Windows.Input.KeyEventArgs e) => HandleTrackKey(e, IncludedList, false);
+  private void ExcludedList_KeyDown(object sender, System.Windows.Input.KeyEventArgs e) => HandleTrackKey(e, ExcludedList, true);
+
+  private void HandleTrackKey(System.Windows.Input.KeyEventArgs e, System.Windows.Controls.ListBox list, bool excluded)
+  {
+    var action = TrackListKeys.Resolve(e.Key, e.SystemKey, System.Windows.Input.Keyboard.Modifiers, excluded);
+    if (action == TrackListAction.None) return;
+    e.Handled = true;
+    ApplyTrackAction(action, list);
+  }
+
+  private void ApplyTrackAction(TrackListAction action, System.Windows.Controls.ListBox list)
+  {
+    if (Queue.SelectedItem is not BookQueueItemViewModel item || list.SelectedItem is not string track) return;
+    var index = list.SelectedIndex;
+    var changed = item.ApplyTrackAction(action, track);
+    if (!changed) return;
+    var target = action switch
+    {
+      TrackListAction.MoveUp or TrackListAction.MoveDown => item.IncludedTracks.IndexOf(track),
+      _ => Math.Min(index, list.Items.Count - 1),
+    };
+    list.SelectedIndex = target;
+    (list.ItemContainerGenerator.ContainerFromIndex(target) as System.Windows.Controls.ListBoxItem)?.Focus();
   }
 
   private async void Preview_Click(object sender, RoutedEventArgs e)
