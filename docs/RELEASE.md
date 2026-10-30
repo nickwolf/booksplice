@@ -4,7 +4,7 @@ The unpublished v0.1.0 draft is superseded by the profile-free `v0.1.1`. Keep th
 
 BookSplice releases are self-contained Windows x64 ZIP archives. They include the WPF application, CLI, .NET runtime, pinned `ffmpeg.exe` and `ffprobe.exe`, license, notices, README, and version manifest.
 
-CI is the gate. A normal release needs no local build and no extra evidence file. The steps are under [Publication](#publication), and the two conditional gates are under [Updater rehearsal](#updater-rehearsal) and [Private acceptance verification](#private-acceptance-verification).
+CI is the gate. A normal release needs no local build and no extra evidence file. The steps are under [Publication](#publication). Every release gets the [real-book check](#real-book-check), and the two conditional gates are under [Updater rehearsal](#updater-rehearsal) and [Private acceptance verification](#private-acceptance-verification).
 
 ## What CI checks
 
@@ -62,9 +62,21 @@ The release build uses FFmpeg source commit `946fcce07b6dcd0331c8cc609192aeff5e1
 
 The [FFmpeg legal checklist](https://ffmpeg.org/legal.html) calls for corresponding source, build instructions, and review of external libraries. Those materials are included in the candidate ZIP. Codec patent exposure is not resolved by the copyright license or the executable configuration, so the patent and final third-party review disposition remains a publication gate. The project owner approved proceeding with the 0.1.0 release on 2026-09-25 after this review. This records a publication decision, not a patent clearance or legal opinion. The draft check on a Windows machine remains required before publication.
 
+## Real-book check
+
+Every release gets one real multi-file book converted with the CLI from the extracted draft package, with full validation and a disposable copy of the source. Point `BOOKSPLICE_LOCAL_APP_DATA` at a scratch folder so the run doesn't add to the real history, and copy in any metadata profile the check uses. Then probe the output with the packaged `ffprobe.exe`:
+
+- the tag fields the metadata profile maps are present under the profile's keys wherever the source had a value
+- there is one chapter per source file, starting at each file's boundary, unless the release changes chapter rules
+- the embedded cover is byte-identical to the chosen cover image (`ffmpeg -map 0:v -c copy -f image2pipe`)
+- the output duration matches the sum of the source durations to within a second
+- the audit record says `Succeeded` and the copied source hashes are unchanged
+
+Put the result in a short line in the release body. Keep the book private; it never goes into the repository, tests or notes beyond its length.
+
 ## Private acceptance verification
 
-These gates are required only when a release changes metadata mapping or writing, FFmpeg command lines or muxing, chapter or cover handling, publication, or the pinned media tools. Other releases skip them. When one runs, put its result in a short line in the release body; `docs/ACCEPTANCE.md` is not extended per release.
+These gates are required only when a release changes how the output file is written: metadata mapping or tag writing, FFmpeg command lines or muxing, chapter or cover embedding, `AtomicPublisher`, or the pinned media tools. Choosing which files, chapters or covers go into a book, or where the output is placed, is covered by the generated tests and the real-book check. Other releases skip these gates. The manual Mp3tag save and reopen checks that a tag editor's rewrite of the file keeps audio, cover and fields, which depends only on how the file is laid out. When one runs, put its result in a short line in the release body; `docs/ACCEPTANCE.md` is not extended per release.
 
 Run the private release-gate harness with PowerShell 7 against the extracted package from the draft. The private corpus and raw results stay under the ignored `artifacts\acceptance` directory. Follow `docs/ACCEPTANCE.md` for manifest fields, disposable-copy rules, the another-volume case, and the manual Mp3tag save and reopen.
 
@@ -85,7 +97,7 @@ The CLI result must report `status: passed` and `gateComplete: true`. The later 
 3. `release.yml` rebuilds and retests the package, signs and verifies the update manifest, creates a build-provenance attestation, builds `SHA256SUMS`, and attaches the ZIP, checksum, signed update manifest and signature, `SHA256SUMS`, the smoke-test and manifest-check scripts, and their helpers to an unpublished draft release. Existing same-named assets are never overwritten.
    If the tag-triggered run fails before creating a draft, fix the workflow on `main` and dispatch `release.yml` with the existing annotated tag. The retry checks out that tag and verifies its object and commit before building. Do not move the tag or overwrite draft assets.
 4. Write the release notes in the draft body. The draft starts with a short generic body, and the in-app updater shows the published release body as the release notes, so they must be written before publishing. The `docs/releases` directory holds the notes for v0.1.0 through v0.2.1 as history; later releases keep notes only in the release body.
-5. Run the conditional gates the release needs: the [updater rehearsal](#updater-rehearsal) and the [private acceptance verification](#private-acceptance-verification). Add a short line to the release body for each one that ran.
+5. Run the [real-book check](#real-book-check) and the conditional gates the release needs: the [updater rehearsal](#updater-rehearsal) and the [private acceptance verification](#private-acceptance-verification). Add a short line to the release body for each one that ran.
 6. On a Windows x64 machine, download the draft assets into one directory and run the downloaded `Test-Release.ps1` against the ZIP and checksum, then the downloaded `Test-UpdateManifest.ps1` against the ZIP and the signed manifest and signature. Compare the ZIP digest with `SHA256SUMS` and the workflow result.
 7. Publish the draft, then close the version's milestone.
 
