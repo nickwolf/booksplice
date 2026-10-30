@@ -171,6 +171,8 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     {
       item.Status = "Waiting";
       item.Details = _scheduler.IsPaused ? PausedDetails : WaitingDetails;
+      // Removals since the other books queued shift positions, so refresh their ranks before adding this one.
+      _scheduler.Reorder(Items);
       await _scheduler.WaitAsync(item, Items.IndexOf(item), cancellation.Token);
       acquired = true;
       cancellation.Token.ThrowIfCancellationRequested();

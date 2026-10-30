@@ -85,26 +85,73 @@ public sealed class QueueSchedulerTests
     var scheduler = new QueueScheduler(capacity);
     var active = 0;
     var maximum = 0;
+    var queued = 0;
+    var cancelled = 0;
     var starts = new ConcurrentDictionary<int, int>();
+    var round = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
     var cancellations = Enumerable.Range(0, books).Select(_ => new CancellationTokenSource()).ToArray();
     var runs = Enumerable.Range(0, books).Select(index => Task.Run(async () =>
     {
-      try { await scheduler.WaitAsync(index, index, cancellations[index].Token); }
-      catch (OperationCanceledException) { return; }
+      var turn = scheduler.WaitAsync(index, index, cancellations[index].Token);
+      Interlocked.Increment(ref queued);
+      try { await turn; }
+      catch (OperationCanceledException) { Interlocked.Increment(ref cancelled); return; }
       starts.AddOrUpdate(index, 1, (_, count) => count + 1);
-      var now = Interlocked.Increment(ref active);
-      InterlockedMax(ref maximum, now);
-      await Task.Yield();
+      InterlockedMax(ref maximum, Interlocked.Increment(ref active));
+      // Every book holding a slot waits for the same round, so their releases land together.
+      await Volatile.Read(ref round).Task;
       Interlocked.Decrement(ref active);
       scheduler.Release();
     })).ToArray();
-    Parallel.For(0, books, index => { if (index % 3 == 0) cancellations[index].Cancel(); });
-    await Task.WhenAll(runs).WaitAsync(Wait);
+    await WaitUntil(() => Volatile.Read(ref queued) == books);
+    var cancelling = Task.Run(async () =>
+    {
+      for (var index = books - 1; index >= 0; index -= 3) { cancellations[index].Cancel(); await Task.Yield(); }
+    });
+    var all = Task.WhenAll(runs);
+    var deadline = DateTime.UtcNow + Wait;
+    while (!all.IsCompleted)
+    {
+      if (DateTime.UtcNow > deadline) throw new TimeoutException("The scheduler stopped granting slots.");
+      await WaitUntil(() => scheduler.Running == Volatile.Read(ref active) || all.IsCompleted);
+      Interlocked.Exchange(ref round, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
+      await Task.Delay(1);
+    }
+    await cancelling;
+    await all;
     Assert.InRange(maximum, 1, capacity);
     Assert.All(starts.Values, count => Assert.Equal(1, count));
+    Assert.Equal(books, starts.Count + cancelled);
+    Assert.InRange(cancelled, 1, (books + 2) / 3);
     Assert.Equal(0, scheduler.Running);
     foreach (var cancellation in cancellations) cancellation.Dispose();
   }
+
+  [Fact]
+  public Task ABookQueuedAfterClearingStartsBehindTheBooksAboveIt() => OnDispatcher(async () =>
+  {
+    var converter = new KeyedConverter();
+    using var model = new MainWindowViewModel(new QueueTests.Analyzer(), converter, AppSettings.Defaults with { BooksAtOnce = 1 });
+    foreach (var name in "abcd") await ReadyItem(model, name.ToString());
+    var batch = model.ConvertAllAsync();
+    foreach (var name in (string[])["a", "b"])
+    {
+      await converter.Gate(name).Entered.Task.WaitAsync(Wait);
+      converter.Gate(name).Finish(ConversionTerminalStatus.Succeeded);
+    }
+    await converter.Gate("c").Entered.Task.WaitAsync(Wait);
+    model.ClearCompleted();
+    var late = await ReadyItem(model, "e");
+    var single = model.ConvertAsync(late);
+    Assert.Equal(["c", "d", "e"], model.Items.Select(item => item.Name));
+    converter.Gate("c").Finish(ConversionTerminalStatus.Succeeded);
+    await converter.Gate("d").Entered.Task.WaitAsync(Wait);
+    Assert.Equal(["a", "b", "c", "d"], converter.Started);
+    converter.Gate("d").Finish(ConversionTerminalStatus.Succeeded);
+    await converter.Gate("e").Entered.Task.WaitAsync(Wait);
+    converter.Gate("e").Finish(ConversionTerminalStatus.Succeeded);
+    await Task.WhenAll(batch, single);
+  });
 
   [Fact]
   public Task PausedQueueHoldsTheNextBookUntilResumed() => OnDispatcher(async () =>

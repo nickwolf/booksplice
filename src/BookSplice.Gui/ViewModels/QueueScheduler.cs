@@ -52,12 +52,17 @@ public sealed class QueueScheduler(int capacity)
     }
   }
 
+  // Ranks every waiter by its position in the given order, so ranks stay comparable with a new waiter's position.
   public void Reorder(IEnumerable<object> order)
   {
     lock (_lock)
     {
-      var rank = 0;
-      foreach (var key in order) foreach (var waiter in _waiting.Where(waiter => ReferenceEquals(waiter.Key, key))) waiter.Rank = rank++;
+      var position = 0;
+      foreach (var key in order)
+      {
+        foreach (var waiter in _waiting.Where(waiter => ReferenceEquals(waiter.Key, key))) waiter.Rank = position;
+        position++;
+      }
     }
   }
 
