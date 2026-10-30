@@ -16,7 +16,7 @@ namespace BookSplice.Gui.ViewModels;
 
 public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionService conversion, AppSettings settings, IConversionPlanner? planner = null, GuiOperationGate? gate = null, MetadataProfileCatalog? profiles = null, IConversionNotifier? notifier = null) : ObservableModel, IDisposable
 {
-  private SemaphoreSlim _slots = new(settings.BooksAtOnce ?? 1);
+  private readonly QueueScheduler _scheduler = new(settings.BooksAtOnce ?? 1);
   private string _message = "";
   private string _batchProgress = "";
   public ObservableCollection<BookQueueItemViewModel> Items { get; } = [];
@@ -28,10 +28,11 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     {
       if (Items.Any(item => item.IsBusy)) throw new InvalidOperationException("Wait for active jobs before changing settings.");
       _settings = value;
-      _slots.Dispose();
-      _slots = new(value.BooksAtOnce ?? 1);
+      _scheduler.Capacity = value.BooksAtOnce ?? 1;
     }
   }
+  public bool IsQueuePaused => _scheduler.IsPaused;
+  public string QueuePauseLabel => IsQueuePaused ? "Resume _queue" : "Pause _queue";
   public string Message { get => _message; private set { _message = value; Changed(); } }
   public string BatchProgress { get => _batchProgress; private set { _batchProgress = value; Changed(); Changed(nameof(IsBatchActive)); } }
   public bool IsBatchActive => _batchProgress.Length > 0;
@@ -169,8 +170,8 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     try
     {
       item.Status = "Waiting";
-      item.Details = "Waiting for a conversion slot…";
-      await _slots.WaitAsync(cancellation.Token);
+      item.Details = _scheduler.IsPaused ? PausedDetails : WaitingDetails;
+      await _scheduler.WaitAsync(item, Items.IndexOf(item), cancellation.Token);
       acquired = true;
       cancellation.Token.ThrowIfCancellationRequested();
       item.Status = "Converting";
@@ -197,9 +198,11 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     {
       finished = true;
       if (registeredJob is { } job) ActiveJobRegistry.Shared.Remove(job);
-      timer.Stop(); elapsed.Stop(); if (acquired) _slots.Release(); item.Cancellation = null; item.IsBusy = false;
+      timer.Stop(); elapsed.Stop(); if (acquired) _scheduler.Release(); item.Cancellation = null; item.IsBusy = false;
     }
-    return Finished(item);
+    var outcome = Finished(item);
+    item.Outcome = outcome.Outcome;
+    return outcome;
 
     void ShowExceptionResult(ConversionTerminalStatus status, string? message)
     {
@@ -273,14 +276,57 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     ? $"AAC stream copy | {plan.ChannelLayout}"
     : $"{plan.Strategy} | {plan.QualityProfile.DisplayName} {plan.QualityProfile.AudioBitrateKbps} kbps | {plan.ChannelLayout}";
 
-  public void Dispose() => _slots.Dispose();
+  public void Dispose() { }
 
-  public async Task ConvertAllAsync()
+  public Task ConvertAllAsync() => ConvertBatchAsync(Items.Where(item => item.CanConvert).ToArray());
+
+  // Successful books are never retried; CanConvert already excludes them.
+  public Task RetryFailedAsync() => ConvertBatchAsync(Items.Where(item => item.Outcome == BookOutcome.Failure && item.CanConvert).ToArray());
+
+  private async Task ConvertBatchAsync(BookQueueItemViewModel[] items)
   {
+    if (items.Length == 0) return;
     var batch = notifier is null ? null : new BatchNotifier(notifier, Settings);
-    var results = await Task.WhenAll(Items.Where(item => item.CanConvert).ToArray().Select(ConvertCoreAsync));
+    var results = await Task.WhenAll(items.Select(ConvertCoreAsync));
     foreach (var finished in results) if (finished is not null) batch?.Add(finished);
     if (batch is not null) Deliver(batch.Complete);
+  }
+
+  public void PauseQueue()
+  {
+    _scheduler.Pause();
+    RefreshWaiting();
+  }
+
+  public void ResumeQueue()
+  {
+    _scheduler.Resume();
+    RefreshWaiting();
+  }
+
+  // Moving a book changes when it starts only if it has not started yet.
+  public void Move(BookQueueItemViewModel item, int offset)
+  {
+    var from = Items.IndexOf(item);
+    var to = from + offset;
+    if (from < 0 || to < 0 || to >= Items.Count) return;
+    Items.Move(from, to);
+    _scheduler.Reorder(Items);
+  }
+
+  public void ClearCompleted()
+  {
+    foreach (var item in Items.Where(item => !item.IsBusy && item.Status == "Complete").ToArray()) Items.Remove(item);
+  }
+
+  private const string WaitingDetails = "Waiting for a conversion slot…";
+  private const string PausedDetails = "Queue paused. This book starts after you resume.";
+
+  private void RefreshWaiting()
+  {
+    foreach (var item in Items.Where(item => item.IsBusy && item.Status == "Waiting")) item.Details = _scheduler.IsPaused ? PausedDetails : WaitingDetails;
+    Changed(nameof(IsQueuePaused));
+    Changed(nameof(QueuePauseLabel));
   }
 
   private static BookFinished Finished(BookQueueItemViewModel item) => new(item.Source, item.Name,
