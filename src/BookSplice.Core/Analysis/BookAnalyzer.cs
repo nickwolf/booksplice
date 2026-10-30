@@ -92,6 +92,7 @@ public sealed class BookAnalyzer : IBookAnalyzer
     var chapters = _chapterPlanner.Create(ordered, chaptersEnabled);
     if (!chapters.IsValid) diagnostics.Add(new(chapters.ErrorCode ?? "chapters.invalid", AnalysisDiagnosticSeverity.Error, chapters.ErrorMessage ?? "The chapter plan is invalid."));
     var existingM4b = ordered.Length == 1 && string.Equals(Path.GetExtension(ordered[0].FullPath), ".m4b", StringComparison.OrdinalIgnoreCase);
+    if (existingM4b) diagnostics.Add(new("analysis.existing-m4b", AnalysisDiagnosticSeverity.Error, "This is already a single M4B. Editing existing M4B files isn't supported yet."));
     var status = existingM4b ? BookAnalysisStatus.InspectOnly : diagnostics.Any(d => d.Severity == AnalysisDiagnosticSeverity.Error) ? BookAnalysisStatus.Invalid : BookAnalysisStatus.Ready;
     return new BookAnalysis(status, root, rootName, ordered, resolution, metadata, cover, chapters, diagnostics, excluded);
   }

@@ -182,6 +182,27 @@ public sealed class CliEndToEndTests
   }
 
   [PinnedCliMediaFact]
+  public async Task ExistingM4bReturnsInvalidInputWithAReason()
+  {
+    var tools = ResolveTools();
+    using var root = new TemporaryDirectory();
+    var source = Directory.CreateDirectory(Path.Combine(root.Path, "Existing")).FullName;
+    await GenerateAudioAsync(tools, Path.Combine(source, "01.m4b"), "aac", "440", "1");
+    var outputDirectory = Directory.CreateDirectory(Path.Combine(root.Path, "output")).FullName;
+    var application = CliComposition.Create(Path.Combine(root.Path, "local"), ToolDirectory());
+
+    foreach (var arguments in new[] { new[] { source, "--output", outputDirectory }, [source, "--output", outputDirectory, "--json"] })
+    {
+      var error = new StringWriter();
+      var exitCode = await application.RunAsync(arguments, TextWriter.Null, error, CancellationToken.None);
+
+      Assert.Equal(CliExitCode.InvalidInput, exitCode);
+      Assert.Contains("This is already a single M4B. Editing existing M4B files isn't supported yet.", error.ToString(), StringComparison.Ordinal);
+    }
+    Assert.Empty(Directory.GetFiles(outputDirectory));
+  }
+
+  [PinnedCliMediaFact]
   public async Task PreCancelledCommandReturnsCancellationWithoutFinalOutput()
   {
     var tools = ResolveTools();

@@ -62,7 +62,9 @@ public sealed class BookAnalyzerTests
   {
     var cancelled = new CancellationToken(true);
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Analyzer(new DiscoveryResult([File("01.mp3")], [], [])).AnalyzeAsync("book", true, cancellationToken: cancelled));
-    Assert.Equal(BookAnalysisStatus.InspectOnly, (await Analyzer(new DiscoveryResult([File("01.m4b")], [], [])).AnalyzeAsync("book", true)).Status);
+    var existing = await Analyzer(new DiscoveryResult([File("01.m4b")], [], [])).AnalyzeAsync("book", true);
+    Assert.Equal(BookAnalysisStatus.InspectOnly, existing.Status);
+    Assert.Contains(existing.Diagnostics, d => d.Code == "analysis.existing-m4b" && d.Severity == AnalysisDiagnosticSeverity.Error);
   }
 
   [Fact]
