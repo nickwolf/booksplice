@@ -64,6 +64,7 @@ public partial class App : Application
           _crash.MarkUpdateCommitted();
           CreateUpdates(request.DataRoot);
           AttachUpdates(active);
+          active.UseQueue(request.DataRoot);
           MainWindow = active;
           ShutdownMode = ShutdownMode.OnMainWindowClose;
           return;
@@ -105,6 +106,7 @@ public partial class App : Application
       var window = new MainWindow(store, settings, services);
       AttachUpdates(window);
       window.UseHistory(System.IO.Path.Combine(dataRoot, "logs"));
+      window.UseQueue(dataRoot);
       MainWindow = window;
       ShutdownMode = ShutdownMode.OnMainWindowClose;
       MainWindow.Show();

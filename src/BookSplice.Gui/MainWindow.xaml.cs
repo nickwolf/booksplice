@@ -66,6 +66,12 @@ public partial class MainWindow : Window
     _updatesWindow.Activate();
   }
 
+  // Reads the saved queue and keeps it saved. Problems show in the queue notice, never in a dialog.
+  public void UseQueue(string dataDirectory)
+  {
+    if (_model is not null) _ = _model.AttachQueueAsync(new BookSplice.Core.Queue.QueueSnapshotStore(dataDirectory));
+  }
+
   public void UseHistory(string logDirectory)
   {
     _history = new(logDirectory);
@@ -333,7 +339,7 @@ public partial class MainWindow : Window
     catch (Win32Exception exception) { MessageBox.Show(this, exception.Message, "Unable to open output folder"); }
   }
 
-  protected override void OnClosed(EventArgs e) { _updates?.Dispose(); _model?.Dispose(); base.OnClosed(e); }
+  protected override void OnClosed(EventArgs e) { _model?.FlushQueue(); _updates?.Dispose(); _model?.Dispose(); base.OnClosed(e); }
 
   protected override void OnClosing(CancelEventArgs e)
   {
