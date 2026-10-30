@@ -50,21 +50,5 @@ public sealed class PresetStore(string path)
   }
 
   /// <summary>Writes through a temp file in the same folder, so a failed write never leaves a half-written target.</summary>
-  public static void WriteTextAtomic(string path, string text)
-  {
-    var directory = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path))!;
-    Directory.CreateDirectory(directory);
-    var tempPath = System.IO.Path.Combine(directory, $".{System.IO.Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
-    try
-    {
-      using (var stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.SequentialScan))
-      {
-        stream.Write(PresetFormat.Encode(text));
-        stream.Flush(flushToDisk: true);
-      }
-      if (File.Exists(path)) File.Replace(tempPath, path, null);
-      else File.Move(tempPath, path);
-    }
-    finally { if (File.Exists(tempPath)) File.Delete(tempPath); }
-  }
+  public static void WriteTextAtomic(string path, string text) => AtomicFile.Write(System.IO.Path.GetFullPath(path), PresetFormat.Encode(text));
 }
