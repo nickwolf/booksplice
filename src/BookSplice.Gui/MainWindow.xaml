@@ -20,6 +20,7 @@
           <Button Content="Retr_y failed" Click="RetryFailed_Click" Padding="12,6" Margin="4"/>
           <Button Content="Clear completed _books" Click="ClearCompleted_Click" Padding="12,6" Margin="4"/>
           <Button Content="_Settings" Click="Settings_Click" Padding="12,6" Margin="4"/>
+          <Button x:Name="PresetsButton" Content="Mana_ge presets..." Click="Presets_Click" Padding="12,6" Margin="4" AutomationProperties.HelpText="Save, rename, delete, import and export presets"/>
           <Button x:Name="UpdatesButton" Content="Check for _updates..." Click="Updates_Click" Padding="12,6" Margin="4" Visibility="Collapsed"/>
           <Button x:Name="HistoryButton" Content="_History..." Click="History_Click" Padding="12,6" Margin="4" Visibility="Collapsed"/>
         </WrapPanel>
@@ -169,6 +170,13 @@
             <ScrollViewer VerticalScrollBarVisibility="Auto">
               <StackPanel Margin="8" IsEnabled="{Binding CanEdit}">
                 <TextBlock Text="These settings apply only to the selected book. Use Preview output to confirm the final filename and audio strategy." TextWrapping="Wrap" Margin="0,0,0,8"/>
+                <Label Content="Preset" Target="{Binding ElementName=PresetPicker}"/>
+                <ComboBox x:Name="PresetPicker" DisplayMemberPath="Display" AutomationProperties.Name="Preset to apply to the selected book"
+                          AutomationProperties.HelpText="Applying copies the preset into this book. Later changes to the preset do not change it"/>
+                <WrapPanel Margin="0,6,0,12">
+                  <Button Content="Apply to this boo_k" Click="ApplyPreset_Click" Padding="12,6" Margin="0,0,8,0"/>
+                  <Button Content="Save as ne_w preset..." Click="SavePreset_Click" Padding="12,6"/>
+                </WrapPanel>
                 <Label Content="_Destination folder" Target="{Binding ElementName=BookOutputDirectory}"/>
                 <TextBox x:Name="BookOutputDirectory" Text="{Binding OutputDirectory, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Selected book destination folder"/>
                 <Label Content="_Audio quality" Target="{Binding ElementName=BookQuality}" Margin="0,8,0,0"/>

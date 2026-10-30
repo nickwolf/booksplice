@@ -28,6 +28,7 @@ public partial class MainWindow : Window
   private bool _closeForUpdate;
   private BookSplice.Gui.History.ConversionHistoryReader? _history;
   private HistoryWindow? _historyWindow;
+  private readonly PresetsViewModel _presets;
   public MainWindow(ISettingsStore store, AppSettings settings, GuiServices? services = null)
   {
     InitializeComponent();
@@ -39,6 +40,9 @@ public partial class MainWindow : Window
       new WindowsToastNotifier(Environment.ProcessPath, key => Dispatcher.BeginInvoke(() => ShowResult(key))));
     WindowsToastNotifier.Sync(settings.NotificationsEnabled, Environment.ProcessPath);
     Destination.Text = $"Output folder: {settings.OutputDirectory}";
+    _presets = new PresetsViewModel(new Core.Presets.PresetStore(Path.Combine(Path.GetDirectoryName(store.SettingsPath)!, Core.Presets.PresetStore.FileName)), services?.Profiles);
+    PresetPicker.ItemsSource = _presets.Presets;
+    _presets.Reload();
   }
 
   public void UseUpdates(IUpdateBackend backend, UpdatePreferencesStore store, UpdatePreferences preferences,
@@ -79,6 +83,23 @@ public partial class MainWindow : Window
     _historyWindow.Show();
     _historyWindow.Activate();
   }
+
+  private void ApplyPreset_Click(object sender, RoutedEventArgs e)
+  {
+    if (!_presets.Apply(Queue.SelectedItem as BookQueueItemViewModel, (PresetPicker.SelectedItem as PresetEntryViewModel)?.Name))
+      MessageBox.Show(this, _presets.Message, "Apply preset");
+  }
+
+  private void SavePreset_Click(object sender, RoutedEventArgs e)
+  {
+    if (Queue.SelectedItem is not BookQueueItemViewModel item) return;
+    var prompt = new PresetNameWindow("Save as preset", "Name the preset. It keeps this book's quality, channels, chapters, validation, metadata profile and name template.", "", offerFolder: true) { Owner = this };
+    if (prompt.ShowDialog() != true) return;
+    if (!_presets.SaveNew(prompt.EnteredName, item.Settings, prompt.IncludeOutputFolder)) MessageBox.Show(this, _presets.Message, "Save as preset");
+  }
+
+  private void Presets_Click(object sender, RoutedEventArgs e)
+    => new PresetManagerWindow(_presets, () => Queue.SelectedItem as BookQueueItemViewModel) { Owner = this }.ShowDialog();
 
   private void Updates_Click(object sender, RoutedEventArgs e) => ShowUpdates();
 
