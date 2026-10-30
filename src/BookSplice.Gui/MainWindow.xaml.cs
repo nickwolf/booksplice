@@ -124,6 +124,18 @@ public partial class MainWindow : Window
     if (dialog.ShowDialog(this) == true) await AddPathsAsync(dialog.FolderNames);
   }
 
+  private async void AddBookFolder_Click(object sender, RoutedEventArgs e)
+  {
+    using var operation = TryEnter("add folder of books");
+    if (operation is null || _model is null) return;
+    var dialog = new OpenFolderDialog { Title = "Choose a folder that holds several audiobooks" };
+    if (dialog.ShowDialog(this) != true) return;
+    var preview = new BookGroupPreviewWindow(new BookGroupPreviewViewModel(dialog.FolderName)) { Owner = this };
+    if (preview.ShowDialog() != true) return;
+    await _model.AddBookGroupsAsync(preview.AcceptedGroups);
+    Queue.SelectedItem ??= _model.Items.FirstOrDefault();
+  }
+
   private async void AddFiles_Click(object sender, RoutedEventArgs e)
   {
     using var operation = TryEnter("add files");

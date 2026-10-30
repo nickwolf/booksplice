@@ -14,6 +14,7 @@
         <WrapPanel x:Name="PrimaryActions" HorizontalAlignment="Left" Margin="0,4,0,0">
           <Button Content="Add _folder..." Click="AddFolder_Click" Padding="12,6" Margin="4"/>
           <Button Content="Add f_iles..." Click="AddFiles_Click" Padding="12,6" Margin="4"/>
+          <Button Content="Add _jobs from folder..." Click="AddBookFolder_Click" Padding="12,6" Margin="4" AutomationProperties.HelpText="Previews one proposed book per subfolder before anything is added"/>
           <Button Content="_Convert ready books" Click="ConvertAll_Click" Padding="12,6" Margin="4"/>
           <Button x:Name="PauseQueueButton" Content="{Binding QueuePauseLabel, FallbackValue=Pause _queue}" Click="PauseQueue_Click" Padding="12,6" Margin="4"/>
           <Button Content="Retr_y failed" Click="RetryFailed_Click" Padding="12,6" Margin="4"/>

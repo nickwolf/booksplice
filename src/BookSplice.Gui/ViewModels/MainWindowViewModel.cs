@@ -108,6 +108,42 @@ public sealed class MainWindowViewModel(IBookAnalyzer analyzer, IConversionServi
     await AnalyzeBatchAsync(batch, problems);
   }
 
+  // Each previewed group becomes one queue item. A lone loose file queues as a plain file, like Add files does.
+  public async Task AddBookGroupsAsync(IEnumerable<BookGroup> groups)
+  {
+    using var operation = Enter("add");
+    if (operation is null) return;
+    var batch = new List<BookQueueItemViewModel>();
+    var problems = new List<string>();
+    foreach (var group in groups)
+    {
+      try
+      {
+        BookQueueItemViewModel item;
+        if (group.IsLooseFile)
+        {
+          var file = group.Files[0];
+          if (Items.Any(existing => existing.Selection is null && string.Equals(existing.Source, file, StringComparison.OrdinalIgnoreCase)))
+          { problems.Add($"{group.Name} is already in the queue."); continue; }
+          item = new BookQueueItemViewModel(file, Settings, profiles);
+        }
+        else
+        {
+          var selection = group.ToSelection();
+          if (Items.Any(existing => selection.Equals(existing.Selection)))
+          { problems.Add($"{selection.Name} is already in the queue with these files."); continue; }
+          item = new BookQueueItemViewModel(selection.RootPath, Settings, profiles) { Selection = selection };
+        }
+        item.MarkWaiting();
+        Items.Add(item);
+        batch.Add(item);
+      }
+      catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
+      { problems.Add($"{group.Name}: {exception.Message}"); }
+    }
+    await AnalyzeBatchAsync(batch, problems);
+  }
+
   private async Task AnalyzeBatchAsync(List<BookQueueItemViewModel> batch, List<string> problems)
   {
     Message = string.Join(Environment.NewLine, problems);

@@ -1,0 +1,43 @@
+<Window x:Class="BookSplice.Gui.Views.BookGroupPreviewWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Add folder of books" Width="900" Height="620" MinWidth="640" MinHeight="420"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+  <DockPanel Margin="16">
+    <TextBlock DockPanel.Dock="Top" Text="{Binding ParentPath}" TextWrapping="Wrap" FontWeight="SemiBold"/>
+    <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,4" AutomationProperties.LiveSetting="Polite"/>
+    <ProgressBar x:Name="ScanProgress" DockPanel.Dock="Top" IsIndeterminate="True" Height="5" Margin="0,0,0,8" AutomationProperties.Name="Scan progress"/>
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+      <Button x:Name="CombineButton" Content="_Combine" Click="Combine_Click" Padding="16,6" Margin="0,0,8,0" AutomationProperties.Name="Combine" AutomationProperties.HelpText="Joins the selected groups into one book"/>
+      <Button x:Name="SplitButton" Content="_Split" Click="Split_Click" Padding="16,6" Margin="0,0,8,0" AutomationProperties.Name="Split" AutomationProperties.HelpText="Splits the selected groups back into one group per folder"/>
+      <Button x:Name="RemoveButton" Content="_Remove" Click="Remove_Click" Padding="16,6" Margin="0,0,24,0" AutomationProperties.Name="Remove" AutomationProperties.HelpText="Drops the selected groups"/>
+      <Button x:Name="AddButton" Content="{Binding AddLabel}" IsEnabled="{Binding CanAdd}" Click="Add_Click" IsDefault="True" Padding="16,6" Margin="0,0,8,0" AutomationProperties.Name="Add books"/>
+      <Button x:Name="CancelButton" Content="Cancel" Click="Cancel_Click" IsCancel="True" Padding="16,6" AutomationProperties.Name="Cancel"/>
+    </StackPanel>
+    <Grid>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" MinWidth="200"/>
+        <ColumnDefinition Width="*" MinWidth="200"/>
+      </Grid.ColumnDefinitions>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto" MaxHeight="150"/>
+      </Grid.RowDefinitions>
+      <ListBox x:Name="GroupList" ItemsSource="{Binding Groups}" SelectionMode="Extended" SelectionChanged="GroupList_SelectionChanged" AutomationProperties.Name="Proposed books">
+        <ListBox.ItemTemplate>
+          <DataTemplate>
+            <StackPanel Margin="4">
+              <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+              <TextBlock Text="{Binding Summary}" Foreground="DimGray"/>
+            </StackPanel>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+      <ListBox x:Name="FileList" Grid.Column="1" Margin="8,0,0,0" AutomationProperties.Name="Files in the selected books"/>
+      <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Margin="0,8,0,0">
+        <TextBlock Text="Paths that could not be inspected" FontWeight="SemiBold"/>
+        <ListBox x:Name="ProblemList" ItemsSource="{Binding NotInspected}" MaxHeight="110" AutomationProperties.Name="Paths that could not be inspected"/>
+      </StackPanel>
+    </Grid>
+  </DockPanel>
+</Window>
