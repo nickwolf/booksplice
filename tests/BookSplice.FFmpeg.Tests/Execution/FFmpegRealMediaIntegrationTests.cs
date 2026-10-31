@@ -270,6 +270,25 @@ public sealed class FFmpegRealMediaIntegrationTests
     Assert.True(report.IsValid, string.Join(Environment.NewLine, report.Checks.Where(check => !check.Passed).Select(check => $"{check.Code}: {check.Message}")));
   }
   [PinnedMediaFact]
+  public async Task Mp3DurationMatchesDecodedSamplesBeyondTheFirstThousandPackets()
+  {
+    var tools = ResolveTools();
+    using var root = new TemporaryDirectory();
+    var source = await GenerateAudioAsync(tools, Path.Combine(root.Path, "long.mp3"), "libmp3lame", "1", "44100", "440", "40");
+
+    var facts = await new FFprobeMediaProbe(new ProcessRunner(), tools).ProbeAsync(source);
+
+    var decoded = await new ProcessRunner().RunAsync(new ProcessSpec(tools.FFprobePath,
+      ["-v", "error", "-select_streams", "a:0", "-show_frames", "-show_entries", "frame=nb_samples", "-of", "csv=p=0", source]), null, CancellationToken.None);
+    Assert.Equal(0, decoded.ExitCode);
+    var samples = decoded.StandardOutput.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+      .Sum(line => long.Parse(line, System.Globalization.CultureInfo.InvariantCulture));
+    Assert.True(samples > 1000 * 1152, $"The fixture decoded to only {samples} samples.");
+    Assert.Equal(samples / 44100m, facts.Duration);
+    Assert.Equal(samples / 44100m, facts.AudioStreams.Single().Duration);
+  }
+
+  [PinnedMediaFact]
   public async Task FilterConcatPreservesChapterTimingForMixedMp3StartTimestamps()
   {
     var tools = ResolveTools();
