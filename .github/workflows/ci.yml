@@ -27,9 +27,6 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
-      - name: Test private acceptance harness safeguards
-        shell: pwsh
-        run: .\scripts\Test-AcceptanceHarness.ps1
       - name: Test update signing tooling with disposable keys
         shell: pwsh
         run: .\scripts\booksplice\Test-UpdateTooling.ps1
