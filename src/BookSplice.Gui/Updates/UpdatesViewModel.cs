@@ -66,13 +66,16 @@ public sealed class UpdatesViewModel : ObservableModel, IDisposable
 
   public string InstalledVersion { get; }
   public string InstallLocationText { get; }
-  public UpdatesPhase Phase { get => _phase; private set { _phase = value; Changed(); Changed(nameof(CanInstall)); Changed(nameof(CanCheck)); Changed(nameof(CanCancel)); Changed(nameof(HasAvailable)); Changed(nameof(CanRollbackNow)); } }
+  public UpdatesPhase Phase { get => _phase; private set { _phase = value; Changed(); Changed(nameof(CanInstall)); Changed(nameof(CanCheck)); Changed(nameof(CanCancel)); Changed(nameof(HasAvailable)); Changed(nameof(HasNotes)); Changed(nameof(NotesHeading)); Changed(nameof(CanRollbackNow)); } }
   public string Message { get => _message; private set { _message = value; Changed(); } }
   public string? AvailableVersion { get; private set; }
   public string ReleaseNotes { get; private set; } = "";
   public Uri? ReleaseUrl { get; private set; }
   public bool HasReleaseUrl => ReleaseUrl is not null;
   public bool HasAvailable => _candidate is not null;
+  public bool HasInstalledNotes { get; private set; }
+  public bool HasNotes => HasAvailable || HasInstalledNotes;
+  public string NotesHeading => HasInstalledNotes ? $"What's new in {InstalledVersion}" : "Release notes";
   public bool CanInstall => HasAvailable && CanCheck;
   public bool CanCheck => Phase is not (UpdatesPhase.Checking or UpdatesPhase.Preparing or UpdatesPhase.Restarting);
   public bool CanCancel => Phase == UpdatesPhase.Preparing;
@@ -131,6 +134,9 @@ public sealed class UpdatesViewModel : ObservableModel, IDisposable
         candidate.Version.CompareTo(_installed) <= 0)
     {
       Clear();
+      // The selector returns the highest stable release, so an equal version means these are the installed release's notes.
+      if (result.Selection is { Kind: SelectionKind.Available, Candidate: { } current } && current.Version.CompareTo(_installed) == 0)
+        ShowInstalledNotes(current);
       Phase = UpdatesPhase.UpToDate;
       Message = $"BookSplice {InstalledVersion} is up to date.";
       return;
@@ -146,10 +152,8 @@ public sealed class UpdatesViewModel : ObservableModel, IDisposable
     AvailableVersion = candidate.Tag[1..];
     ReleaseNotes = BoundNotes(candidate.Notes);
     ReleaseUrl = ValidatedHttpTransport.MatchesReleaseTagPath(candidate.PageUri, candidate.Tag) ? candidate.PageUri : null;
-    Changed(nameof(AvailableVersion));
-    Changed(nameof(ReleaseNotes));
-    Changed(nameof(ReleaseUrl));
-    Changed(nameof(HasReleaseUrl));
+    HasInstalledNotes = false;
+    NotifyNotes();
     Phase = UpdatesPhase.Available;
     Message = $"BookSplice {AvailableVersion} is available.";
     if (!manual && _preferences.NotifiedTag != candidate.Tag)
@@ -280,10 +284,27 @@ public sealed class UpdatesViewModel : ObservableModel, IDisposable
     AvailableVersion = null;
     ReleaseNotes = "";
     ReleaseUrl = null;
+    HasInstalledNotes = false;
+    NotifyNotes();
+  }
+
+  private void ShowInstalledNotes(ReleaseCandidate current)
+  {
+    ReleaseNotes = BoundNotes(current.Notes);
+    ReleaseUrl = ValidatedHttpTransport.MatchesReleaseTagPath(current.PageUri, current.Tag) ? current.PageUri : null;
+    HasInstalledNotes = true;
+    NotifyNotes();
+  }
+
+  private void NotifyNotes()
+  {
     Changed(nameof(AvailableVersion));
     Changed(nameof(ReleaseNotes));
     Changed(nameof(ReleaseUrl));
     Changed(nameof(HasReleaseUrl));
+    Changed(nameof(HasInstalledNotes));
+    Changed(nameof(HasNotes));
+    Changed(nameof(NotesHeading));
   }
 
   private void Save(UpdatePreferences value)
