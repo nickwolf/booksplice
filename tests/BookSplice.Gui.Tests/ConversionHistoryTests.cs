@@ -184,15 +184,28 @@ public sealed class ConversionHistoryTests : IDisposable
   });
 
   [Fact]
-  public void MainWindowShowsTheHistoryEntryPointOnlyOnceHistoryIsAttached() => DispatcherTestHost.Run(_ =>
+  public void HistoryPageNamesTheSearchAndPutsTheRecordActionsOnEachRow() => DispatcherTestHost.Run(_ =>
   {
-    var window = new MainWindow(new BookSplice.Core.Settings.JsonSettingsStore(_root), BookSplice.Core.Settings.AppSettings.Defaults);
-    Assert.Equal(Visibility.Collapsed, window.HistoryButton.Visibility);
-    window.UseHistory(_root);
-    Assert.Equal(Visibility.Visible, window.HistoryButton.Visibility);
-    var history = new HistoryWindow(new ConversionHistoryViewModel(new ConversionHistoryReader(_root))) { ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = -10000, Top = -10000 };
-    history.Measure(new Size(history.MinWidth, history.MinHeight));
-    Assert.False(string.IsNullOrWhiteSpace(System.Windows.Automation.AutomationProperties.GetName(Assert.IsType<System.Windows.Controls.TextBox>(history.FindName("Search")))));
+    var page = new HistoryPage(new ConversionHistoryViewModel(new ConversionHistoryReader(_root)));
+    page.Measure(new Size(640, 460));
+    Assert.False(string.IsNullOrWhiteSpace(System.Windows.Automation.AutomationProperties.GetName(Assert.IsType<System.Windows.Controls.TextBox>(page.FindName("Search")))));
+    var records = Assert.IsType<System.Windows.Controls.ListView>(page.FindName("Records"));
+    var actions = Assert.IsType<System.Windows.Controls.GridView>(records.View).Columns.First(column => (string)column.Header == "Actions");
+    var row = (System.Windows.Controls.StackPanel)actions.CellTemplate.LoadContent();
+    var buttons = row.Children.OfType<BookSplice.Gui.Controls.IconButton>().ToArray();
+    Assert.Equal(["Open output folder", "Copy diagnostics", "Delete record"], buttons.Select(button => System.Windows.Automation.AutomationProperties.GetName(button)));
+    Assert.Equal(["Open output folder", "Copy diagnostics", "Delete record"], buttons.Select(button => button.ToolTip));
+    Assert.All(buttons, button => Assert.False(string.IsNullOrEmpty(button.Glyph)));
+    Assert.DoesNotContain(Descendants(page), element => element is System.Windows.Controls.Button { Content: string text } && (text.Contains("output folder", StringComparison.OrdinalIgnoreCase) || text.Contains("diagnostics", StringComparison.OrdinalIgnoreCase) || text.Contains("record", StringComparison.OrdinalIgnoreCase)));
     return Task.CompletedTask;
   });
+
+  private static IEnumerable<DependencyObject> Descendants(DependencyObject parent)
+  {
+    foreach (var child in LogicalTreeHelper.GetChildren(parent).OfType<DependencyObject>())
+    {
+      yield return child;
+      foreach (var descendant in Descendants(child)) yield return descendant;
+    }
+  }
 }

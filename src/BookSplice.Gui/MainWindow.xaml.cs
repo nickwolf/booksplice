@@ -24,10 +24,9 @@ public partial class MainWindow : Window
   private readonly MainWindowViewModel? _model;
   private readonly GuiOperationGate _gate;
   private UpdatesViewModel? _updates;
-  private UpdatesWindow? _updatesWindow;
   private bool _closeForUpdate;
   private BookSplice.Gui.History.ConversionHistoryReader? _history;
-  private HistoryWindow? _historyWindow;
+  private FirstLaunchWindow? _settingsWindow;
   private readonly PresetsViewModel _presets;
   public MainWindow(ISettingsStore store, AppSettings settings, GuiServices? services = null)
   {
@@ -50,20 +49,16 @@ public partial class MainWindow : Window
   {
     _updates = new UpdatesViewModel(backend, store, preferences, installedVersion, installLocation, _gate,
       () => _model?.Items.Count ?? 0, () => { _closeForUpdate = true; Application.Current.Shutdown(); });
-    _updates.Discovered += (_, _) => ShowUpdates();
-    UpdatesButton.Visibility = Visibility.Visible;
+    _updates.Discovered += (_, _) => Dispatcher.BeginInvoke(() => ShowDiscoveredUpdate());
     _ = _updates.InitializeAsync();
     _updates.StartSchedule();
   }
 
-  // The window is nonmodal, so it doubles as the one discovery notice per version.
-  private void ShowUpdates()
+  // Settings opens on the Updates page as the one discovery notice per version. It is skipped while another dialog holds this window,
+  // and the new version still shows on the Updates page.
+  private void ShowDiscoveredUpdate()
   {
-    if (_updates is null) return;
-    _ = _updates.InitializeAsync();
-    _updatesWindow ??= new UpdatesWindow(_updates) { Owner = this };
-    _updatesWindow.Show();
-    _updatesWindow.Activate();
+    if (_updates is not null && IsEnabled) ShowSettings(SettingsSection.Updates);
   }
 
   // Reads the saved queue and keeps it saved. Problems show in the queue notice, never in a dialog.
@@ -75,19 +70,6 @@ public partial class MainWindow : Window
   public void UseHistory(string logDirectory)
   {
     _history = new(logDirectory);
-    HistoryButton.Visibility = Visibility.Visible;
-  }
-
-  private void History_Click(object sender, RoutedEventArgs e)
-  {
-    if (_history is null) return;
-    if (_historyWindow is null)
-    {
-      _historyWindow = new HistoryWindow(new(_history)) { Owner = this };
-      _historyWindow.Closed += (_, _) => _historyWindow = null;
-    }
-    _historyWindow.Show();
-    _historyWindow.Activate();
   }
 
   private void ApplyPreset_Click(object sender, RoutedEventArgs e)
@@ -103,11 +85,6 @@ public partial class MainWindow : Window
     if (prompt.ShowDialog() != true) return;
     if (!_presets.SaveNew(prompt.EnteredName, item.Settings, prompt.IncludeOutputFolder, prompt.IncludeOutputTemplate)) MessageBox.Show(this, _presets.Message, "Save as preset");
   }
-
-  private void Presets_Click(object sender, RoutedEventArgs e)
-    => new PresetManagerWindow(_presets, () => Queue.SelectedItem as BookQueueItemViewModel) { Owner = this }.ShowDialog();
-
-  private void Updates_Click(object sender, RoutedEventArgs e) => ShowUpdates();
 
   // Returns null, after telling the user, while an update is being prepared.
   private IDisposable? TryEnter(string operation)
@@ -125,18 +102,34 @@ public partial class MainWindow : Window
     if (key is not null && _model?.Items.FirstOrDefault(item => item.Source == key) is { } item) Queue.SelectedItem = item;
   }
 
-  private void Settings_Click(object sender, RoutedEventArgs e)
+  private void Settings_Click(object sender, RoutedEventArgs e) => ShowSettings(SettingsSection.Settings);
+
+  // Presets, History and Updates stay usable while books convert; only the settings themselves wait for idle jobs.
+  // The window does not hold the operation gate, because installing an update needs it free.
+  private void ShowSettings(SettingsSection section)
   {
-    using var operation = TryEnter("settings");
-    if (operation is null) return;
-    if (_model?.Items.Any(item => item.IsBusy) == true)
+    if (_settingsWindow is { } open)
     {
-      MessageBox.Show(this, "Wait for active jobs before changing settings.", "BookSplice settings");
+      open.ShowSection(section);
+      open.Activate();
       return;
     }
+    if (_gate.IsFrozen)
+    {
+      MessageBox.Show(this, "BookSplice is preparing an update. Try again if the update is cancelled.", "BookSplice update");
+      return;
+    }
+    var locked = _model?.Items.Any(item => item.IsBusy) == true ? "Wait for active jobs to finish before changing settings." : null;
+    _ = _updates?.InitializeAsync();
+    using var history = _history is null ? null : new BookSplice.Gui.History.ConversionHistoryViewModel(_history);
+    var pages = new SettingsPages(_presets, () => Queue.SelectedItem as BookQueueItemViewModel, history, _updates);
     var model = new FirstLaunchViewModel(new FirstLaunchService(_store, profiles: _services?.Profiles), _settings, _services?.Profiles);
-    var window = new FirstLaunchWindow(model) { Owner = this, Title = "BookSplice settings" };
-    if (window.ShowDialog() != true) return;
+    var window = _settingsWindow = new FirstLaunchWindow(model, pages, locked) { Owner = this, Title = "BookSplice settings" };
+    window.ShowSection(section);
+    bool saved;
+    try { saved = window.ShowDialog() == true; }
+    finally { _settingsWindow = null; }
+    if (!saved) return;
     _settings = model.SavedSettings!;
     if (_model is not null) _model.Settings = _settings;
     WindowsToastNotifier.Sync(_settings.NotificationsEnabled, Environment.ProcessPath);

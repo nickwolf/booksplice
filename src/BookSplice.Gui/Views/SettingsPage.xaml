@@ -1,0 +1,85 @@
+<UserControl x:Class="BookSplice.Gui.Views.SettingsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ctl="clr-namespace:BookSplice.Gui.Controls">
+  <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <StackPanel Margin="24,16" IsEnabled="{Binding CanEdit}">
+      <TextBlock x:Name="Welcome" Text="Welcome to BookSplice" FontSize="24" Margin="0,0,0,12"/>
+      <StackPanel Orientation="Horizontal">
+        <Label Content="_Where should completed M4B files be placed?" Target="{Binding ElementName=OutputFolder}"/>
+        <ctl:InfoIcon Subject="output folder" Text="Finished audiobooks are written to this folder. Source files stay unchanged. A book you add later keeps the folder that was saved when you added it."/>
+      </StackPanel>
+      <DockPanel Margin="0,0,0,16">
+        <Button DockPanel.Dock="Right" Content="Br_owse..." Click="Browse_Click" Padding="12,5" Margin="8,0,0,0"/>
+        <TextBox x:Name="OutputFolder" Text="{Binding OutputDirectory, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Output folder" VerticalContentAlignment="Center"/>
+      </DockPanel>
+      <StackPanel Orientation="Horizontal">
+        <Label Content="_Audio quality" Target="{Binding ElementName=Quality}"/>
+        <ctl:InfoIcon Subject="audio quality" Text="Sets the bitrate of the converted audio. Higher quality keeps more detail and makes larger files. Source channels are preserved by default; Channel handling under Advanced settings can force mono or stereo."/>
+      </StackPanel>
+      <ComboBox x:Name="Quality" ItemsSource="{Binding QualityProfiles}" DisplayMemberPath="DisplayName" SelectedValuePath="Id" SelectedValue="{Binding QualityProfileId}" AutomationProperties.Name="Audio quality" Margin="0,0,0,12"/>
+      <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+        <CheckBox Content="C_reate chapters from source file boundaries" IsChecked="{Binding CreateChapters}" VerticalAlignment="Center"/>
+        <ctl:InfoIcon Subject="chapters" Text="Adds one chapter to the M4B for each source file, so a book made of several files keeps its track boundaries as chapters."/>
+      </StackPanel>
+      <TextBlock Text="{Binding ProfileNotice}" TextWrapping="Wrap" Margin="0,0,0,12">
+        <TextBlock.Style>
+          <Style TargetType="TextBlock">
+            <Style.Triggers>
+              <Trigger Property="Text" Value="">
+                <Setter Property="Visibility" Value="Collapsed"/>
+              </Trigger>
+            </Style.Triggers>
+          </Style>
+        </TextBlock.Style>
+      </TextBlock>
+      <Expander Header="A_dvanced settings" Margin="0,0,0,12">
+        <StackPanel>
+          <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+            <Label Content="_Books at once" Target="{Binding ElementName=Books}"/>
+            <ctl:InfoIcon Subject="books at once" Text="How many books convert at the same time. Converting more books at once finishes the whole queue sooner, but each book finishes later."/>
+          </StackPanel>
+          <ComboBox x:Name="Books" ItemsSource="{Binding BookChoices}" SelectedItem="{Binding BooksAtOnce}" AutomationProperties.Name="Books at once"/>
+          <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+            <Label Content="Parallel _encodes per book" Target="{Binding ElementName=Jobs}"/>
+            <ctl:InfoIcon Subject="parallel encodes per book" Text="How many audio encodes run at once inside one book. Leave it blank to use Automatic, which picks a number for this computer."/>
+          </StackPanel>
+          <ComboBox x:Name="Jobs" ItemsSource="{Binding JobChoices}" SelectedItem="{Binding ConversionJobs}" AutomationProperties.Name="Parallel encodes per book"/>
+          <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+            <Label Content="Folder and file _name template" Target="{Binding ElementName=TemplateBox}"/>
+            <ctl:InfoIcon Subject="folder and file name template" Text="{Binding TemplateHelp}"/>
+          </StackPanel>
+          <TextBox x:Name="TemplateBox" Text="{Binding OutputTemplate}" AutomationProperties.Name="Folder and file name template"/>
+          <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+            <Label Content="Channel _handling" Target="{Binding ElementName=Channels}"/>
+            <ctl:InfoIcon Subject="channel handling" Text="Preserve source channels keeps mono books mono and stereo books stereo. Force mono or Force stereo converts every book to that layout."/>
+          </StackPanel>
+          <ComboBox x:Name="Channels" ItemsSource="{Binding ChannelPolicies}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding ChannelPolicy}" AutomationProperties.Name="Channel handling"/>
+          <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+            <Label Content="_Metadata profile" Target="{Binding ElementName=MetadataProfile}"/>
+            <ctl:InfoIcon Subject="metadata profile" Text="Decides which tags are written to the M4B and where each one comes from in the source files. Custom profiles are JSON files in the profiles folder."/>
+          </StackPanel>
+          <ComboBox x:Name="MetadataProfile" ItemsSource="{Binding MetadataProfiles}" SelectedItem="{Binding MetadataProfileId}" AutomationProperties.Name="Metadata profile"/>
+          <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+            <Label Content="_Validation" Target="{Binding ElementName=Validation}"/>
+            <ctl:InfoIcon Subject="validation" Text="Lightweight checks the container, duration, chapters, artwork and metadata. Full also decodes the entire output, which is more thorough and takes longer."/>
+          </StackPanel>
+          <ComboBox x:Name="Validation" ItemsSource="{Binding ValidationLevels}" SelectedItem="{Binding ValidationLevel}" AutomationProperties.Name="Validation level"/>
+          <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+            <CheckBox Content="Show a Windows notification when a conversion _finishes" IsChecked="{Binding NotificationsEnabled}" VerticalAlignment="Center"/>
+            <ctl:InfoIcon Subject="Windows notifications" Text="Shows a Windows notification when a conversion finishes, so you can switch to other work meanwhile."/>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+            <CheckBox Content="Leave book titles and file paths out of notifications" IsChecked="{Binding NotificationsHideDetails}" VerticalAlignment="Center"/>
+            <ctl:InfoIcon Subject="notification details" Text="Notifications then say only that a conversion finished, without the book title or the output path. Useful on a shared or recorded screen."/>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+            <Label Content="_Logging level" Target="{Binding ElementName=Logging}"/>
+            <ctl:InfoIcon Subject="logging level" Text="How much detail BookSplice writes to its log files. Information is enough for normal use; choose Debug or Trace when you are chasing a problem."/>
+          </StackPanel>
+          <ComboBox x:Name="Logging" ItemsSource="{Binding LogLevels}" SelectedItem="{Binding LogLevel}" AutomationProperties.Name="Logging level"/>
+        </StackPanel>
+      </Expander>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>
