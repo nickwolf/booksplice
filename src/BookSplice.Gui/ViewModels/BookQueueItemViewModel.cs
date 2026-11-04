@@ -81,7 +81,8 @@ public sealed partial class BookQueueItemViewModel(string source, AppSettings se
   public bool CanConvert => !IsBusy && Analysis?.Status == BookAnalysisStatus.Ready && Status != "Complete" && BlockReason is null && ReviewReason is null;
   internal CancellationTokenSource? Cancellation { get; set; }
   // The last conversion's outcome, so a batch retry can pick only the books that failed.
-  public BookOutcome? Outcome { get; internal set; }
+  public BookOutcome? Outcome { get => _outcome; internal set { _outcome = value; Changed(); } }
+  private BookOutcome? _outcome;
   internal void MarkWaiting() { IsWaiting = true; Status = "Waiting"; }
   internal void CancelWaiting() { IsWaiting = false; Status = "Cancelled"; }
   public void Cancel()

@@ -235,6 +235,58 @@ public sealed class QueueSchedulerTests
     Assert.Equal(["cancelled"], model.Items.Select(item => item.Name));
   });
 
+  [Fact]
+  public Task ToolbarFlagsFollowTheStateOfTheBooks() => OnDispatcher(async () =>
+  {
+    var converter = new KeyedConverter();
+    using var model = new MainWindowViewModel(new QueueTests.Analyzer(), converter, AppSettings.Defaults with { BooksAtOnce = 2 });
+    var changed = new List<string?>();
+    model.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+    Assert.True(model.IsQueueEmpty);
+    Assert.False(model.CanPauseQueue || model.CanRetryFailed || model.CanClearCompleted);
+
+    await ReadyItem(model, "good");
+    await ReadyItem(model, "bad");
+    Assert.False(model.IsQueueEmpty);
+    Assert.False(model.CanPauseQueue || model.CanRetryFailed || model.CanClearCompleted);
+
+    var batch = model.ConvertAllAsync();
+    await converter.Gate("good").Entered.Task.WaitAsync(Wait);
+    await converter.Gate("bad").Entered.Task.WaitAsync(Wait);
+    Assert.True(model.CanPauseQueue);
+    converter.Gate("good").Finish(ConversionTerminalStatus.Succeeded);
+    converter.Gate("bad").Finish(ConversionTerminalStatus.ExecutionFailed);
+    await batch;
+    Assert.False(model.CanPauseQueue);
+    Assert.True(model.CanRetryFailed);
+    Assert.True(model.CanClearCompleted);
+
+    model.PauseQueue();
+    Assert.True(model.CanPauseQueue);
+    Assert.Equal("Resume queue", model.QueuePauseText);
+    model.ResumeQueue();
+    Assert.False(model.CanPauseQueue);
+    Assert.Equal("Pause queue", model.QueuePauseText);
+
+    model.ClearCompleted();
+    Assert.False(model.CanClearCompleted);
+    Assert.True(model.CanRetryFailed);
+    var retry = model.RetryFailedAsync();
+    await converter.Gate("bad", attempt: 2).Entered.Task.WaitAsync(Wait);
+    Assert.False(model.CanRetryFailed);
+    converter.Gate("bad", attempt: 2).Finish(ConversionTerminalStatus.Succeeded);
+    await retry;
+    Assert.False(model.CanRetryFailed);
+    Assert.True(model.CanClearCompleted);
+    model.Items.Clear();
+    Assert.True(model.IsQueueEmpty);
+    Assert.False(model.CanClearCompleted);
+    Assert.Contains(nameof(MainWindowViewModel.CanRetryFailed), changed);
+    Assert.Contains(nameof(MainWindowViewModel.CanClearCompleted), changed);
+    Assert.Contains(nameof(MainWindowViewModel.CanPauseQueue), changed);
+    Assert.Contains(nameof(MainWindowViewModel.IsQueueEmpty), changed);
+  });
+
   private static async Task<BookQueueItemViewModel> ReadyItem(MainWindowViewModel model, string name)
   {
     await model.AddAsync(Path.GetFullPath(name));
