@@ -106,7 +106,7 @@ On the command line, `--preset <name>` applies a preset on top of the saved defa
 
 ## GUI workflow
 
-1. Drop one or more audiobook folders onto the main window, or use **Add folder**. Each folder becomes one book. To queue a parent folder that holds several books, use **Add jobs from folder**: it previews one proposed book per subfolder (disc folders such as `Disc 1` or `CD2` merge into the book above them) and lets you combine, split or remove groups before anything is added.
+1. Drop one or more audiobook folders onto the main window (each dropped folder becomes one book), or use **Add folder**. A chosen folder that is one book, including one with only disc folders such as `Disc 1` or `CD2` inside it, is added as one book. A folder that holds several books opens a preview with one proposed book per subfolder, where you can combine, split or remove groups before anything is added. When you choose several folders, the single books are added first and each multi-book folder gets its own preview; cancelling a preview skips only that folder.
 2. Select a queued book and review its file count, duration, codec summary, metadata, chapters, and cover.
 3. If BookSplice finds more than one credible order, inspect each complete track list and choose one. Conversion remains disabled until an order is selected.
 4. Edit metadata or chapter titles, select different artwork, or choose not to embed artwork.
