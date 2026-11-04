@@ -20,6 +20,8 @@
           <Button Content="Retr_y failed" Click="RetryFailed_Click" Padding="12,6" Margin="4"/>
           <Button Content="Clear completed _books" Click="ClearCompleted_Click" Padding="12,6" Margin="4"/>
           <Button Content="_Settings" Click="Settings_Click" Padding="12,6" Margin="4"/>
+          <Button x:Name="UpdateAvailableButton" Content="BookSplice update a_vailable" Click="UpdateAvailable_Click" Padding="12,6" Margin="4" Visibility="Collapsed"
+                  AutomationProperties.Name="Update available" AutomationProperties.HelpText="Opens Settings on the Updates page"/>
         </WrapPanel>
       </StackPanel>
       <TextBlock x:Name="Destination" TextWrapping="Wrap"/>

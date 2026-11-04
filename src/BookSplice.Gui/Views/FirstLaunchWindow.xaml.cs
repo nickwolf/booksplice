@@ -50,6 +50,12 @@ public partial class FirstLaunchWindow : Window
       UpdateFooter();
     }
     if (lockedReason is not null) _settings.IsEnabled = false;
+    if (_updates is not null)
+    {
+      PropertyChangedEventHandler phase = (_, args) => { if (args.PropertyName == nameof(UpdatesViewModel.Phase)) UpdateFooter(); };
+      _updates.PropertyChanged += phase;
+      Closed += (_, _) => _updates.PropertyChanged -= phase;
+    }
     Loaded += (_, _) => { if (_tabs is null) _settings.FocusFirst(); };
   }
 
@@ -79,7 +85,8 @@ public partial class FirstLaunchWindow : Window
     CloseButton.Content = onSettings ? "_Cancel" : "Cl_ose";
     SaveButton.Visibility = Error.Visibility = onSettings ? Visibility.Visible : Visibility.Collapsed;
     SaveButton.IsDefault = onSettings;
-    SaveButton.IsEnabled = onSettings && _lockedReason is null;
+    // Saving while an update is being prepared would write settings.json mid-prepare.
+    SaveButton.IsEnabled = onSettings && _lockedReason is null && _updates?.Phase is not (UpdatesPhase.Preparing or UpdatesPhase.Restarting);
     LockedNotice.Text = _lockedReason ?? "";
     LockedNotice.Visibility = onSettings && _lockedReason is not null ? Visibility.Visible : Visibility.Collapsed;
   }

@@ -44,22 +44,27 @@ public partial class MainWindow : Window
     _presets.Reload();
   }
 
+  internal UpdatesViewModel? Updates => _updates;
+
   public void UseUpdates(IUpdateBackend backend, UpdatePreferencesStore store, UpdatePreferences preferences,
     string installedVersion, string installLocation)
   {
     _updates = new UpdatesViewModel(backend, store, preferences, installedVersion, installLocation, _gate,
       () => _model?.Items.Count ?? 0, () => { _closeForUpdate = true; Application.Current.Shutdown(); });
-    _updates.Discovered += (_, _) => Dispatcher.BeginInvoke(() => ShowDiscoveredUpdate());
+    _updates.PropertyChanged += (_, _) => ShowUpdateButton();
     _ = _updates.InitializeAsync();
     _updates.StartSchedule();
   }
 
-  // Settings opens on the Updates page as the one discovery notice per version. It is skipped while another dialog holds this window,
-  // and the new version still shows on the Updates page.
-  private void ShowDiscoveredUpdate()
+  // There is no automatic popup: the toolbar button is the notice, and it follows the Updates view model.
+  private void ShowUpdateButton()
   {
-    if (_updates is not null && IsEnabled) ShowSettings(SettingsSection.Updates);
+    var available = _updates is { HasAvailable: true, AvailableVersion: { } version } ? version : null;
+    UpdateAvailableButton.Visibility = available is null ? Visibility.Collapsed : Visibility.Visible;
+    if (available is not null) UpdateAvailableButton.Content = $"BookSplice {available.Replace("_", "__", StringComparison.Ordinal)} a_vailable";
   }
+
+  private void UpdateAvailable_Click(object sender, RoutedEventArgs e) => ShowSettings(SettingsSection.Updates);
 
   // Reads the saved queue and keeps it saved. Problems show in the queue notice, never in a dialog.
   public void UseQueue(string dataDirectory)

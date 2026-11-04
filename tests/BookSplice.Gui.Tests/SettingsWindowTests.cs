@@ -147,6 +147,7 @@ public sealed class SettingsWindowTests : IDisposable
     window.UseHistory(_root);
     Assert.Null(window.FindName("PresetsButton"));
     Assert.Null(window.FindName("UpdatesButton"));
+    Assert.DoesNotContain(LogicalTreeHelper.GetChildren(Assert.IsType<WrapPanel>(window.FindName("PrimaryActions"))).OfType<Button>(), button => Equals(button.Content, "Check for _updates..."));
     Assert.Null(window.FindName("HistoryButton"));
     var actions = Assert.IsType<WrapPanel>(window.FindName("PrimaryActions"));
     var labels = LogicalTreeHelper.GetChildren(actions).OfType<Button>().Select(button => (string)button.Content).ToArray();
@@ -154,6 +155,66 @@ public sealed class SettingsWindowTests : IDisposable
     Assert.DoesNotContain(labels, label => label.Contains("presets", StringComparison.OrdinalIgnoreCase) || label.Contains("updates", StringComparison.OrdinalIgnoreCase) || label.Contains("History", StringComparison.OrdinalIgnoreCase));
     return Task.CompletedTask;
   });
+
+  [Fact]
+  public void UpdateAvailableButtonIsHiddenUntilAnUpdateIsAvailableAndFollowsTheCheckResult() => DispatcherTestHost.Run(async _ =>
+  {
+    var backend = new ScriptedBackend();
+    var window = new MainWindow(new JsonSettingsStore(_root), AppSettings.Defaults);
+    window.UseUpdates(backend, new UpdatePreferencesStore(_root), new UpdatePreferences(AutomaticChecksEnabled: false), "0.1.0", @"C:\Apps\BookSplice");
+    var button = Assert.IsType<Button>(window.FindName("UpdateAvailableButton"));
+    Assert.Equal(Visibility.Collapsed, button.Visibility);
+    Assert.False(string.IsNullOrWhiteSpace(AutomationProperties.GetName(button)));
+    await window.Updates!.CheckAsync(manual: true);
+    Assert.Equal(Visibility.Collapsed, button.Visibility);
+    backend.Version = "v0.2.0";
+    await window.Updates.CheckAsync(manual: true);
+    Assert.Equal(Visibility.Visible, button.Visibility);
+    Assert.Equal("BookSplice 0.2.0 a_vailable", button.Content);
+    backend.Version = "v0.1.0";
+    await window.Updates.CheckAsync(manual: true);
+    Assert.Equal(Visibility.Collapsed, button.Visibility);
+    window.Updates.Dispose();
+  });
+
+  [Fact]
+  public void SaveStaysDisabledWhileAnUpdateIsPreparing() => DispatcherTestHost.Run(async dispatcher =>
+  {
+    var backend = new ScriptedBackend { Version = "v0.2.0" };
+    var updates = new UpdatesViewModel(backend, new UpdatePreferencesStore(_root), new UpdatePreferences(AutomaticChecksEnabled: false), "0.1.0",
+      @"C:\Apps\BookSplice", new GuiOperationGate(dispatcher), () => 0, () => { });
+    var window = new FirstLaunchWindow(Model(), new SettingsPages(new PresetsViewModel(new PresetStore(Path.Combine(_root, PresetStore.FileName))), () => null, null, updates));
+    var save = Assert.IsType<Button>(window.FindName("SaveButton"));
+    Assert.True(save.IsEnabled);
+    await updates.CheckAsync(manual: true);
+    var install = updates.InstallAsync();
+    Assert.Equal(UpdatesPhase.Preparing, updates.Phase);
+    Assert.False(save.IsEnabled);
+    backend.Install.SetResult(new BookSplice.Updates.Handover.UpdateOutcome(BookSplice.Updates.Handover.UpdateOutcomeKind.Cancelled));
+    await install;
+    Assert.True(save.IsEnabled);
+    window.Close();
+    updates.Dispose();
+  });
+
+  private sealed class ScriptedBackend : IUpdateBackend
+  {
+    public string Version { get; set; } = "v0.1.0";
+    public TaskCompletionSource<BookSplice.Updates.Handover.UpdateOutcome> Install { get; } = new();
+    public Task<BookSplice.Updates.Policy.CheckResult> CheckAsync(bool manual, CancellationToken cancellationToken)
+    {
+      var uri = new Uri("https://github.com/nickwolf/booksplice/releases/tag/" + Version);
+      var candidate = new BookSplice.Updates.Policy.ReleaseCandidate(1, Version, BookSplice.Updates.Policy.SemanticVersion.ParseTag(Version), uri, "Notes.", false, false, []);
+      return Task.FromResult(new BookSplice.Updates.Policy.CheckResult(BookSplice.Updates.Policy.CheckKind.Success,
+        new BookSplice.Updates.Policy.SelectionResult(BookSplice.Updates.Policy.SelectionKind.Available, candidate, true, null,
+          new BookSplice.Updates.Policy.ReleaseIdentity(1, Version, uri, "Notes.", [])), null, null));
+    }
+    public Task<string> ReadManifestDigestAsync(BookSplice.Updates.Policy.ReleaseCandidate release, CancellationToken cancellationToken) => Task.FromResult("");
+    public bool HasPrevious() => false;
+    public Task<BookSplice.Updates.Handover.UpdateOutcome> InstallAsync(BookSplice.Updates.Policy.ReleaseCandidate release, BookSplice.Updates.Policy.ReleaseIdentity identity,
+      string manifestSha256, Action shutdown, CancellationToken cancellationToken) => Install.Task;
+    public Task<BookSplice.Updates.Handover.UpdateOutcome> RollbackAsync(Action shutdown, CancellationToken cancellationToken) => throw new NotSupportedException();
+  }
 
   [Fact]
   public void NoTwoControlsOnTheSamePageShareAnAccessKey() => DispatcherTestHost.Run(dispatcher =>
