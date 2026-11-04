@@ -3,57 +3,15 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Set up BookSplice" Width="600" Height="450" MinWidth="440" MinHeight="360"
         WindowStartupLocation="CenterScreen">
-  <ScrollViewer VerticalScrollBarVisibility="Auto">
-    <StackPanel Margin="24" IsEnabled="{Binding CanEdit}">
-      <TextBlock Text="Welcome to BookSplice" FontSize="24" Margin="0,0,0,12"/>
-      <TextBlock Text="Choose where finished audiobooks go. Source files stay unchanged." TextWrapping="Wrap" Margin="0,0,0,16"/>
-      <Label Content="_Where should completed M4B files be placed?" Target="{Binding ElementName=OutputFolder}"/>
-      <DockPanel Margin="0,0,0,16">
-        <Button DockPanel.Dock="Right" Content="_Browse..." Click="Browse_Click" Padding="12,5" Margin="8,0,0,0"/>
-        <TextBox x:Name="OutputFolder" Text="{Binding OutputDirectory, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Output folder" VerticalContentAlignment="Center"/>
-      </DockPanel>
-      <Label Content="_Audio quality" Target="{Binding ElementName=Quality}"/>
-      <ComboBox x:Name="Quality" ItemsSource="{Binding QualityProfiles}" DisplayMemberPath="DisplayName" SelectedValuePath="Id" SelectedValue="{Binding QualityProfileId}" AutomationProperties.Name="Audio quality" Margin="0,0,0,12"/>
-      <TextBlock Text="Source channels are preserved by default. Advanced settings can force mono or stereo output." TextWrapping="Wrap" Margin="0,0,0,12"/>
-      <CheckBox Content="_Create chapters from source file boundaries" IsChecked="{Binding CreateChapters}" Margin="0,0,0,16"/>
-      <TextBlock Text="{Binding ProfileNotice}" TextWrapping="Wrap" Margin="0,0,0,12">
-        <TextBlock.Style>
-          <Style TargetType="TextBlock">
-            <Style.Triggers>
-              <Trigger Property="Text" Value="">
-                <Setter Property="Visibility" Value="Collapsed"/>
-              </Trigger>
-            </Style.Triggers>
-          </Style>
-        </TextBlock.Style>
-      </TextBlock>
-      <Expander Header="_Advanced settings" Margin="0,0,0,12">
-        <StackPanel>
-          <Label Content="_Books at once" Target="{Binding ElementName=Books}" Margin="0,8,0,4"/>
-          <ComboBox x:Name="Books" ItemsSource="{Binding BookChoices}" SelectedItem="{Binding BooksAtOnce}" AutomationProperties.Name="Books at once"/>
-          <TextBlock Text="Converting more books at once finishes the whole queue sooner, but each book finishes later." TextWrapping="Wrap" Margin="0,4,0,0"/>
-          <Label Content="Parallel _encodes per book (blank uses Automatic)" Target="{Binding ElementName=Jobs}" Margin="0,8,0,4"/>
-          <ComboBox x:Name="Jobs" ItemsSource="{Binding JobChoices}" SelectedItem="{Binding ConversionJobs}" AutomationProperties.Name="Parallel encodes per book"/>
-          <Label Content="Folder and file _name template" Target="{Binding ElementName=TemplateBox}" Margin="0,8,0,4"/>
-          <TextBox x:Name="TemplateBox" Text="{Binding OutputTemplate}" AutomationProperties.Name="Folder and file name template"/>
-          <TextBlock Text="{Binding TemplateHelp}" TextWrapping="Wrap" Margin="0,4,0,0"/>
-          <Label Content="Channel _handling" Target="{Binding ElementName=Channels}" Margin="0,8,0,4"/>
-          <ComboBox x:Name="Channels" ItemsSource="{Binding ChannelPolicies}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding ChannelPolicy}" AutomationProperties.Name="Channel handling"/>
-          <Label Content="_Metadata profile" Target="{Binding ElementName=MetadataProfile}" Margin="0,8,0,4"/>
-          <ComboBox x:Name="MetadataProfile" ItemsSource="{Binding MetadataProfiles}" SelectedItem="{Binding MetadataProfileId}" AutomationProperties.Name="Metadata profile"/>
-          <Label Content="_Validation (Full decodes the entire output)" Target="{Binding ElementName=Validation}" Margin="0,8,0,4"/>
-          <ComboBox x:Name="Validation" ItemsSource="{Binding ValidationLevels}" SelectedItem="{Binding ValidationLevel}" AutomationProperties.Name="Validation level"/>
-          <CheckBox Content="Show a Windows _notification when a conversion finishes" IsChecked="{Binding NotificationsEnabled}" Margin="0,12,0,0"/>
-          <CheckBox Content="Leave book titles and file paths out of notifications" IsChecked="{Binding NotificationsHideDetails}" Margin="0,4,0,0"/>
-          <Label Content="_Logging level" Target="{Binding ElementName=Logging}" Margin="0,8,0,4"/>
-          <ComboBox x:Name="Logging" ItemsSource="{Binding LogLevels}" SelectedItem="{Binding LogLevel}" AutomationProperties.Name="Logging level"/>
-        </StackPanel>
-      </Expander>
-      <TextBlock Text="{Binding ErrorMessage}" Foreground="Firebrick" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" Margin="0,0,0,12"/>
+  <DockPanel>
+    <StackPanel DockPanel.Dock="Bottom" Margin="24,8,24,16" IsEnabled="{Binding CanEdit}">
+      <TextBlock x:Name="LockedNotice" Visibility="Collapsed" TextWrapping="Wrap" Margin="0,0,0,12"/>
+      <TextBlock x:Name="Error" Text="{Binding ErrorMessage}" Foreground="Firebrick" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" Margin="0,0,0,12"/>
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-        <Button Content="_Cancel" IsCancel="True" Padding="16,6" Margin="0,0,8,0"/>
-        <Button Content="_Save and continue" IsDefault="True" Click="Save_Click" Padding="16,6"/>
+        <Button x:Name="CloseButton" Content="_Cancel" IsCancel="True" Padding="16,6" Margin="0,0,8,0"/>
+        <Button x:Name="SaveButton" Content="_Save and continue" IsDefault="True" Click="Save_Click" Padding="16,6"/>
       </StackPanel>
     </StackPanel>
-  </ScrollViewer>
+    <ContentControl x:Name="Host" IsTabStop="False"/>
+  </DockPanel>
 </Window>

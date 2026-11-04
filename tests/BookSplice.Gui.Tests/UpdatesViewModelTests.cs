@@ -128,6 +128,57 @@ public sealed class UpdatesViewModelTests : IDisposable
   });
 
   [Fact]
+  public void UpToDateShowsTheInstalledReleaseNotesAndPageLink() => DispatcherTestHost.Run(async dispatcher =>
+  {
+    var model = Create(dispatcher, out _);
+    _backend.Result = Available("v0.1.0", "<b>x</b>\u0007" + new string('y', 20_000));
+    await model.CheckAsync(manual: true);
+    Assert.Equal(UpdatesPhase.UpToDate, model.Phase);
+    Assert.Equal("BookSplice 0.1.0 is up to date.", model.Message);
+    Assert.False(model.HasAvailable);
+    Assert.False(model.CanInstall);
+    Assert.True(model.HasInstalledNotes);
+    Assert.True(model.HasNotes);
+    Assert.Equal("What's new in 0.1.0", model.NotesHeading);
+    Assert.StartsWith("<b>x</b>y", model.ReleaseNotes);
+    Assert.InRange(model.ReleaseNotes.Length, 1, 8003);
+    Assert.Equal(new Uri("https://github.com/nickwolf/booksplice/releases/tag/v0.1.0"), model.ReleaseUrl);
+    Assert.NotEqual("never", model.LastSuccessText);
+    _backend.Result = Available("v0.1.0", "n", new Uri("https://example.com/evil"));
+    await model.CheckAsync(manual: true);
+    Assert.Equal("n", model.ReleaseNotes);
+    Assert.Null(model.ReleaseUrl);
+    _backend.Result = Available("v0.2.0", "newer");
+    await model.CheckAsync(manual: true);
+    Assert.False(model.HasInstalledNotes);
+    Assert.Equal("Release notes", model.NotesHeading);
+    Assert.Equal("newer", model.ReleaseNotes);
+  });
+
+  [Fact]
+  public void UpToDateShowsNoNotesWhenInstalledIsNewerThanEveryReleaseOrThereIsNone() => DispatcherTestHost.Run(async dispatcher =>
+  {
+    var model = Create(dispatcher, out _);
+    _backend.Result = Available("v0.1.0", "notes");
+    await model.CheckAsync(manual: true);
+    Assert.True(model.HasNotes);
+    _backend.Result = Available("v0.0.9", "old notes");
+    await model.CheckAsync(manual: true);
+    Assert.Equal(UpdatesPhase.UpToDate, model.Phase);
+    Assert.False(model.HasNotes);
+    Assert.Equal("", model.ReleaseNotes);
+    Assert.Null(model.ReleaseUrl);
+    _backend.Result = Available("v0.1.0", "notes");
+    await model.CheckAsync(manual: true);
+    Assert.True(model.HasNotes);
+    _backend.Result = new CheckResult(CheckKind.Success, new SelectionResult(SelectionKind.None, null, false, null, null), null, null);
+    await model.CheckAsync(manual: true);
+    Assert.Equal(UpdatesPhase.UpToDate, model.Phase);
+    Assert.False(model.HasNotes);
+    Assert.Equal("", model.ReleaseNotes);
+  });
+
+  [Fact]
   public void AutomaticScheduleFollowsTheExistingRules() => DispatcherTestHost.Run(async dispatcher =>
   {
     var model = Create(dispatcher, out _);

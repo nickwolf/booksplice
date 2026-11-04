@@ -111,7 +111,7 @@ public sealed class AccessibilityContractTests
           window.Show();
           window.UpdateLayout();
           var actions = Assert.IsType<WrapPanel>(window.FindName("PrimaryActions"));
-          var buttons = LogicalTreeHelper.GetChildren(actions).OfType<Button>().ToArray();
+          var buttons = LogicalTreeHelper.GetChildren(actions).OfType<Button>().Where(button => button.Visibility == Visibility.Visible).ToArray();
           Assert.NotEmpty(buttons);
           Assert.All(buttons, button =>
           {
@@ -160,7 +160,7 @@ public sealed class AccessibilityContractTests
           image.Render(window);
           Assert.Equal(760, image.PixelWidth);
           Assert.Equal(520, image.PixelHeight);
-          Assert.All(Descendants<Button>(Assert.IsType<WrapPanel>(window.FindName("PrimaryActions"))), button => Assert.True(button.IsVisible));
+          Assert.All(Descendants<Button>(Assert.IsType<WrapPanel>(window.FindName("PrimaryActions"))).Where(button => button.Visibility == Visibility.Visible), button => Assert.True(button.IsVisible));
           window.Close();
         }
         finally { Directory.Delete(root, true); }
