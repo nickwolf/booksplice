@@ -24,7 +24,8 @@ public sealed partial class BookQueueItemViewModel
   internal string? LastMessage { get; set; }
   /// <summary>True from the moment a conversion holds a slot until it ends, so a snapshot taken then records it as interrupted.</summary>
   internal bool ConversionStarted { get; set; }
-  public bool IsInterrupted { get; internal set; }
+  private bool _interrupted;
+  public bool IsInterrupted { get => _interrupted; internal set { _interrupted = value; Changed(); } }
 
   public event EventHandler? ChoicesChanged;
   internal void RaiseChoicesChanged() => ChoicesChanged?.Invoke(this, EventArgs.Empty);

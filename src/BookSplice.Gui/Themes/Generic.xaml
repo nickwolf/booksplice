@@ -17,7 +17,11 @@
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type ctl:IconButton}">
           <Border x:Name="Frame" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4">
-            <TextBlock Text="{TemplateBinding Glyph}" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{TemplateBinding Foreground}"/>
+            <Grid>
+              <TextBlock Text="{TemplateBinding Glyph}" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{TemplateBinding Foreground}"/>
+              <!-- Content is never drawn; a string with an underscore only supplies the access key. -->
+              <ContentPresenter Width="0" Height="0" Opacity="0" IsHitTestVisible="False" RecognizesAccessKey="True"/>
+            </Grid>
           </Border>
           <ControlTemplate.Triggers>
             <Trigger Property="IsMouseOver" Value="True">

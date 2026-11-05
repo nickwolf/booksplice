@@ -204,7 +204,7 @@ public sealed class BookGroupImportTests : IDisposable
   }
 
   [Fact]
-  public async Task OrdinaryAddFolderStillQueuesTheWholeTreeAsOnePathItem()
+  public async Task DroppedFolderStillQueuesTheWholeTreeAsOnePathItem()
   {
     Write("Book A/Disc 1/01.mp3");
     Write("Book A/Disc 2/01.mp3");
@@ -250,7 +250,7 @@ public sealed class BookGroupImportTests : IDisposable
   }
 
   [Fact]
-  public void MainWindowOffersTheFolderOfBooksEntryBesideAddFolder()
+  public void MainWindowHasOneAddFolderButtonAndNoSeparateFolderOfBooksEntry()
   {
     Exception? failure = null;
     var thread = new Thread(() =>
@@ -264,9 +264,9 @@ public sealed class BookGroupImportTests : IDisposable
           { ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = -10000, Top = -10000 };
           main.Show();
           var buttons = Descendants<Button>(main).Where(button => button.IsVisible).ToArray();
-          Assert.Contains(buttons, button => Equals(button.Content, "Add _folder..."));
-          var entry = Assert.Single(buttons, button => Equals(button.Content, "Add _jobs from folder..."));
-          Assert.Equal("J", new ButtonAutomationPeer(entry).GetAccessKey());
+          var add = Assert.Single(buttons, button => Equals(button.Content, "Add _folder..."));
+          Assert.Equal("F", new ButtonAutomationPeer(add).GetAccessKey());
+          Assert.DoesNotContain(buttons, button => button.Content is string text && text.Contains("jobs", StringComparison.OrdinalIgnoreCase));
           main.Close();
         }
         finally { Directory.Delete(settings, true); }
@@ -277,6 +277,142 @@ public sealed class BookGroupImportTests : IDisposable
     thread.Start();
     Assert.True(thread.Join(TimeSpan.FromSeconds(15)));
     Assert.Null(failure);
+  }
+
+  private sealed class Reviews(params bool[] accept)
+  {
+    private readonly Queue<bool> _accept = new(accept);
+    public List<string> Folders { get; } = [];
+    public IReadOnlyList<BookGroup>? Review(string folder, BookGroupPlan plan)
+    {
+      Folders.Add(folder);
+      return _accept.Count == 0 || _accept.Dequeue() ? plan.Groups : null;
+    }
+  }
+
+  private string Folder(string relative) => Path.GetFullPath(Path.Combine(_root, relative));
+
+  [Fact]
+  public async Task AddFolderWithAudioDirectlyInItIsOneBookWithoutPreview()
+  {
+    Write("Book/01.mp3");
+    Write("Book/02.mp3");
+    var model = new MainWindowViewModel(new QueueTests.Analyzer(), new NoConverter(), AppSettings.Defaults);
+    var reviews = new Reviews();
+
+    await model.AddFoldersAsync([Folder("Book")], reviews.Review);
+
+    Assert.Empty(reviews.Folders);
+    var item = Assert.Single(model.Items);
+    Assert.Equal(Folder("Book"), item.Source);
+    Assert.Null(item.Selection);
+  }
+
+  [Fact]
+  public async Task AddFolderWithLooseFilesAndDiscFoldersIsOneBookWithoutPreview()
+  {
+    Write("Book/01.mp3");
+    Write("Book/Disc 1/01.mp3");
+    Write("Book/Disc 2/01.mp3");
+    var model = new MainWindowViewModel(new QueueTests.Analyzer(), new NoConverter(), AppSettings.Defaults);
+    var reviews = new Reviews();
+
+    await model.AddFoldersAsync([Folder("Book")], reviews.Review);
+
+    Assert.Empty(reviews.Folders);
+    Assert.Equal(Folder("Book"), Assert.Single(model.Items).Source);
+  }
+
+  [Fact]
+  public async Task AddFolderWithLooseFilesAndBookSubfoldersOpensThePreview()
+  {
+    Write("Downloads/loose.mp3");
+    Write("Downloads/Book A/01.mp3");
+    Write("Downloads/Book B/01.mp3");
+    var model = new MainWindowViewModel(new QueueTests.Analyzer(), new NoConverter(), AppSettings.Defaults);
+    BookGroupPlan? shown = null;
+
+    await model.AddFoldersAsync([Folder("Downloads")], (_, plan) => { shown = plan; return []; });
+
+    Assert.Equal(3, shown!.Groups.Count);
+    Assert.Empty(model.Items);
+  }
+
+  [Fact]
+  public async Task AddFolderWithOnlyDiscFoldersIsOneBookWithoutPreview()
+  {
+    Write("Book/Disc 1/01.mp3");
+    Write("Book/Disc 2/01.mp3");
+    Assert.Equal(2, new BookGroupPlanner().Plan(Folder("Book")).Groups.Count);
+    var model = new MainWindowViewModel(new QueueTests.Analyzer(), new NoConverter(), AppSettings.Defaults);
+    var reviews = new Reviews();
+
+    await model.AddFoldersAsync([Folder("Book")], reviews.Review);
+
+    Assert.Empty(reviews.Folders);
+    var item = Assert.Single(model.Items);
+    Assert.Equal(Folder("Book"), item.Source);
+    Assert.Null(item.Selection);
+  }
+
+  [Fact]
+  public async Task AddFolderWithOneProposedBookIsAddedDirectly()
+  {
+    Write("Shelf/Only Book/01.mp3");
+    var model = new MainWindowViewModel(new QueueTests.Analyzer(), new NoConverter(), AppSettings.Defaults);
+    var reviews = new Reviews();
+
+    await model.AddFoldersAsync([Folder("Shelf")], reviews.Review);
+
+    Assert.Empty(reviews.Folders);
+    Assert.Equal(Folder("Shelf"), Assert.Single(model.Items).Source);
+  }
+
+  [Fact]
+  public async Task AddFolderWithNoAudioTakesTheSingleBookPathAndReportsItThere()
+  {
+    Directory.CreateDirectory(Folder("Empty"));
+    var model = new MainWindowViewModel(new QueueTests.Analyzer(), new NoConverter(), AppSettings.Defaults);
+    var reviews = new Reviews();
+
+    await model.AddFoldersAsync([Folder("Empty")], reviews.Review);
+
+    Assert.Empty(reviews.Folders);
+    Assert.Equal(Folder("Empty"), Assert.Single(model.Items).Source);
+  }
+
+  [Fact]
+  public async Task AddFolderWithSeveralBooksPreviewsThePlanAndAddsTheAcceptedGroups()
+  {
+    var a = Write("Shelf/Book A/Disc 1/01.mp3");
+    var b = Write("Shelf/Book B/01.mp3");
+    var model = new MainWindowViewModel(new QueueTests.Analyzer(), new NoConverter(), AppSettings.Defaults);
+    BookGroupPlan? shown = null;
+
+    await model.AddFoldersAsync([Folder("Shelf")], (_, plan) => { shown = plan; return [plan.Groups[1]]; });
+
+    Assert.Equal(2, shown!.Groups.Count);
+    var item = Assert.Single(model.Items);
+    Assert.Equal("Book B", item.Name);
+    Assert.Equal([b], item.Selection!.Paths);
+    Assert.DoesNotContain(model.Items, queued => queued.Selection?.Paths.Contains(a) == true);
+  }
+
+  [Fact]
+  public async Task SeveralChosenFoldersAddSingleBooksFirstAndPreviewEachMultiBookFolderInTurn()
+  {
+    Write("Single/01.mp3");
+    Write("Shelf 1/A/01.mp3");
+    Write("Shelf 1/B/01.mp3");
+    Write("Shelf 2/C/01.mp3");
+    Write("Shelf 2/D/01.mp3");
+    var model = new MainWindowViewModel(new QueueTests.Analyzer(), new NoConverter(), AppSettings.Defaults);
+    var reviews = new Reviews(false, true);
+
+    await model.AddFoldersAsync([Folder("Shelf 1"), Folder("Single"), Folder("Shelf 2")], reviews.Review);
+
+    Assert.Equal([Folder("Shelf 1"), Folder("Shelf 2")], reviews.Folders);
+    Assert.Equal(["Single", "C", "D"], model.Items.Select(item => item.Name));
   }
 
   private static IEnumerable<T> Descendants<T>(DependencyObject parent) where T : DependencyObject

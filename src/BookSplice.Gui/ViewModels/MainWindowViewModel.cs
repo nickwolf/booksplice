@@ -17,12 +17,16 @@ namespace BookSplice.Gui.ViewModels;
 
 public enum FileImportChoice { OneBook, SeparateBooks, Cancel }
 
-public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConversionService conversion, AppSettings settings, IConversionPlanner? planner = null, GuiOperationGate? gate = null, MetadataProfileCatalog? profiles = null, IConversionNotifier? notifier = null) : ObservableModel, IDisposable
+public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConversionService conversion, AppSettings settings, IConversionPlanner? planner = null, GuiOperationGate? gate = null, MetadataProfileCatalog? profiles = null, IConversionNotifier? notifier = null, BookGroupPlanner? groupPlanner = null) : ObservableModel, IDisposable
 {
   private readonly QueueScheduler _scheduler = new(settings.BooksAtOnce ?? 1);
   private string _message = "";
   private string _batchProgress = "";
-  public ObservableCollection<BookQueueItemViewModel> Items { get; } = [];
+  private ObservableCollection<BookQueueItemViewModel>? _items;
+  public ObservableCollection<BookQueueItemViewModel> Items => _items ??= TrackItems();
+  private bool _canPause;
+  private bool _canRetryFailed;
+  private bool _canClearCompleted;
   private AppSettings _settings = settings;
   public AppSettings Settings
   {
@@ -35,7 +39,14 @@ public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConvers
     }
   }
   public bool IsQueuePaused => _scheduler.IsPaused;
+  // Pause shows while a book is converting or waiting for a slot, and stays while paused so the queue can be resumed.
+  public bool CanPauseQueue => _canPause;
+  public bool CanRetryFailed => _canRetryFailed;
+  public bool CanClearCompleted => _canClearCompleted;
   public string QueuePauseLabel => IsQueuePaused ? "Resume _queue" : "Pause _queue";
+  public string QueuePauseText => IsQueuePaused ? "Resume queue" : "Pause queue";
+  public string QueuePauseGlyph => IsQueuePaused ? "\uE768" : "\uE769";
+  public bool IsQueueEmpty => Items.Count == 0;
   public string Message { get => _message; private set { _message = value; Changed(); } }
   public string BatchProgress { get => _batchProgress; private set { _batchProgress = value; Changed(); Changed(nameof(IsBatchActive)); } }
   public bool IsBatchActive => _batchProgress.Length > 0;
@@ -52,6 +63,41 @@ public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConvers
   {
     public static NoGate Instance { get; } = new();
     public void Dispose() { }
+  }
+
+  private static readonly HashSet<string> ToolbarTriggers = new(StringComparer.Ordinal)
+  {
+    nameof(BookQueueItemViewModel.Status), nameof(BookQueueItemViewModel.IsBusy), nameof(BookQueueItemViewModel.Outcome),
+    nameof(BookQueueItemViewModel.IsInterrupted), nameof(BookQueueItemViewModel.CanConvert),
+  };
+
+  private ObservableCollection<BookQueueItemViewModel> TrackItems()
+  {
+    var items = new ObservableCollection<BookQueueItemViewModel>();
+    items.CollectionChanged += (_, e) =>
+    {
+      if (e.OldItems is not null) foreach (BookQueueItemViewModel item in e.OldItems) item.PropertyChanged -= OnToolbarItemChanged;
+      if (e.NewItems is not null) foreach (BookQueueItemViewModel item in e.NewItems) item.PropertyChanged += OnToolbarItemChanged;
+      Changed(nameof(IsQueueEmpty));
+      RefreshToolbar();
+    };
+    return items;
+  }
+
+  private void OnToolbarItemChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+  {
+    if (e.PropertyName is not null && ToolbarTriggers.Contains(e.PropertyName)) RefreshToolbar();
+  }
+
+  // Same conditions the actions use, so a button never shows for an action that would do nothing.
+  private void RefreshToolbar()
+  {
+    var pause = IsQueuePaused || Items.Any(item => item.IsBusy);
+    var retry = Items.Any(item => item.Outcome == BookOutcome.Failure && item.CanConvert && !item.IsInterrupted);
+    var clear = Items.Any(item => !item.IsBusy && item.Status == "Complete");
+    if (pause != _canPause) { _canPause = pause; Changed(nameof(CanPauseQueue)); }
+    if (retry != _canRetryFailed) { _canRetryFailed = retry; Changed(nameof(CanRetryFailed)); }
+    if (clear != _canClearCompleted) { _canClearCompleted = clear; Changed(nameof(CanClearCompleted)); }
   }
 
   public Task AddAsync(string path) => AddManyAsync([path]);
@@ -80,6 +126,41 @@ public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConvers
       { problems.Add($"{raw}: {exception.Message}"); }
     }
     await AnalyzeBatchAsync(batch, problems);
+  }
+
+  // One Add folder for books and for folders of books. A folder with audio directly in it, or with a single proposed book, is one book as before.
+  // A folder that proposes several books goes through review, which returns the groups to add or null to skip that folder.
+  public async Task AddFoldersAsync(IEnumerable<string> folders, Func<string, BookGroupPlan, IReadOnlyList<BookGroup>?> review)
+  {
+    var direct = new List<string>();
+    var reviewed = new List<(string Folder, BookGroupPlan Plan)>();
+    var planner = groupPlanner ?? new BookGroupPlanner();
+    try
+    {
+      var picked = folders.ToArray();
+      for (var index = 0; index < picked.Length; index++)
+      {
+        BatchProgress = picked.Length == 1 ? "Checking folder" : $"Checking folder {index + 1} of {picked.Length}";
+        var plan = await planner.PlanAsync(picked[index]);
+        if (IsSingleBook(picked[index], plan)) direct.Add(picked[index]);
+        else reviewed.Add((picked[index], plan));
+      }
+    }
+    finally { BatchProgress = ""; }
+    if (direct.Count > 0) await AddManyAsync(direct);
+    foreach (var (folder, plan) in reviewed)
+      if (review(folder, plan) is { Count: > 0 } accepted) await AddBookGroupsAsync(accepted);
+  }
+
+  // The planner proposes a book per subfolder, so disc folders only merge below a subfolder. Loose audio at the root and direct
+  // disc-named children belong to the picked folder's own book; any other subfolder with audio is a book of its own, so the folder
+  // goes to review (which lists root loose files as their own groups). No audio at all takes the single-book path, which reports it.
+  private static bool IsSingleBook(string folder, BookGroupPlan plan)
+  {
+    if (plan.Groups.Count <= 1) return true;
+    var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
+    return plan.Groups.Where(group => !group.IsLooseFile).All(group => string.Equals(Path.GetDirectoryName(group.RootFolder), root, StringComparison.OrdinalIgnoreCase)
+      && BookGroupPlanner.IsDiscFolderName(Path.GetFileName(group.RootFolder)));
   }
 
   // More than one picked file asks first, so the grouping is decided before anything enters the queue.
@@ -428,6 +509,9 @@ public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConvers
     foreach (var item in Items.Where(item => item.IsBusy && item.Status == "Waiting")) item.Details = _scheduler.IsPaused ? PausedDetails : WaitingDetails;
     Changed(nameof(IsQueuePaused));
     Changed(nameof(QueuePauseLabel));
+    Changed(nameof(QueuePauseText));
+    Changed(nameof(QueuePauseGlyph));
+    RefreshToolbar();
   }
 
   private static BookFinished Finished(BookQueueItemViewModel item) => new(item.Source, item.Name,

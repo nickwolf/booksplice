@@ -2,8 +2,11 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Automation.Peers;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using BookSplice.Core.Analysis;
+using BookSplice.Core.Execution;
 using BookSplice.Core.Settings;
 using BookSplice.Gui.Updates;
 using BookSplice.Gui.ViewModels;
@@ -212,6 +215,158 @@ public sealed class AccessibilityContractTests
     Assert.True(thread.Join(TimeSpan.FromSeconds(15)));
     Assert.Null(failure);
   }
+  [Fact]
+  public void ToolbarFitsOnOneRowAtMinimumSizeWithEveryConditionalButtonVisible()
+  {
+    RunWithFullToolbar((window, toolbar) =>
+    {
+      var buttons = toolbar.Children.OfType<Button>().ToArray();
+      Assert.Equal(["Add _folder...", "Add f_iles...", "Convert ready _books", "Resume _queue", "Retr_y failed", "Clear com_pleted books", "_Settings"],
+        buttons.Where(button => button.Name != "UpdateAvailableButton").Select(button => button.Content));
+      Assert.All(buttons, button => Assert.True(button.IsVisible, $"{button.Content} is hidden"));
+      var primary = buttons.Single(button => button.Name == "ConvertReadyButton");
+      var primaryTop = primary.TranslatePoint(new Point(), window).Y;
+      var primaryBottom = primaryTop + primary.ActualHeight;
+      Assert.All(buttons, button =>
+      {
+        var location = button.TranslatePoint(new Point(), window);
+        Assert.True(location.X >= 0 && location.X + button.ActualWidth <= window.ActualWidth + 1, $"{button.Content} is cut off");
+        Assert.True(location.Y < primaryBottom && location.Y + button.ActualHeight > primaryTop, $"{button.Content} wrapped to another row");
+      });
+    });
+  }
+
+  [Fact]
+  public void ToolbarAccessKeysAreUniqueRegisteredAndNamed()
+  {
+    RunWithFullToolbar((window, toolbar) =>
+    {
+      var buttons = toolbar.Children.OfType<Button>().ToArray();
+      var keys = buttons.Select(button => AccessKey(Assert.IsType<string>(button.Content))).ToArray();
+      Assert.Equal(keys.Length, keys.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+      Assert.All(buttons.Zip(keys), pair =>
+      {
+        Assert.True(AccessKeyManager.IsKeyRegistered(null, pair.Second), $"{pair.First.Content} has no registered access key");
+        Assert.False(string.IsNullOrWhiteSpace(new ButtonAutomationPeer(pair.First).GetName()));
+        Assert.Equal(pair.Second, new ButtonAutomationPeer(pair.First).GetAccessKey(), ignoreCase: true);
+      });
+      Assert.All(buttons.OfType<BookSplice.Gui.Controls.IconButton>(), icon => Assert.False(string.IsNullOrWhiteSpace(icon.ToolTip as string)));
+    });
+  }
+
+  [Fact]
+  public void ConditionalToolbarButtonsAndTheDropHintFollowTheQueue()
+  {
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+      try
+      {
+        var root = Directory.CreateTempSubdirectory("booksplice-toolbar-").FullName;
+        try
+        {
+          var model = new MainWindowViewModel(new QueueTests.Analyzer(), new IdleConverter(), AppSettings.Defaults);
+          var window = new MainWindow(new JsonSettingsStore(root), AppSettings.Defaults) { DataContext = model, ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = -10000, Top = -10000 };
+          window.Show();
+          window.UpdateLayout();
+          var hint = (UIElement)window.FindName("DropHint");
+          var conditional = ConditionalButtons.Select(name => (UIElement)window.FindName(name)).ToArray();
+          Assert.True(hint.IsVisible);
+          Assert.All(conditional, button => Assert.False(button.IsVisible, $"{((FrameworkElement)button).Name} visible, pause={model.CanPauseQueue} retry={model.CanRetryFailed} clear={model.CanClearCompleted} items={model.Items.Count}"));
+
+          var book = AddReady(model, "book");
+          Settle(window);
+          Assert.False(hint.IsVisible);
+          Assert.All(conditional, button => Assert.False(button.IsVisible, $"{((FrameworkElement)button).Name} visible, pause={model.CanPauseQueue} retry={model.CanRetryFailed} clear={model.CanClearCompleted} items={model.Items.Count}"));
+
+          book.Status = "Complete";
+          Settle(window);
+          Assert.True(conditional[2].IsVisible);
+          Assert.False(conditional[0].IsVisible || conditional[1].IsVisible);
+
+          model.ClearCompleted();
+          Settle(window);
+          Assert.True(hint.IsVisible);
+          Assert.All(conditional, button => Assert.False(button.IsVisible, $"{((FrameworkElement)button).Name} visible, pause={model.CanPauseQueue} retry={model.CanRetryFailed} clear={model.CanClearCompleted} items={model.Items.Count}"));
+          window.Close();
+        }
+        finally { Directory.Delete(root, true); }
+      }
+      catch (Exception exception) { failure = exception; }
+    });
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    Assert.True(thread.Join(TimeSpan.FromSeconds(30)));
+    Assert.Null(failure);
+  }
+
+  // Binding updates queue behind the dispatcher, so let them run before reading the layout.
+  private static void Settle(Window window)
+  {
+    window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ContextIdle);
+    window.UpdateLayout();
+  }
+
+  private static readonly string[] ConditionalButtons = ["PauseQueueButton", "RetryFailedButton", "ClearCompletedButton"];
+
+  private static string AccessKey(string content) => content[(content.IndexOf('_', StringComparison.Ordinal) + 1)..][..1];
+
+  private static BookQueueItemViewModel AddReady(MainWindowViewModel model, string name)
+  {
+    model.AddAsync(Path.GetFullPath(name)).GetAwaiter().GetResult();
+    var item = model.Items[^1];
+    model.ResolveOrderAsync(item, BookSplice.Core.Ordering.OrderCandidateId.NaturalPath).GetAwaiter().GetResult();
+    return item;
+  }
+
+  // A window whose queue makes Pause (shown as Resume), Retry, Clear and the update button all visible, at the minimum size.
+  private static void RunWithFullToolbar(Action<MainWindow, WrapPanel> check)
+  {
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+      try
+      {
+        var root = Directory.CreateTempSubdirectory("booksplice-toolbar-").FullName;
+        try
+        {
+          var model = new MainWindowViewModel(new QueueTests.Analyzer(), new IdleConverter(), AppSettings.Defaults);
+          AddReady(model, "failed").Outcome = BookSplice.Gui.Notifications.BookOutcome.Failure;
+          AddReady(model, "done").Status = "Complete";
+          model.PauseQueue();
+          var window = new MainWindow(new JsonSettingsStore(root), AppSettings.Defaults)
+          {
+            DataContext = model,
+            Width = 760,
+            Height = 520,
+            ShowInTaskbar = false,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Left = -10000,
+            Top = -10000
+          };
+          var update = (Button)window.FindName("UpdateAvailableButton");
+          update.Content = "BookSplice 10.20.30 a_vailable";
+          update.Visibility = Visibility.Visible;
+          window.Show();
+          window.UpdateLayout();
+          check(window, Assert.IsType<WrapPanel>(window.FindName("PrimaryActions")));
+          window.Close();
+        }
+        finally { Directory.Delete(root, true); }
+      }
+      catch (Exception exception) { failure = exception; }
+    });
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    Assert.True(thread.Join(TimeSpan.FromSeconds(30)));
+    Assert.Null(failure);
+  }
+
+  private sealed class IdleConverter : IConversionService
+  {
+    public Task<ConversionServiceResult> ConvertAsync(ConversionRequest request, CancellationToken cancellationToken, IProgress<ConversionProgress>? progress = null) => throw new NotSupportedException();
+  }
+
   private static IEnumerable<T> Descendants<T>(DependencyObject parent) where T : DependencyObject
   {
     foreach (var child in LogicalTreeHelper.GetChildren(parent).OfType<DependencyObject>())

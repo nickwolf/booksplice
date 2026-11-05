@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using BookSplice.Core.Discovery;
 using BookSplice.Core.Ordering;
 using BookSplice.Core.Settings;
 using BookSplice.Gui.Bootstrap;
@@ -144,21 +145,18 @@ public partial class MainWindow : Window
   private async void AddFolder_Click(object sender, RoutedEventArgs e)
   {
     using var operation = TryEnter("add folder");
-    if (operation is null) return;
-    var dialog = new OpenFolderDialog { Title = "Choose an audiobook folder", Multiselect = true };
-    if (dialog.ShowDialog(this) == true) await AddPathsAsync(dialog.FolderNames);
+    if (operation is null || _model is null) return;
+    var dialog = new OpenFolderDialog { Title = "Choose audiobook folders", Multiselect = true };
+    if (dialog.ShowDialog(this) != true) return;
+    await _model.AddFoldersAsync(dialog.FolderNames, ReviewBooks);
+    Queue.SelectedItem ??= _model.Items.FirstOrDefault();
   }
 
-  private async void AddBookFolder_Click(object sender, RoutedEventArgs e)
+  // The folder was already scanned to decide that it holds several books, so the preview reuses that scan.
+  private IReadOnlyList<BookGroup>? ReviewBooks(string folder, BookGroupPlan plan)
   {
-    using var operation = TryEnter("add folder of books");
-    if (operation is null || _model is null) return;
-    var dialog = new OpenFolderDialog { Title = "Choose a folder that holds several audiobooks" };
-    if (dialog.ShowDialog(this) != true) return;
-    var preview = new BookGroupPreviewWindow(new BookGroupPreviewViewModel(dialog.FolderName)) { Owner = this };
-    if (preview.ShowDialog() != true) return;
-    await _model.AddBookGroupsAsync(preview.AcceptedGroups);
-    Queue.SelectedItem ??= _model.Items.FirstOrDefault();
+    var preview = new BookGroupPreviewWindow(new BookGroupPreviewViewModel(folder, (_, _, _) => Task.FromResult(plan))) { Owner = this };
+    return preview.ShowDialog() == true ? preview.AcceptedGroups : null;
   }
 
   private async void AddFiles_Click(object sender, RoutedEventArgs e)
