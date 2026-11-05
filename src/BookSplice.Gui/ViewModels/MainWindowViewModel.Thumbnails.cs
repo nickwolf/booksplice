@@ -9,8 +9,11 @@ public sealed partial class MainWindowViewModel
 {
   private const int ThumbnailPixels = 80;
 
+  // An embedded cover is read by running ffmpeg, so a long queue should not start one per book at once.
+  private readonly SemaphoreSlim _thumbnailSlots = new(2);
+
   // Starts a background decode and returns at once. A newer cover choice makes an older decode drop its result, and the same cover is decoded once.
-  // Not behind the update gate: thumbnails exist only while the queue is not empty, and an update cannot start then.
+  // Not behind the update gate: it only reads source files, and an update needs an empty queue before it starts.
   private void LoadThumbnail(BookQueueItemViewModel item)
   {
     var cover = coverPayloads is null ? null : item.SelectedCover;
@@ -27,6 +30,7 @@ public sealed partial class MainWindowViewModel
 
   private async Task DecodeThumbnailAsync(BookQueueItemViewModel item, CoverCandidate cover, int version)
   {
+    await _thumbnailSlots.WaitAsync();
     try
     {
       var bitmap = await Task.Run(async () =>
@@ -44,11 +48,13 @@ public sealed partial class MainWindowViewModel
       });
       if (version == item.ThumbnailVersion) item.Thumbnail = bitmap;
     }
-    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or FormatException or NotSupportedException or ArgumentException or InvalidOperationException)
+    // A thumbnail is only decoration, so whatever goes wrong while reading or decoding the cover just leaves the row without one.
+    catch (Exception)
     {
       if (version != item.ThumbnailVersion) return;
       item.ThumbnailHash = null;
       item.Thumbnail = null;
     }
+    finally { _ = _thumbnailSlots.Release(); }
   }
 }

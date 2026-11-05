@@ -124,6 +124,19 @@ public sealed class QueueRowTests
     Assert.False(cancel.IsVisible);
     Assert.True(convert.IsVisible);
 
+    // Cancel also covers a book that is analyzing or waiting for a slot, since that is the only way to stop it.
+    running.IsBusy = true;
+    running.Status = "Analyzing";
+    Settle(window);
+    Assert.True(cancel.IsVisible);
+    running.IsBusy = false;
+    running.IsWaiting = true;
+    running.Status = "Waiting";
+    Settle(window);
+    Assert.True(cancel.IsVisible);
+    running.IsWaiting = false;
+    running.Status = "Cancelled";
+
     queue.SelectedItem = null;
     Settle(window);
     Assert.False(convert.IsVisible || cancel.IsVisible);
