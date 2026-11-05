@@ -7,6 +7,13 @@
         AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver">
   <Window.Resources>
     <BooleanToVisibilityConverter x:Key="BooleanVisibility"/>
+    <!-- Compact so three fit beside a 45-character name in the default queue width. -->
+    <Style x:Key="RowIconButton" TargetType="ctl:IconButton">
+      <Setter Property="Width" Value="26"/>
+      <Setter Property="Height" Value="26"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Margin" Value="1,0"/>
+    </Style>
     <!-- System brushes only, resolved dynamically, so the button stays readable when a high contrast theme is switched on. -->
     <Style x:Key="PrimaryActionButton" TargetType="Button">
       <Setter Property="FontSize" Value="14"/>
@@ -75,18 +82,41 @@
     </StackPanel>
     <Grid Margin="0,12,0,0">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="280" MinWidth="200"/>
+        <ColumnDefinition Width="9*" MinWidth="200"/>
         <ColumnDefinition Width="8"/>
-        <ColumnDefinition Width="*" MinWidth="380"/>
+        <ColumnDefinition Width="11*" MinWidth="380"/>
       </Grid.ColumnDefinitions>
-      <ListBox x:Name="Queue" ItemsSource="{Binding Items}" HorizontalContentAlignment="Stretch" AutomationProperties.Name="Audiobook queue">
+      <ListBox x:Name="Queue" ItemsSource="{Binding Items}" HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled" PreviewKeyDown="Queue_KeyDown"
+               AutomationProperties.Name="Audiobook queue" AutomationProperties.HelpText="Alt+Up and Alt+Down move the selected book, Delete removes it">
         <ListBox.ItemTemplate>
           <DataTemplate>
-            <StackPanel Margin="6">
-              <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap"/>
-              <TextBlock Text="{Binding QueueStatus}" Margin="0,4" TextWrapping="Wrap"/>
-              <ProgressBar Value="{Binding Percent, Mode=OneWay}" IsIndeterminate="{Binding IsProgressIndeterminate, Mode=OneWay}" Maximum="100" Height="5" AutomationProperties.Name="Conversion progress"/>
-            </StackPanel>
+            <Grid Margin="6">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+              </Grid.RowDefinitions>
+              <!-- Collapsed when the book has no cover, so no gap is left. -->
+              <Image x:Name="RowThumbnail" Source="{Binding Thumbnail}" Width="40" Height="40" Stretch="Uniform" Margin="0,0,8,0" VerticalAlignment="Top"
+                     Visibility="{Binding HasThumbnail, Converter={StaticResource BooleanVisibility}}"/>
+              <StackPanel Grid.Column="1">
+                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                <TextBlock Text="{Binding QueueStatus}" Margin="0,4" TextWrapping="Wrap"/>
+              </StackPanel>
+              <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Top" Margin="4,0,0,0">
+                <ctl:IconButton Style="{StaticResource RowIconButton}" Glyph="&#xE74A;" IsEnabled="{Binding CanMoveUp}" ToolTip="{Binding MoveUpTip}"
+                                AutomationProperties.Name="{Binding MoveUpText}" Click="RowMoveUp_Click"/>
+                <ctl:IconButton Style="{StaticResource RowIconButton}" Glyph="&#xE74B;" IsEnabled="{Binding CanMoveDown}" ToolTip="{Binding MoveDownTip}"
+                                AutomationProperties.Name="{Binding MoveDownText}" Click="RowMoveDown_Click"/>
+                <ctl:IconButton Style="{StaticResource RowIconButton}" Glyph="&#xE74D;" IsEnabled="{Binding CanRemove}" ToolTip="{Binding RemoveTip}"
+                                AutomationProperties.Name="{Binding RemoveText}" Click="RowRemove_Click"/>
+              </StackPanel>
+              <ProgressBar Grid.Row="1" Grid.ColumnSpan="3" Value="{Binding Percent, Mode=OneWay}" IsIndeterminate="{Binding IsProgressIndeterminate, Mode=OneWay}" Maximum="100" Height="5" AutomationProperties.Name="Conversion progress"/>
+            </Grid>
           </DataTemplate>
         </ListBox.ItemTemplate>
       </ListBox>
@@ -99,12 +129,9 @@
           <TextBlock Text="{Binding Source}" TextWrapping="Wrap" Foreground="DimGray"/>
           <WrapPanel Margin="0,8">
             <Button Content="_Preview output" IsEnabled="{Binding CanConvert}" Click="Preview_Click" Padding="12,6" Margin="0,0,8,0"/>
-            <Button Content="_Convert selected" IsEnabled="{Binding CanConvert}" Click="Convert_Click" Padding="12,6" Margin="0,0,8,0"/>
-            <Button Content="_Cancel" IsEnabled="{Binding CanCancel}" Click="Cancel_Click" Padding="12,6" Margin="0,0,8,0"/>
-            <Button Content="Copy _diagnostics" Click="CopyDiagnostics_Click" Padding="12,6" Margin="0,0,8,0"/>
-            <Button Content="_Remove" IsEnabled="{Binding CanRemove}" Click="Remove_Click" Padding="12,6" Margin="0,0,8,0"/>
-            <Button Content="Move _earlier" Click="MoveEarlier_Click" Padding="12,6" Margin="0,0,8,0" AutomationProperties.HelpText="Starts this book sooner if it has not started yet"/>
-            <Button Content="Move _later" Click="MoveLater_Click" Padding="12,6" AutomationProperties.HelpText="Starts this book later if it has not started yet"/>
+            <Button x:Name="ConvertSelectedButton" Content="Conve_rt selected" Visibility="{Binding CanConvert, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}" Click="Convert_Click" Padding="12,6" Margin="0,0,8,0"/>
+            <Button x:Name="CancelSelectedButton" Content="Cance_l" Visibility="{Binding CanCancel, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}" Click="Cancel_Click" Padding="12,6" Margin="0,0,8,0"/>
+            <Button x:Name="CopyDiagnosticsButton" Content="Copy dia_gnostics" Click="CopyDiagnostics_Click" Padding="12,6"/>
           </WrapPanel>
         </StackPanel>
         <Border x:Name="ConversionResultCard" DockPanel.Dock="Top" Margin="8,0,0,8" Padding="12" BorderBrush="Gray" BorderThickness="1"

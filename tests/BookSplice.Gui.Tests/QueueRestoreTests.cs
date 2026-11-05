@@ -46,6 +46,23 @@ public sealed class QueueRestoreTests : IDisposable
   }
 
   [Fact]
+  public async Task RestoreWithoutCoversLoadsTheQueueAndLeavesNoThumbnails()
+  {
+    var store = new MemoryStore();
+    var disk = new Disk { NoCover = true };
+    var (first, _, _) = await StartAsync(store, disk);
+    await first.AddManyAsync([_bookA, _bookB]);
+    first.FlushQueue();
+
+    var second = new MainWindowViewModel(new Analyzer(disk), new Converter(), AppSettings.Defaults, coverPayloads: new NoCoverOpener());
+    await second.AttachQueueAsync(store, Never, action => action());
+
+    Assert.Equal([_bookA, _bookB], second.Items.Select(item => item.Source));
+    Assert.All(second.Items, item => { Assert.Null(item.SelectedCover); Assert.Null(item.Thumbnail); Assert.False(item.HasThumbnail); });
+    Assert.Contains("Restored 2", second.QueueNotice, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public async Task RestoreRebuildsTheQueueWithOrderSettingsAndEveryReviewedChoice()
   {
     var store = new MemoryStore();
@@ -509,6 +526,11 @@ public sealed class QueueRestoreTests : IDisposable
     return Assert.Single(converter.Requests);
   }
 
+  private sealed class NoCoverOpener : ICoverPayloadOpener
+  {
+    public ValueTask<Stream> OpenReadAsync(CoverPayloadReference payload, CancellationToken cancellationToken) => throw new InvalidOperationException("No cover should be read.");
+  }
+
   private sealed class MemoryStore : IQueueSnapshotStore
   {
     public string Path => "memory";
@@ -532,6 +554,7 @@ public sealed class QueueRestoreTests : IDisposable
     public long Length { get; set; } = 100;
     public bool Missing { get; set; }
     public string CoverHash { get; set; } = "hash-cover";
+    public bool NoCover { get; set; }
   }
 
   private sealed class Analyzer(Disk disk) : IBookAnalyzer
@@ -570,7 +593,7 @@ public sealed class QueueRestoreTests : IDisposable
       }, new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>());
       IEnumerable<AnalysisDiagnostic> diagnostics = matches ? [] : [new("analysis.order-sources-changed", AnalysisDiagnosticSeverity.Warning, "The files in the source changed.")];
       return Task.FromResult(new BookAnalysis(matches ? BookAnalysisStatus.Ready : BookAnalysisStatus.NeedsDecision, inputPath, "book",
-        included.Select(id => File(inputPath, id)), resolution, metadata, new CoverDiscoveryResult([cover, external], [], cover),
+        included.Select(id => File(inputPath, id)), resolution, metadata, disk.NoCover ? new CoverDiscoveryResult([], [], null) : new CoverDiscoveryResult([cover, external], [], cover),
         ChapterPlan.Valid(chapters, chapters.Length * 1000), diagnostics, matches ? (reviewed?.Excluded ?? []).Select(id => File(inputPath, id)) : [], all));
     }
 

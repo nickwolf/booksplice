@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows.Threading;
 using BookSplice.Core.Analysis;
+using BookSplice.Core.Covers;
 using BookSplice.Core.Discovery;
 using BookSplice.Core.Execution;
 using BookSplice.Core.Metadata;
@@ -17,7 +18,7 @@ namespace BookSplice.Gui.ViewModels;
 
 public enum FileImportChoice { OneBook, SeparateBooks, Cancel }
 
-public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConversionService conversion, AppSettings settings, IConversionPlanner? planner = null, GuiOperationGate? gate = null, MetadataProfileCatalog? profiles = null, IConversionNotifier? notifier = null, BookGroupPlanner? groupPlanner = null) : ObservableModel, IDisposable
+public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConversionService conversion, AppSettings settings, IConversionPlanner? planner = null, GuiOperationGate? gate = null, MetadataProfileCatalog? profiles = null, IConversionNotifier? notifier = null, BookGroupPlanner? groupPlanner = null, ICoverPayloadOpener? coverPayloads = null) : ObservableModel, IDisposable
 {
   private readonly QueueScheduler _scheduler = new(settings.BooksAtOnce ?? 1);
   private string _message = "";
@@ -77,7 +78,8 @@ public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConvers
     items.CollectionChanged += (_, e) =>
     {
       if (e.OldItems is not null) foreach (BookQueueItemViewModel item in e.OldItems) item.PropertyChanged -= OnToolbarItemChanged;
-      if (e.NewItems is not null) foreach (BookQueueItemViewModel item in e.NewItems) item.PropertyChanged += OnToolbarItemChanged;
+      if (e.NewItems is not null) foreach (BookQueueItemViewModel item in e.NewItems) { item.PropertyChanged += OnToolbarItemChanged; LoadThumbnail(item); }
+      for (var index = 0; index < items.Count; index++) items[index].SetPosition(index, items.Count);
       Changed(nameof(IsQueueEmpty));
       RefreshToolbar();
     };
@@ -87,6 +89,7 @@ public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConvers
   private void OnToolbarItemChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
   {
     if (e.PropertyName is not null && ToolbarTriggers.Contains(e.PropertyName)) RefreshToolbar();
+    if (e.PropertyName == nameof(BookQueueItemViewModel.SelectedCover) && sender is BookQueueItemViewModel item) LoadThumbnail(item);
   }
 
   // Same conditions the actions use, so a button never shows for an action that would do nothing.
@@ -101,6 +104,9 @@ public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConvers
   }
 
   public Task AddAsync(string path) => AddManyAsync([path]);
+
+  // Removes a book that is not running. Returns false when it is, which is the same rule the Remove button follows.
+  public bool Remove(BookQueueItemViewModel item) => item.CanRemove && Items.Remove(item);
 
   // Queues every path first, then analyzes them one at a time so the whole pick shows up immediately.
   public async Task AddManyAsync(IEnumerable<string> paths)
