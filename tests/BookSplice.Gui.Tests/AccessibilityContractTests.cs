@@ -221,7 +221,7 @@ public sealed class AccessibilityContractTests
     RunWithFullToolbar((window, toolbar) =>
     {
       var buttons = toolbar.Children.OfType<Button>().ToArray();
-      Assert.Equal(["Add _folder...", "Add f_iles...", "Convert ready _books", "Resume _queue", "Retr_y failed", "Clear completed book_s", "Se_ttings"],
+      Assert.Equal(["Add _folder...", "Add f_iles...", "Convert ready _books", "Resume _queue", "Retr_y failed", "Clear com_pleted books", "_Settings"],
         buttons.Where(button => button.Name != "UpdateAvailableButton").Select(button => button.Content));
       Assert.All(buttons, button => Assert.True(button.IsVisible, $"{button.Content} is hidden"));
       var primary = buttons.Single(button => button.Name == "ConvertReadyButton");

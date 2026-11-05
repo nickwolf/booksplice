@@ -152,13 +152,14 @@ public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConvers
       if (review(folder, plan) is { Count: > 0 } accepted) await AddBookGroupsAsync(accepted);
   }
 
-  // The planner proposes a book per subfolder, so disc folders only merge below a subfolder. Audio directly in the picked
-  // folder, or nothing but disc folders under it, is still one book. No audio at all goes down the single-book path too, which reports it.
+  // The planner proposes a book per subfolder, so disc folders only merge below a subfolder. Loose audio at the root and direct
+  // disc-named children belong to the picked folder's own book; any other subfolder with audio is a book of its own, so the folder
+  // goes to review (which lists root loose files as their own groups). No audio at all takes the single-book path, which reports it.
   private static bool IsSingleBook(string folder, BookGroupPlan plan)
   {
-    if (plan.Groups.Count <= 1 || plan.Groups.Any(group => group.IsLooseFile)) return true;
+    if (plan.Groups.Count <= 1) return true;
     var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
-    return plan.Groups.All(group => string.Equals(Path.GetDirectoryName(group.RootFolder), root, StringComparison.OrdinalIgnoreCase)
+    return plan.Groups.Where(group => !group.IsLooseFile).All(group => string.Equals(Path.GetDirectoryName(group.RootFolder), root, StringComparison.OrdinalIgnoreCase)
       && BookGroupPlanner.IsDiscFolderName(Path.GetFileName(group.RootFolder)));
   }
 

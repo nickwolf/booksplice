@@ -151,7 +151,7 @@ public sealed class SettingsWindowTests : IDisposable
     Assert.Null(window.FindName("HistoryButton"));
     var actions = Assert.IsType<WrapPanel>(window.FindName("PrimaryActions"));
     var labels = LogicalTreeHelper.GetChildren(actions).OfType<Button>().Select(button => (string)button.Content).ToArray();
-    Assert.Contains("Se_ttings", labels);
+    Assert.Contains("_Settings", labels);
     Assert.DoesNotContain(labels, label => label.Contains("presets", StringComparison.OrdinalIgnoreCase) || label.Contains("updates", StringComparison.OrdinalIgnoreCase) || label.Contains("History", StringComparison.OrdinalIgnoreCase));
     return Task.CompletedTask;
   });

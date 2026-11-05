@@ -56,9 +56,9 @@
                           Visibility="{Binding CanPauseQueue, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}" Click="PauseQueue_Click"/>
           <ctl:IconButton x:Name="RetryFailedButton" Margin="1,4" Glyph="&#xE72C;" Content="Retr_y failed" ToolTip="Retry failed books" AutomationProperties.Name="Retry failed books"
                           Visibility="{Binding CanRetryFailed, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}" Click="RetryFailed_Click"/>
-          <ctl:IconButton x:Name="ClearCompletedButton" Margin="1,4" Glyph="&#xE894;" Content="Clear completed book_s" ToolTip="Clear completed books" AutomationProperties.Name="Clear completed books"
+          <ctl:IconButton x:Name="ClearCompletedButton" Margin="1,4" Glyph="&#xE894;" Content="Clear com_pleted books" ToolTip="Clear completed books" AutomationProperties.Name="Clear completed books"
                           Visibility="{Binding CanClearCompleted, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}" Click="ClearCompleted_Click"/>
-          <ctl:IconButton x:Name="SettingsButton" Margin="1,4" Glyph="&#xE713;" Content="Se_ttings" ToolTip="Settings" AutomationProperties.Name="Settings" Click="Settings_Click"/>
+          <ctl:IconButton x:Name="SettingsButton" Margin="1,4" Glyph="&#xE713;" Content="_Settings" ToolTip="Settings" AutomationProperties.Name="Settings" Click="Settings_Click"/>
           <Button x:Name="UpdateAvailableButton" Content="BookSplice update a_vailable" Click="UpdateAvailable_Click" Padding="8,6" Margin="4" VerticalAlignment="Center" Visibility="Collapsed"
                   AutomationProperties.Name="Update available" AutomationProperties.HelpText="Opens Settings on the Updates page"/>
         </WrapPanel>

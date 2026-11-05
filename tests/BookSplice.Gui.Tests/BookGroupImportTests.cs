@@ -296,7 +296,7 @@ public sealed class BookGroupImportTests : IDisposable
   public async Task AddFolderWithAudioDirectlyInItIsOneBookWithoutPreview()
   {
     Write("Book/01.mp3");
-    Write("Book/Extras/01.mp3");
+    Write("Book/02.mp3");
     var model = new MainWindowViewModel(new QueueTests.Analyzer(), new NoConverter(), AppSettings.Defaults);
     var reviews = new Reviews();
 
@@ -306,6 +306,36 @@ public sealed class BookGroupImportTests : IDisposable
     var item = Assert.Single(model.Items);
     Assert.Equal(Folder("Book"), item.Source);
     Assert.Null(item.Selection);
+  }
+
+  [Fact]
+  public async Task AddFolderWithLooseFilesAndDiscFoldersIsOneBookWithoutPreview()
+  {
+    Write("Book/01.mp3");
+    Write("Book/Disc 1/01.mp3");
+    Write("Book/Disc 2/01.mp3");
+    var model = new MainWindowViewModel(new QueueTests.Analyzer(), new NoConverter(), AppSettings.Defaults);
+    var reviews = new Reviews();
+
+    await model.AddFoldersAsync([Folder("Book")], reviews.Review);
+
+    Assert.Empty(reviews.Folders);
+    Assert.Equal(Folder("Book"), Assert.Single(model.Items).Source);
+  }
+
+  [Fact]
+  public async Task AddFolderWithLooseFilesAndBookSubfoldersOpensThePreview()
+  {
+    Write("Downloads/loose.mp3");
+    Write("Downloads/Book A/01.mp3");
+    Write("Downloads/Book B/01.mp3");
+    var model = new MainWindowViewModel(new QueueTests.Analyzer(), new NoConverter(), AppSettings.Defaults);
+    BookGroupPlan? shown = null;
+
+    await model.AddFoldersAsync([Folder("Downloads")], (_, plan) => { shown = plan; return []; });
+
+    Assert.Equal(3, shown!.Groups.Count);
+    Assert.Empty(model.Items);
   }
 
   [Fact]
