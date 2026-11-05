@@ -22,7 +22,7 @@ public sealed class WindowTests
         {
           var queue = Assert.IsType<System.Windows.Controls.ListBox>(window.FindName("Queue"));
           var item = new BookQueueItemViewModel("synthetic-book", AppSettings.Defaults);
-          var row = Assert.IsType<System.Windows.Controls.StackPanel>(queue.ItemTemplate.LoadContent());
+          var row = Assert.IsType<System.Windows.Controls.Grid>(queue.ItemTemplate.LoadContent());
           row.DataContext = item;
           window.Content = row;
           window.ShowInTaskbar = false;
@@ -30,8 +30,8 @@ public sealed class WindowTests
           window.Top = -10000;
           window.Show();
           window.UpdateLayout();
-          row.Measure(new Size(280, 100));
-          row.Arrange(new Rect(0, 0, 280, 100));
+          row.Measure(new Size(480, 100));
+          row.Arrange(new Rect(0, 0, 480, 100));
           var progress = Assert.Single(row.Children.OfType<System.Windows.Controls.ProgressBar>());
           Assert.Equal(0, progress.Value);
           Assert.False(progress.IsIndeterminate);

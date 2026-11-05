@@ -37,7 +37,7 @@ public partial class MainWindow : Window
     _settings = settings;
     _gate = new GuiOperationGate(Dispatcher);
     if (services is not null) DataContext = _model = new MainWindowViewModel(services.Analyzer, services.Conversion, settings, services.Planner, _gate, services.Profiles,
-      new WindowsToastNotifier(Environment.ProcessPath, key => Dispatcher.BeginInvoke(() => ShowResult(key))));
+      new WindowsToastNotifier(Environment.ProcessPath, key => Dispatcher.BeginInvoke(() => ShowResult(key))), coverPayloads: services.CoverPayloads);
     WindowsToastNotifier.Sync(settings.NotificationsEnabled, Environment.ProcessPath);
     Destination.Text = $"Output folder: {settings.OutputDirectory}";
     _presets = new PresetsViewModel(new Core.Presets.PresetStore(Path.Combine(Path.GetDirectoryName(store.SettingsPath)!, Core.Presets.PresetStore.FileName)), services?.Profiles);
@@ -295,24 +295,47 @@ public partial class MainWindow : Window
 
   private void ClearCompleted_Click(object sender, RoutedEventArgs e) => _model?.ClearCompleted();
 
-  private void MoveEarlier_Click(object sender, RoutedEventArgs e) => MoveSelected(-1);
-  private void MoveLater_Click(object sender, RoutedEventArgs e) => MoveSelected(1);
+  private void RowMoveUp_Click(object sender, RoutedEventArgs e) => MoveBook(RowItem(sender), -1);
+  private void RowMoveDown_Click(object sender, RoutedEventArgs e) => MoveBook(RowItem(sender), 1);
+  private void RowRemove_Click(object sender, RoutedEventArgs e) => RemoveBook(RowItem(sender));
 
-  private void MoveSelected(int offset)
+  private static BookQueueItemViewModel? RowItem(object sender) => (sender as FrameworkElement)?.DataContext as BookQueueItemViewModel;
+
+  // Alt+Up and Alt+Down move the selected book and Delete removes it, while the queue list has focus.
+  private void Queue_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
   {
-    if (_model is null || Queue.SelectedItem is not BookQueueItemViewModel item) return;
+    if (Queue.SelectedItem is not BookQueueItemViewModel item) return;
+    switch (QueueKeys.Resolve(e.Key, e.SystemKey, System.Windows.Input.Keyboard.Modifiers))
+    {
+      case QueueAction.MoveUp: MoveBook(item, -1); break;
+      case QueueAction.MoveDown: MoveBook(item, 1); break;
+      case QueueAction.Remove: RemoveBook(item); break;
+      default: return;
+    }
+    e.Handled = true;
+  }
+
+  private void MoveBook(BookQueueItemViewModel? item, int offset)
+  {
+    if (_model is null || item is null) return;
     _model.Move(item, offset);
     Queue.SelectedItem = item;
+    (Queue.ItemContainerGenerator.ContainerFromItem(item) as System.Windows.Controls.ListBoxItem)?.Focus();
+  }
+
+  // A book that is running stays in the queue. The next book takes the selection so the list keeps its place.
+  private void RemoveBook(BookQueueItemViewModel? item)
+  {
+    if (_model is null || item is null) return;
+    var index = _model.Items.IndexOf(item);
+    if (!_model.Remove(item)) return;
+    if (Queue.SelectedItem is null && _model.Items.Count > 0) Queue.SelectedIndex = Math.Min(index, _model.Items.Count - 1);
+    (Queue.ItemContainerGenerator.ContainerFromIndex(Queue.SelectedIndex) as System.Windows.Controls.ListBoxItem)?.Focus();
   }
 
   private void Cancel_Click(object sender, RoutedEventArgs e)
   {
     if (Queue.SelectedItem is BookQueueItemViewModel item) item.Cancel();
-  }
-
-  private void Remove_Click(object sender, RoutedEventArgs e)
-  {
-    if (_model is not null && Queue.SelectedItem is BookQueueItemViewModel { IsBusy: false } item) _model.Items.Remove(item);
   }
 
   private void CopyDiagnostics_Click(object sender, RoutedEventArgs e)
