@@ -83,7 +83,7 @@ public sealed class QueueTests
   }
 
   [Fact]
-  public async Task PerBookOptionsAreSharedByPreviewAndConversion()
+  public async Task PerBookOptionsAreSharedByTheHeaderPlanAndConversion()
   {
     var output = Directory.CreateTempSubdirectory("booksplice-options-");
     try
@@ -100,7 +100,7 @@ public sealed class QueueTests
       item.ValidationLevel = ValidationLevel.Full;
       item.MetadataProfileId = "GenericMp4";
 
-      await model.PreviewAsync(item);
+      var header = await model.PlanHeaderAsync(item);
 
       Assert.Equal(output.FullName, planner.Options!.DestinationDirectory);
       Assert.Equal("efficient", planner.Options.QualityProfile.Id);
@@ -108,8 +108,8 @@ public sealed class QueueTests
       Assert.Equal(ValidationLevel.Full, planner.Options.Settings.ValidationLevel);
       Assert.Equal("GenericMp4", planner.Options.Settings.MetadataProfileId);
       Assert.Equal(3, planner.Options.Settings.ConversionJobs);
-      Assert.Contains(Path.Combine(output.FullName, "Preview.m4b"), item.Details);
-      Assert.Contains("Efficient 48 kbps | mono", item.Details);
+      Assert.Equal(Path.Combine(output.FullName, "Preview.m4b"), header.FullPath);
+      Assert.Contains("Efficient 48 kbps | mono", header.InfoText);
 
       await model.ConvertAsync(item);
 
@@ -123,7 +123,7 @@ public sealed class QueueTests
     finally { output.Delete(true); }
   }
   [Fact]
-  public async Task StreamCopyPreviewDoesNotReportUnusedTranscodeBitrate()
+  public async Task StreamCopyHeaderDoesNotReportUnusedTranscodeBitrate()
   {
     var planner = new RecordingPlanner(AudioStrategy.AacStreamCopy);
     using var model = new MainWindowViewModel(new Analyzer(), new Converter(), AppSettings.Defaults, planner);
@@ -132,13 +132,13 @@ public sealed class QueueTests
     await model.ResolveOrderAsync(item, OrderCandidateId.NaturalPath);
     item.QualityProfileId = "preserve-more";
 
-    await model.PreviewAsync(item);
+    var header = await model.PlanHeaderAsync(item);
 
-    Assert.Contains("AAC stream copy | stereo", item.Details);
-    Assert.DoesNotContain("128 kbps", item.Details);
+    Assert.Contains("AAC stream copy | stereo", header.InfoText);
+    Assert.DoesNotContain("128 kbps", header.InfoText);
   }
   [Fact]
-  public async Task PreviewDetailsAndPublicDiagnosticsDoNotNameACustomProfile()
+  public async Task HeaderInfoAndPublicDiagnosticsDoNotNameACustomProfile()
   {
     var catalog = MetadataProfileCatalog.BuiltIn;
     using var directory = new TemporaryProfiles();
@@ -150,14 +150,14 @@ public sealed class QueueTests
     await model.ResolveOrderAsync(item, OrderCandidateId.NaturalPath);
     item.MetadataProfileId = "SyntheticCustom";
 
-    await model.PreviewAsync(item);
+    var header = await model.PlanHeaderAsync(item);
 
-    Assert.Contains("Metadata: Custom", item.Details);
-    Assert.DoesNotContain("SyntheticCustom", item.Details);
+    Assert.Contains("Metadata: Custom", header.InfoText);
+    Assert.DoesNotContain("SyntheticCustom", header.InfoText);
     Assert.DoesNotContain("SyntheticCustom", DiagnosticsTextBuilder.Build(item));
   }
   [Fact]
-  public async Task PerBookOutputTemplateReachesThePlannerAndPreviewShowsOutputNotes()
+  public async Task PerBookOutputTemplateReachesThePlannerAndTheHeaderShowsOutputNotes()
   {
     var planner = new RecordingPlanner(notes: [new("output.folder-skipped", AnalysisDiagnosticSeverity.Information, "The folder \"{series}\" was skipped because series is not available."), new("other.code", AnalysisDiagnosticSeverity.Information, "unrelated")]);
     using var model = new MainWindowViewModel(new Analyzer(), new Converter(), AppSettings.Defaults, planner);
@@ -166,14 +166,14 @@ public sealed class QueueTests
     await model.ResolveOrderAsync(item, OrderCandidateId.NaturalPath);
     item.OutputTemplate = @"  {author}\{series}\{title} ";
 
-    await model.PreviewAsync(item);
+    var header = await model.PlanHeaderAsync(item);
 
     Assert.Equal(@"{author}\{series}\{title}", planner.Options!.Settings.OutputTemplate);
-    Assert.Contains("Note: The folder \"{series}\" was skipped because series is not available.", item.Details);
-    Assert.DoesNotContain("unrelated", item.Details);
+    Assert.Contains("Note: The folder \"{series}\" was skipped because series is not available.", header.InfoText);
+    Assert.DoesNotContain("unrelated", header.InfoText);
   }
   [Fact]
-  public async Task CopyPreviewSaysAudioIsNotReencodedAndShowsCombinedStorage()
+  public async Task CopyHeaderSaysAudioIsNotReencodedAndShowsCombinedStorage()
   {
     var planner = new RecordingPlanner(AudioStrategy.AacStreamCopy, space: new SpaceEstimate(400_000_000, 400_000_000, 880_000_000, 50_000_000_000, 49_000_000_000, "D:\\"));
     using var model = new MainWindowViewModel(new Analyzer(), new Converter(), AppSettings.Defaults, planner);
@@ -181,15 +181,15 @@ public sealed class QueueTests
     var item = model.Items[0];
     await model.ResolveOrderAsync(item, OrderCandidateId.NaturalPath);
 
-    await model.PreviewAsync(item);
+    var header = await model.PlanHeaderAsync(item);
 
-    Assert.Contains("Audio is copied without re-encoding.", item.Details);
-    Assert.DoesNotContain("Why re-encode", item.Details);
-    Assert.Contains("Estimated space needed: 839.2 MB on D: for output and temporary files with a 10% margin (free space: 46.6 GB)", item.Details);
+    Assert.Equal("Audio is copied without re-encoding.", header.AudioText);
+    Assert.DoesNotContain("Why re-encode", header.InfoText);
+    Assert.Contains("Estimated space needed: 839.2 MB on D: for output and temporary files with a 10% margin (free space: 46.6 GB)", header.InfoText);
   }
 
   [Fact]
-  public async Task ReencodePreviewListsReasonsAndSeparateVolumes()
+  public async Task ReencodeHeaderListsReasonsAndSeparateVolumes()
   {
     var space = new SpaceEstimate(400_000_000, 400_000_000, 880_000_000, 50_000_000_000, 1, "D:\\", "C:\\", 440_000_000, 440_000_000, null);
     var planner = new RecordingPlanner(AudioStrategy.FilterConcatTranscode, ["stream-copy.codec.unsupported", "stream-copy.sample-rate.missing"], space);
@@ -198,19 +198,19 @@ public sealed class QueueTests
     var item = model.Items[0];
     await model.ResolveOrderAsync(item, OrderCandidateId.NaturalPath);
 
-    await model.PreviewAsync(item);
+    var header = await model.PlanHeaderAsync(item);
 
-    Assert.Contains("Audio will be re-encoded to AAC.", item.Details);
-    Assert.Contains("Why re-encode:", item.Details);
-    Assert.Contains("  - The source audio is not AAC.", item.Details);
-    Assert.Contains("  - Could not confirm", item.Details);
-    Assert.Contains("kbps", item.Details);
-    Assert.Contains("Estimated output size: 381.5 MB on D: (free space: 46.6 GB)", item.Details);
-    Assert.Contains("Estimated temporary space: 381.5 MB on C: (free space unavailable)", item.Details);
+    Assert.Equal("Audio will be re-encoded to AAC.", header.AudioText);
+    Assert.Contains("Why re-encode:", header.InfoText);
+    Assert.Contains("  - The source audio is not AAC.", header.InfoText);
+    Assert.Contains("  - Could not confirm", header.InfoText);
+    Assert.Contains("kbps", header.InfoText);
+    Assert.Contains("Estimated output size: 381.5 MB on D: (free space: 46.6 GB)", header.InfoText);
+    Assert.Contains("Estimated temporary space: 381.5 MB on C: (free space unavailable)", header.InfoText);
   }
 
   [Fact]
-  public async Task InsufficientSpacePreviewStillShowsEstimates()
+  public async Task InsufficientSpaceHeaderStillShowsEstimates()
   {
     var space = new SpaceEstimate(400_000_000, 400_000_000, 880_000_000, 1_000, null, "D:\\");
     var planner = new RecordingPlanner(AudioStrategy.DirectTranscode, [], space, refuse: true);
@@ -219,11 +219,13 @@ public sealed class QueueTests
     var item = model.Items[0];
     await model.ResolveOrderAsync(item, OrderCandidateId.NaturalPath);
 
-    await model.PreviewAsync(item);
+    var header = await model.PlanHeaderAsync(item);
 
-    Assert.Contains("The destination does not have enough available space.", item.Details);
-    Assert.Contains("Estimated space needed: 839.2 MB on D:", item.Details);
-    Assert.Contains("free space: 1000 bytes", item.Details);
+    Assert.Equal("The destination does not have enough available space.", header.RefusalText);
+    Assert.Null(header.FileName);
+    Assert.Contains("The destination does not have enough available space.", header.InfoText);
+    Assert.Contains("Estimated space needed: 839.2 MB on D:", header.InfoText);
+    Assert.Contains("free space: 1000 bytes", header.InfoText);
   }
   [Fact]
   public async Task AddManyShowsEveryPathWaitingThenAnalyzesInOrder()
@@ -374,7 +376,7 @@ public sealed class QueueTests
     using var folder = new TempFolder();
     var (model, planner, _) = await QueueAsync(folder.Path, ["Made Up Tale", "made up tale", "Made Up Tale"]);
     using var _m = model;
-    Assert.Equal(["Made Up Tale.m4b", "made up tale (2).m4b", "Made Up Tale (3).m4b"], await PreviewNamesAsync(model, planner));
+    Assert.Equal(["Made Up Tale.m4b", "made up tale (2).m4b", "Made Up Tale (3).m4b"], await HeaderNamesAsync(model, planner));
   }
 
   [Fact]
@@ -385,9 +387,9 @@ public sealed class QueueTests
     var (model, planner, _) = await QueueAsync(one.Path, ["Made Up Tale", "Made Up Tale"]);
     using var _m = model;
     model.Items[1].OutputDirectory = two.Path;
-    Assert.Equal(["Made Up Tale.m4b", "Made Up Tale.m4b"], await PreviewNamesAsync(model, planner));
+    Assert.Equal(["Made Up Tale.m4b", "Made Up Tale.m4b"], await HeaderNamesAsync(model, planner));
     model.Items[1].OutputDirectory = one.Path.ToUpperInvariant();
-    Assert.Equal("Made Up Tale (2).m4b", (await PreviewNamesAsync(model, planner))[1]);
+    Assert.Equal("Made Up Tale (2).m4b", (await HeaderNamesAsync(model, planner))[1]);
   }
 
   [Fact]
@@ -396,12 +398,12 @@ public sealed class QueueTests
     using var folder = new TempFolder();
     var (model, planner, _) = await QueueAsync(folder.Path, ["Made Up Tale", "Made Up Tale", "Made Up Tale"], new BoundedConverter());
     using var _m = model;
-    Assert.Equal("Made Up Tale (3).m4b", (await PreviewNamesAsync(model, planner))[2]);
+    Assert.Equal("Made Up Tale (3).m4b", (await HeaderNamesAsync(model, planner))[2]);
     await model.ConvertAsync(model.Items[0]);
     Assert.Equal("ExecutionFailed", model.Items[0].Status);
-    Assert.Equal(["Made Up Tale.m4b", "Made Up Tale (2).m4b"], (await PreviewNamesAsync(model, planner))[1..]);
+    Assert.Equal(["Made Up Tale.m4b", "Made Up Tale (2).m4b"], (await HeaderNamesAsync(model, planner))[1..]);
     Assert.True(model.Remove(model.Items[0]));
-    Assert.Equal(["Made Up Tale.m4b", "Made Up Tale (2).m4b"], await PreviewNamesAsync(model, planner));
+    Assert.Equal(["Made Up Tale.m4b", "Made Up Tale (2).m4b"], await HeaderNamesAsync(model, planner));
   }
 
   [Fact]
@@ -412,19 +414,19 @@ public sealed class QueueTests
     using var _m = model;
     await model.ConvertAsync(model.Items[0]);
     Assert.Equal("Complete", model.Items[0].Status);
-    Assert.Equal("Made Up Tale.m4b", (await PreviewNamesAsync(model, planner))[1]);
+    Assert.Equal("Made Up Tale.m4b", (await HeaderNamesAsync(model, planner))[1]);
     File.WriteAllText(Path.Combine(folder.Path, "Made Up Tale.m4b"), "");
-    Assert.Equal("Made Up Tale (2).m4b", (await PreviewNamesAsync(model, planner))[1]);
+    Assert.Equal("Made Up Tale (2).m4b", (await HeaderNamesAsync(model, planner))[1]);
   }
 
   [Fact]
-  public async Task ConversionCarriesTheSameClaimedNamesAsPreview()
+  public async Task ConversionCarriesTheSameClaimedNamesAsTheHeaderPlan()
   {
     using var folder = new TempFolder();
     var converter = new Converter();
     var (model, planner, _) = await QueueAsync(folder.Path, ["Made Up Tale", "Made Up Tale"], converter);
     using var _m = model;
-    await model.PreviewAsync(model.Items[1]);
+    await model.PlanHeaderAsync(model.Items[1]);
     var previewed = planner.Options!.QueuedOutputPaths.ToArray();
     await model.ConvertAsync(model.Items[1]);
     Assert.Equal([Path.Combine(folder.Path, "Made Up Tale.m4b")], previewed);
@@ -437,20 +439,18 @@ public sealed class QueueTests
     using var folder = new TempFolder();
     var (model, planner, _) = await QueueAsync(folder.Path, ["Made Up Tale", "Made Up Tale"], settings: AppSettings.Defaults with { CollisionPolicy = CollisionPolicy.Overwrite });
     using var _m = model;
-    Assert.Equal(["Made Up Tale.m4b", "Made Up Tale.m4b"], await PreviewNamesAsync(model, planner));
-    Assert.Contains("will be replaced", model.Items[1].Details);
+    Assert.Equal(["Made Up Tale.m4b", "Made Up Tale.m4b"], await HeaderNamesAsync(model, planner));
+    Assert.Contains("will be replaced", (await model.PlanHeaderAsync(model.Items[1])).InfoText);
   }
 
   [Fact]
-  public async Task ABookAheadWithAMissingProfileClaimsNoNameAndDoesNotBreakTheNextPreview()
+  public async Task ABookAheadWithAMissingProfileClaimsNoNameAndDoesNotBreakTheNextHeaderPlan()
   {
     using var folder = new TempFolder();
     var (model, planner, _) = await QueueAsync(folder.Path, ["Made Up Tale", "Made Up Tale"], settings: AppSettings.Defaults with { QualityProfileId = "no-such-profile" });
     using var _m = model;
     model.Items[1].QualityProfileId = "efficient";
-    await model.PreviewAsync(model.Items[1]);
-    Assert.StartsWith("Output: ", model.Items[1].Details, StringComparison.Ordinal);
-    Assert.Equal("Made Up Tale.m4b", Path.GetFileName(model.Items[1].Details.Split(Environment.NewLine)[0]["Output: ".Length..]));
+    Assert.Equal("Made Up Tale.m4b", (await model.PlanHeaderAsync(model.Items[1])).FileName);
   }
 
   private static async Task<(MainWindowViewModel Model, RecordingPlanner Planner, IConversionService Converter)> QueueAsync(string folder, string[] titles, IConversionService? converter = null, AppSettings? settings = null)
@@ -469,13 +469,12 @@ public sealed class QueueTests
     return (model, planner, converter);
   }
 
-  private static async Task<string[]> PreviewNamesAsync(MainWindowViewModel model, RecordingPlanner planner)
+  private static async Task<string[]> HeaderNamesAsync(MainWindowViewModel model, RecordingPlanner planner)
   {
     var names = new List<string>();
     foreach (var item in model.Items)
     {
-      await model.PreviewAsync(item);
-      names.Add(Path.GetFileName(item.Details.Split(Environment.NewLine)[0]["Output: ".Length..]));
+      names.Add((await model.PlanHeaderAsync(item)).FileName!);
     }
     return names.ToArray();
   }

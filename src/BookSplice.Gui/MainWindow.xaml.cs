@@ -84,6 +84,19 @@ public partial class MainWindow : Window
       MessageBox.Show(this, _presets.Message, "Apply preset");
   }
 
+  // Replaced in tests so no modal dialog opens.
+  internal Func<Window, string, string?> ChooseFolder { get; set; } = (owner, initial) =>
+  {
+    var dialog = new OpenFolderDialog { Title = "Choose the destination folder", InitialDirectory = initial };
+    return dialog.ShowDialog(owner) == true ? dialog.FolderName : null;
+  };
+
+  private void BrowseDestination_Click(object sender, RoutedEventArgs e)
+  {
+    if (Queue.SelectedItem is not BookQueueItemViewModel { CanEdit: true } item) return;
+    if (ChooseFolder(this, item.OutputDirectory) is { } folder) item.OutputDirectory = folder;
+  }
+
   private void SavePreset_Click(object sender, RoutedEventArgs e)
   {
     if (Queue.SelectedItem is not BookQueueItemViewModel item) return;
@@ -234,11 +247,6 @@ public partial class MainWindow : Window
     };
     list.SelectedIndex = target;
     (list.ItemContainerGenerator.ContainerFromIndex(target) as System.Windows.Controls.ListBoxItem)?.Focus();
-  }
-
-  private async void Preview_Click(object sender, RoutedEventArgs e)
-  {
-    if (_model is not null && Queue.SelectedItem is BookQueueItemViewModel item) await _model.PreviewAsync(item);
   }
 
   private async void Cover_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)

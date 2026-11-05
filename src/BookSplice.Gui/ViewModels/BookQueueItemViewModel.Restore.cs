@@ -43,9 +43,9 @@ public sealed partial class BookQueueItemViewModel
     {
       var lines = new List<string>();
       if (QualityProfileCatalog.FindById(Settings.QualityProfileId) is null)
-        lines.Add($"The audio quality \"{Settings.QualityProfileId}\" is not available. Choose an audio quality for this book on the Output tab.");
+        lines.Add($"The audio quality \"{Settings.QualityProfileId}\" is not available. Choose an audio quality for this book above, or apply a preset that sets one.");
       if (_profiles.Find(Settings.MetadataProfileId) is null)
-        lines.Add($"The metadata profile \"{Settings.MetadataProfileId}\" is not available. Choose a metadata profile for this book on the Output tab.");
+        lines.Add($"The metadata profile \"{Settings.MetadataProfileId}\" is not available. Choose a metadata profile for this book above, or apply a preset that sets one.");
       return lines.Count == 0 ? null : string.Join(Environment.NewLine, lines);
     }
   }

@@ -73,16 +73,24 @@ public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConvers
     nameof(BookQueueItemViewModel.IsInterrupted), nameof(BookQueueItemViewModel.CanConvert),
   };
 
+  // Anything that can change the planned name or strategy of the selected book. Percent and Details change every second during a conversion and are left out.
+  private static readonly HashSet<string> HeaderTriggers = new(StringComparer.Ordinal)
+  {
+    nameof(BookQueueItemViewModel.Analysis), nameof(BookQueueItemViewModel.Settings), nameof(BookQueueItemViewModel.Status),
+    nameof(BookQueueItemViewModel.Outcome), nameof(BookQueueItemViewModel.IsBusy),
+  };
+
   private ObservableCollection<BookQueueItemViewModel> TrackItems()
   {
     var items = new ObservableCollection<BookQueueItemViewModel>();
     items.CollectionChanged += (_, e) =>
     {
-      if (e.OldItems is not null) foreach (BookQueueItemViewModel item in e.OldItems) item.PropertyChanged -= OnToolbarItemChanged;
-      if (e.NewItems is not null) foreach (BookQueueItemViewModel item in e.NewItems) { item.PropertyChanged += OnToolbarItemChanged; LoadThumbnail(item); }
+      if (e.OldItems is not null) foreach (BookQueueItemViewModel item in e.OldItems) { item.PropertyChanged -= OnToolbarItemChanged; item.ChoicesChanged -= OnHeaderChoicesChanged; }
+      if (e.NewItems is not null) foreach (BookQueueItemViewModel item in e.NewItems) { item.PropertyChanged += OnToolbarItemChanged; item.ChoicesChanged += OnHeaderChoicesChanged; LoadThumbnail(item); }
       for (var index = 0; index < items.Count; index++) items[index].SetPosition(index, items.Count);
       Changed(nameof(IsQueueEmpty));
       RefreshToolbar();
+      RequestHeader();
     };
     return items;
   }
@@ -90,6 +98,7 @@ public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConvers
   private void OnToolbarItemChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
   {
     if (e.PropertyName is not null && ToolbarTriggers.Contains(e.PropertyName)) RefreshToolbar();
+    if (e.PropertyName is not null && HeaderTriggers.Contains(e.PropertyName)) RequestHeader();
     if (e.PropertyName == nameof(BookQueueItemViewModel.SelectedCover) && sender is BookQueueItemViewModel item) LoadThumbnail(item);
   }
 
@@ -429,25 +438,7 @@ public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConvers
     return identities.Length == analysis.OrderedFiles.Count ? identities : null;
   }
 
-  public async Task PreviewAsync(BookQueueItemViewModel item)
-  {
-    if (planner is null || !item.CanConvert || item.Analysis is null) return;
-    using var operation = Enter("preview");
-    if (operation is null) return;
-    item.Result = null;
-    item.IsBusy = true;
-    try
-    {
-      var analysis = item.Analysis;
-      var options = await OptionsWithQueuedNamesAsync(item);
-      var result = await Task.Run(() => planner.CreateAsync(analysis, options, CancellationToken.None));
-      item.Details = result.Plan is { } plan ? DescribePlan(plan, result.Diagnostics) : DescribeRefusal(result);
-    }
-    catch (Exception exception) { item.Details = exception.Message; }
-    finally { item.IsBusy = false; }
-  }
-
-  // Preview and conversion both build their options here, so a preview shows the name the conversion will write.
+  // The header plan and conversion both build their options here, so the header shows the name the conversion will write.
   // Books ahead of this one keep the plain name and later ones get the suffix. A finished book is already on disk and
   // the planner sees its file, and a failed, cancelled or removed book claims nothing.
   private async Task<ConversionOptions> OptionsWithQueuedNamesAsync(BookQueueItemViewModel item)
@@ -480,28 +471,6 @@ public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConvers
   private static bool ClaimsOutputName(BookQueueItemViewModel book)
     => book.Analysis?.Status == BookAnalysisStatus.Ready && book.Status is not ("Complete" or "Cancelled")
       && (book.IsBusy || book.Outcome is not (BookOutcome.Failure or BookOutcome.Cancelled));
-
-  private static string DescribePlan(ConversionPlan plan, IReadOnlyList<AnalysisDiagnostic>? notes = null)
-  {
-    var explanation = StrategyExplanation.Create(plan.Strategy, plan.StrategyReasonCodes);
-    var lines = new List<string> { $"Output: {plan.OutputPath}", $"Audio: {DescribeAudio(plan)}", explanation.Summary };
-    if (explanation.Reasons.Count > 0) { lines.Add("Why re-encode:"); lines.AddRange(explanation.Reasons.Select(reason => $"  - {reason}")); }
-    if (notes is not null) lines.AddRange(notes.Where(note => note.Code.StartsWith("output.", StringComparison.Ordinal)).Select(note => $"Note: {note.Message}"));
-    lines.AddRange(SpaceEstimateDescription.Lines(plan.Space));
-    lines.Add($"Validation: {plan.ValidationLevel} | Metadata: {MetadataProfileCatalog.PublicLabel(plan.MetadataProfileId)}");
-    return string.Join(Environment.NewLine, lines);
-  }
-
-  private static string DescribeRefusal(ConversionPlanningResult result)
-  {
-    var lines = result.Diagnostics.Select(diagnostic => diagnostic.Message).ToList();
-    if (result.Space is { } space) lines.AddRange(SpaceEstimateDescription.Lines(space));
-    return string.Join(Environment.NewLine, lines);
-  }
-
-  private static string DescribeAudio(ConversionPlan plan) => plan.Strategy == AudioStrategy.AacStreamCopy
-    ? $"AAC stream copy | {plan.ChannelLayout}"
-    : $"{plan.Strategy} | {plan.QualityProfile.DisplayName} {plan.QualityProfile.AudioBitrateKbps} kbps | {plan.ChannelLayout}";
 
   public void Dispose() { }
 
