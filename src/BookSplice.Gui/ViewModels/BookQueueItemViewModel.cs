@@ -93,14 +93,15 @@ public sealed partial class BookQueueItemViewModel(string source, AppSettings se
     cancellation.Cancel();
   }
 
-  public ConversionOptions CreateOptions()
+  public ConversionOptions CreateOptions(IReadOnlyCollection<string>? queuedOutputPaths = null)
   {
     var edits = Metadata.Where(field => field.IsEdited).ToDictionary(field => field.Field,
       field => string.IsNullOrWhiteSpace(field.Value) ? MetadataEdit.Clear() : MetadataEdit.Set(field.Value));
     return new ConversionOptions(Settings, QualityProfileCatalog.FindById(Settings.QualityProfileId)
       ?? throw new InvalidOperationException("The selected quality profile is unavailable."), edits,
       selectedCoverHash: SelectedCover?.ContentHash,
-      chapterTitles: Chapters.ToDictionary(chapter => chapter.Source, chapter => chapter.Title), omitCover: OmitCover);
+      chapterTitles: Chapters.ToDictionary(chapter => chapter.Source, chapter => chapter.Title), omitCover: OmitCover,
+      queuedOutputPaths: queuedOutputPaths);
   }
 
   private void UpdateSettings(AppSettings value)

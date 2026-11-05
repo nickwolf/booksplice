@@ -272,6 +272,25 @@ public sealed class ConversionPlannerTests
     Assert.True(result.Space.TotalRequiredBytes > 1);
   }
 
+  [Fact]
+  public async Task CreateAsync_and_PlanOutputPath_agree_on_a_name_claimed_by_a_queued_book()
+  {
+    var destination = Directory.CreateTempSubdirectory("booksplice-plan-").FullName;
+    try
+    {
+      var settings = AppSettings.Defaults with { OutputDirectory = destination };
+      var plain = new ConversionOptions(settings, QualityProfileCatalog.Version1[0]);
+      var queued = plain.WithQueuedOutputPaths([Path.Combine(destination, "title.m4b")]);
+      var analysis = Analysis(BookAnalysisStatus.Ready);
+      var planned = await Planner().CreateAsync(analysis, queued, CancellationToken.None);
+      Assert.Equal(Path.Combine(destination, "Title (2).m4b"), planned.Plan!.OutputPath);
+      Assert.Equal(planned.Plan.OutputPath, ConversionPlanner.PlanOutputPath(new OutputNamePlanner(), analysis, queued)!.Path);
+      Assert.Equal(Path.Combine(destination, "Title.m4b"), (await Planner().CreateAsync(analysis, plain, CancellationToken.None)).Plan!.OutputPath);
+      Assert.Null(ConversionPlanner.PlanOutputPath(new OutputNamePlanner(), Analysis(BookAnalysisStatus.NeedsDecision), queued));
+    }
+    finally { Directory.Delete(destination, true); }
+  }
+
   private static ConversionPlanner Planner(long? available = long.MaxValue) => new(new OutputNamePlanner(), new Storage(available));
   private static ConversionOptions Options(IReadOnlyDictionary<SemanticField, MetadataEdit>? edits = null, int? jobs = null, string? cover = null) => new(AppSettings.Defaults with { OutputDirectory = Path.GetTempPath(), ConversionJobs = jobs }, QualityProfileCatalog.Version1[0], edits, selectedCoverHash: cover);
   private static BookAnalysis Analysis(BookAnalysisStatus status, int count = 1, bool copy = false, CoverCandidate? cover = null)

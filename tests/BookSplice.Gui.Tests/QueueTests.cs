@@ -4,6 +4,7 @@ using BookSplice.Core.Chapters;
 using BookSplice.Core.Covers;
 using BookSplice.Core.Execution;
 using BookSplice.Core.Metadata;
+using BookSplice.Core.Naming;
 using BookSplice.Core.Ordering;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Settings;
@@ -367,19 +368,126 @@ public sealed class QueueTests
     Assert.Single(model.Items, item => item.Status == "ExecutionFailed");
   }
 
-  private sealed class RecordingPlanner(AudioStrategy strategy = AudioStrategy.DirectTranscode, string[]? reasons = null, SpaceEstimate? space = null, bool refuse = false, AnalysisDiagnostic[]? notes = null) : IConversionPlanner
+  [Fact]
+  public async Task QueuedBooksWithTheSameTitleAndFolderGetPlainThenSuffixedNames()
+  {
+    using var folder = new TempFolder();
+    var (model, planner, _) = await QueueAsync(folder.Path, ["Made Up Tale", "made up tale", "Made Up Tale"]);
+    using var _m = model;
+    Assert.Equal(["Made Up Tale.m4b", "made up tale (2).m4b", "Made Up Tale (3).m4b"], await PreviewNamesAsync(model, planner));
+  }
+
+  [Fact]
+  public async Task QueuedBooksInDifferentFoldersDoNotAffectEachOther()
+  {
+    using var one = new TempFolder();
+    using var two = new TempFolder();
+    var (model, planner, _) = await QueueAsync(one.Path, ["Made Up Tale", "Made Up Tale"]);
+    using var _m = model;
+    model.Items[1].OutputDirectory = two.Path;
+    Assert.Equal(["Made Up Tale.m4b", "Made Up Tale.m4b"], await PreviewNamesAsync(model, planner));
+    model.Items[1].OutputDirectory = one.Path.ToUpperInvariant();
+    Assert.Equal("Made Up Tale (2).m4b", (await PreviewNamesAsync(model, planner))[1]);
+  }
+
+  [Fact]
+  public async Task RemovingOrFailingTheFirstBookFreesItsName()
+  {
+    using var folder = new TempFolder();
+    var (model, planner, _) = await QueueAsync(folder.Path, ["Made Up Tale", "Made Up Tale", "Made Up Tale"], new BoundedConverter());
+    using var _m = model;
+    Assert.Equal("Made Up Tale (3).m4b", (await PreviewNamesAsync(model, planner))[2]);
+    await model.ConvertAsync(model.Items[0]);
+    Assert.Equal("ExecutionFailed", model.Items[0].Status);
+    Assert.Equal(["Made Up Tale.m4b", "Made Up Tale (2).m4b"], (await PreviewNamesAsync(model, planner))[1..]);
+    Assert.True(model.Remove(model.Items[0]));
+    Assert.Equal(["Made Up Tale.m4b", "Made Up Tale (2).m4b"], await PreviewNamesAsync(model, planner));
+  }
+
+  [Fact]
+  public async Task ACompletedBookIsCountedOnceThroughItsFileOnDisk()
+  {
+    using var folder = new TempFolder();
+    var (model, planner, _) = await QueueAsync(folder.Path, ["Made Up Tale", "Made Up Tale"]);
+    using var _m = model;
+    await model.ConvertAsync(model.Items[0]);
+    Assert.Equal("Complete", model.Items[0].Status);
+    Assert.Equal("Made Up Tale.m4b", (await PreviewNamesAsync(model, planner))[1]);
+    File.WriteAllText(Path.Combine(folder.Path, "Made Up Tale.m4b"), "");
+    Assert.Equal("Made Up Tale (2).m4b", (await PreviewNamesAsync(model, planner))[1]);
+  }
+
+  [Fact]
+  public async Task ConversionCarriesTheSameClaimedNamesAsPreview()
+  {
+    using var folder = new TempFolder();
+    var converter = new Converter();
+    var (model, planner, _) = await QueueAsync(folder.Path, ["Made Up Tale", "Made Up Tale"], converter);
+    using var _m = model;
+    await model.PreviewAsync(model.Items[1]);
+    var previewed = planner.Options!.QueuedOutputPaths.ToArray();
+    await model.ConvertAsync(model.Items[1]);
+    Assert.Equal([Path.Combine(folder.Path, "Made Up Tale.m4b")], previewed);
+    Assert.Equal(previewed, converter.Request!.Options.QueuedOutputPaths);
+  }
+
+  [Fact]
+  public async Task OverwritePolicyKeepsTheNameAndNotesTheQueuedBook()
+  {
+    using var folder = new TempFolder();
+    var (model, planner, _) = await QueueAsync(folder.Path, ["Made Up Tale", "Made Up Tale"], settings: AppSettings.Defaults with { CollisionPolicy = CollisionPolicy.Overwrite });
+    using var _m = model;
+    Assert.Equal(["Made Up Tale.m4b", "Made Up Tale.m4b"], await PreviewNamesAsync(model, planner));
+    Assert.Contains("will be replaced", model.Items[1].Details);
+  }
+
+  private static async Task<(MainWindowViewModel Model, RecordingPlanner Planner, IConversionService Converter)> QueueAsync(string folder, string[] titles, IConversionService? converter = null, AppSettings? settings = null)
+  {
+    var planner = new RecordingPlanner(realNames: true);
+    converter ??= new Converter();
+    var model = new MainWindowViewModel(new Analyzer(), converter, settings ?? AppSettings.Defaults, planner);
+    for (var index = 0; index < titles.Length; index++)
+    {
+      await model.AddAsync(Path.GetFullPath($"book{index}"));
+      var item = model.Items[index];
+      await model.ResolveOrderAsync(item, OrderCandidateId.NaturalPath);
+      item.OutputDirectory = folder;
+      item.Metadata.Single(field => field.Field == SemanticField.BookTitle).Value = titles[index];
+    }
+    return (model, planner, converter);
+  }
+
+  private static async Task<string[]> PreviewNamesAsync(MainWindowViewModel model, RecordingPlanner planner)
+  {
+    var names = new List<string>();
+    foreach (var item in model.Items)
+    {
+      await model.PreviewAsync(item);
+      names.Add(Path.GetFileName(item.Details.Split(Environment.NewLine)[0]["Output: ".Length..]));
+    }
+    return names.ToArray();
+  }
+
+  private sealed class TempFolder : IDisposable
+  {
+    public string Path { get; } = Directory.CreateTempSubdirectory("booksplice-queue-names-").FullName;
+    public void Dispose() => Directory.Delete(Path, true);
+  }
+
+  private sealed class RecordingPlanner(AudioStrategy strategy = AudioStrategy.DirectTranscode, string[]? reasons = null, SpaceEstimate? space = null, bool refuse = false, AnalysisDiagnostic[]? notes = null, bool realNames = false) : IConversionPlanner
   {
     public ConversionOptions? Options { get; private set; }
     public Task<ConversionPlanningResult> CreateAsync(BookAnalysis analysis, ConversionOptions options, CancellationToken cancellationToken)
     {
       Options = options;
+      var named = realNames ? ConversionPlanner.PlanOutputPath(new OutputNamePlanner(), analysis, options) : null;
       var channels = options.Settings.ChannelPolicy == ChannelPolicy.ForceMono ? 1 : 2;
       var plan = new ConversionPlan([], analysis.BookMetadata, null, [], options.QualityProfile, options.Settings.ValidationLevel,
-        options.CollisionPolicy, Path.Combine(options.DestinationDirectory, "Preview.m4b"), strategy, reasons ?? [],
+        options.CollisionPolicy, named?.Path ?? Path.Combine(options.DestinationDirectory, "Preview.m4b"), strategy, reasons ?? [],
         space ?? new SpaceEstimate(1, 1, 2, 3, 1), options.Settings.ConversionJobs ?? 6, "test", options.Settings.MetadataProfileId == MetadataProfiles.GenericMp4.Name ? MetadataProfiles.GenericMp4 : new MetadataProfile(options.Settings.MetadataProfileId, "1", [new(SemanticField.BookTitle, "TITLE")]), 44_100, channels);
       return Task.FromResult(refuse
         ? new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.insufficient-space", AnalysisDiagnosticSeverity.Error, "The destination does not have enough available space.")], plan.Space, strategy, reasons)
-        : new ConversionPlanningResult(BookAnalysisStatus.Ready, plan, notes ?? []));
+        : new ConversionPlanningResult(BookAnalysisStatus.Ready, plan, notes ?? named?.Notes ?? []));
     }
   }
   private sealed class BoundedConverter : IConversionService

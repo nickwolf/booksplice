@@ -87,7 +87,7 @@ The default is `{title}`, which puts `Title.m4b` directly in the destination fol
 - If the file name part comes out empty, BookSplice uses the title, then the source folder name, then `Audiobook`.
 - Characters Windows does not allow become `_`, so a value like `AC/DC` stays one folder. Reserved names such as `CON` get a `_` prefix, and each part is capped at 240 characters.
 - Templates must be relative to the destination folder: a leading `\`, a drive such as `C:`, `.` or `..` parts, unknown fields, and unbalanced braces are refused. A template can only create folders inside the destination, and source files are never moved or renamed.
-- The preview shows the resolved path. If a file of that name already exists in that folder, the preview shows the numbered name that will be used (`Title (2).m4b`), or says it will be replaced when overwrite is on. The check is repeated when the file is published, so a name taken in the meantime still gets the next free number. Folders are created at publish time, not by the preview or a dry run.
+- The preview shows the resolved path. If a file of that name already exists in that folder, the preview shows the numbered name that will be used (`Title (2).m4b`), or says it will be replaced when overwrite is on. A book queued above another one with the same name and folder keeps the plain name, and the book below it gets the number. The check is repeated when the file is published, so a name taken in the meantime still gets the next free number. Folders are created at publish time, not by the preview or a dry run.
 
 The template is saved as `outputTemplate` in `settings.json`; older settings files without it use the default. On the command line, `--output-template` overrides it for one run.
 
