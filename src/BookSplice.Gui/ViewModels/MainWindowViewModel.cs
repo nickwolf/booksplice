@@ -453,7 +453,8 @@ public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConvers
   private async Task<ConversionOptions> OptionsWithQueuedNamesAsync(BookQueueItemViewModel item)
   {
     var own = item.CreateOptions();
-    var ahead = Items.Take(Math.Max(0, Items.IndexOf(item))).Where(ClaimsOutputName).Select(book => (Analysis: book.Analysis!, Options: book.CreateOptions())).ToArray();
+    var ahead = Items.Take(Math.Max(0, Items.IndexOf(item))).Where(ClaimsOutputName).Select(book => (Analysis: book.Analysis!, Options: TryCreateOptions(book)))
+      .Where(book => book.Options is not null).Select(book => (book.Analysis, Options: book.Options!)).ToArray();
     if (ahead.Length == 0) return own;
     var claimed = await Task.Run(() =>
     {
@@ -467,6 +468,13 @@ public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConvers
       return paths;
     });
     return own.WithQueuedOutputPaths(claimed);
+  }
+
+  // A book whose quality profile is missing cannot plan a name, so it claims none until a profile is chosen.
+  private static ConversionOptions? TryCreateOptions(BookQueueItemViewModel book)
+  {
+    try { return book.CreateOptions(); }
+    catch (InvalidOperationException) { return null; }
   }
 
   private static bool ClaimsOutputName(BookQueueItemViewModel book)

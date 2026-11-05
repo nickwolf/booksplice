@@ -441,6 +441,18 @@ public sealed class QueueTests
     Assert.Contains("will be replaced", model.Items[1].Details);
   }
 
+  [Fact]
+  public async Task ABookAheadWithAMissingProfileClaimsNoNameAndDoesNotBreakTheNextPreview()
+  {
+    using var folder = new TempFolder();
+    var (model, planner, _) = await QueueAsync(folder.Path, ["Made Up Tale", "Made Up Tale"], settings: AppSettings.Defaults with { QualityProfileId = "no-such-profile" });
+    using var _m = model;
+    model.Items[1].QualityProfileId = "efficient";
+    await model.PreviewAsync(model.Items[1]);
+    Assert.StartsWith("Output: ", model.Items[1].Details, StringComparison.Ordinal);
+    Assert.Equal("Made Up Tale.m4b", Path.GetFileName(model.Items[1].Details.Split(Environment.NewLine)[0]["Output: ".Length..]));
+  }
+
   private static async Task<(MainWindowViewModel Model, RecordingPlanner Planner, IConversionService Converter)> QueueAsync(string folder, string[] titles, IConversionService? converter = null, AppSettings? settings = null)
   {
     var planner = new RecordingPlanner(realNames: true);
