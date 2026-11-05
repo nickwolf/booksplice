@@ -160,8 +160,8 @@ public sealed class QueueRowTests
   [Fact]
   public void DefaultQueueWidthFitsAFortyFiveCharacterNameAndStatusOnOneLineEach() => Run(async (window, model) =>
   {
-    const string LongName = "Brandon Sanderson - The Way of Kings, Part";
-    Assert.Equal(42, LongName.Length);
+    const string LongName = "Synthetic Author - A Fairly Long Book, Part";
+    Assert.Equal(43, LongName.Length);
     var book = await AddReady(model, LongName + " 11");
     book.Thumbnail = Thumbnail(50, 100);
     var running = await AddReady(model, LongName + " 12");
@@ -169,8 +169,14 @@ public sealed class QueueRowTests
     running.IsCancellationRequested = true;
     running.Status = "Converting";
     Settle(window);
-    Assert.Equal(1120, window.Width);
     var queue = (ListBox)window.FindName("Queue");
+    // Hosted runners have screens narrower than the 1120 default, which clamps the window, so lay the panes out at the default width directly.
+    var panes = (Grid)queue.Parent;
+    var slot = System.Windows.Controls.Primitives.LayoutInformation.GetLayoutSlot(panes);
+    var defaultWidth = 1120 - (window.ActualWidth - slot.Width);
+    panes.Measure(new Size(defaultWidth, slot.Height));
+    panes.Arrange(new Rect(slot.X, slot.Y, defaultWidth, slot.Height));
+    Assert.InRange(queue.ActualWidth, 470, 500);
     Assert.Equal(ScrollBarVisibility.Disabled, ScrollViewer.GetHorizontalScrollBarVisibility(queue));
     var oneLine = new TextBlock { Text = "Ag", FontWeight = FontWeights.SemiBold };
     oneLine.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
