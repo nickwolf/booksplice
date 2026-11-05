@@ -27,7 +27,8 @@ public sealed class OutputNamePlanner
     OutputTemplateValues values,
     string? sourceRootName,
     CollisionPolicy collisionPolicy = CollisionPolicy.AvoidCollision,
-    IReadOnlySet<string>? occupiedNames = null)
+    IReadOnlySet<string>? occupiedNames = null,
+    IReadOnlyCollection<string>? queuedOutputPaths = null)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(destinationDirectory);
     ArgumentNullException.ThrowIfNull(template);
@@ -60,7 +61,7 @@ public sealed class OutputNamePlanner
     }
 
     if (collisionPolicy == CollisionPolicy.AvoidCollision || collisionPolicy == CollisionPolicy.Overwrite)
-      occupiedNames ??= Observe(folder);
+      occupiedNames = WithQueued(occupiedNames ?? Observe(folder), queuedOutputPaths, folder);
     var candidate = Sanitize(fileText) + ".m4b";
     var requested = candidate;
     if (collisionPolicy == CollisionPolicy.AvoidCollision)
@@ -81,6 +82,20 @@ public sealed class OutputNamePlanner
     var root = Path.EndsInDirectorySeparator(destination) ? destination : destination + Path.DirectorySeparatorChar;
     if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("The output path left the destination folder.");
     return new OutputPathPlan(path, notes);
+  }
+
+  // Paths other queued books plan to write. Only those in this folder count, and they add to what is already there.
+  private static IReadOnlySet<string> WithQueued(IReadOnlySet<string> occupied, IReadOnlyCollection<string>? queued, string folder)
+  {
+    if (queued is not { Count: > 0 }) return occupied;
+    var here = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
+    var merged = new HashSet<string>(occupied, StringComparer.OrdinalIgnoreCase);
+    foreach (var path in queued)
+    {
+      var full = Path.GetFullPath(path);
+      if (string.Equals(Path.TrimEndingDirectorySeparator(Path.GetDirectoryName(full) ?? ""), here, StringComparison.OrdinalIgnoreCase)) merged.Add(Path.GetFileName(full));
+    }
+    return merged;
   }
 
   private bool IsOccupied(string candidate, IReadOnlySet<string>? occupied)

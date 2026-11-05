@@ -24,12 +24,9 @@ public sealed class ConversionPlanner : IConversionPlanner
     if (analysis.Status != BookAnalysisStatus.Ready) return Task.FromResult(new ConversionPlanningResult(analysis.Status, null, analysis.Diagnostics));
     var diagnostics = new List<AnalysisDiagnostic>();
     var metadata = ApplyEdits(analysis.BookMetadata, options.MetadataEdits);
-    var title = metadata.Get(SemanticField.BookTitle).Value;
-    if (string.IsNullOrWhiteSpace(title)) title = analysis.SourceRootName;
     if (string.IsNullOrWhiteSpace(options.DestinationDirectory) || !Directory.Exists(options.DestinationDirectory)) return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.destination-unavailable", AnalysisDiagnosticSeverity.Error, "The destination directory is unavailable.")]));
     if (!OutputPathTemplate.TryParse(options.Settings.OutputTemplate, out var template, out var templateError)) return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.output-template-invalid", AnalysisDiagnosticSeverity.Error, templateError!)]));
-    var values = new OutputTemplateValues(title, FieldValue(metadata, SemanticField.Author), FieldValue(metadata, SemanticField.Series), FieldValue(metadata, SemanticField.SeriesPart), FieldValue(metadata, SemanticField.Narrator), FieldValue(metadata, SemanticField.Year));
-    var outputPlan = _outputNames.Plan(options.DestinationDirectory, template!, values, analysis.SourceRootName, options.CollisionPolicy);
+    var outputPlan = _outputNames.Plan(options.DestinationDirectory, template!, OutputValues(analysis, metadata), analysis.SourceRootName, options.CollisionPolicy, queuedOutputPaths: options.QueuedOutputPaths);
     var output = outputPlan.Path;
     diagnostics.AddRange(outputPlan.Notes);
     var eligibility = StreamCopyEligibility.Evaluate(analysis.OrderedFiles, options.Settings.ChannelPolicy);
@@ -58,6 +55,23 @@ public sealed class ConversionPlanner : IConversionPlanner
     var format = SelectAudioFormat(analysis, options.Settings.ChannelPolicy);
     var plan = new ConversionPlan(analysis.OrderedFiles.Select(file => file.FullPath).ToArray(), metadata, cover, chapters, options.QualityProfile, options.Settings.ValidationLevel, options.CollisionPolicy, output, strategy, reasons, space, jobs, options.Settings.ConversionJobs is null ? "benchmark-host-automatic-6" : "explicit-setting", metadataProfile, format.SampleRate, format.Channels, sourceDurationsMicroseconds: analysis.OrderedFiles.Select(SourceDurationEvidence.ReadMicroseconds).ToArray());
     return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Ready, plan, diagnostics, space, strategy, reasons));
+  }
+
+  // The output path a book would get, or null when it cannot be planned. Reads no media, so a queue can ask it for every book.
+  public static OutputPathPlan? PlanOutputPath(OutputNamePlanner outputNames, BookAnalysis analysis, ConversionOptions options)
+  {
+    ArgumentNullException.ThrowIfNull(outputNames); ArgumentNullException.ThrowIfNull(analysis); ArgumentNullException.ThrowIfNull(options);
+    if (analysis.Status != BookAnalysisStatus.Ready || string.IsNullOrWhiteSpace(options.DestinationDirectory) || !Directory.Exists(options.DestinationDirectory)) return null;
+    if (!OutputPathTemplate.TryParse(options.Settings.OutputTemplate, out var template, out _)) return null;
+    var metadata = ApplyEdits(analysis.BookMetadata, options.MetadataEdits);
+    return outputNames.Plan(options.DestinationDirectory, template!, OutputValues(analysis, metadata), analysis.SourceRootName, options.CollisionPolicy, queuedOutputPaths: options.QueuedOutputPaths);
+  }
+
+  private static OutputTemplateValues OutputValues(BookAnalysis analysis, BookMetadata metadata)
+  {
+    var title = metadata.Get(SemanticField.BookTitle).Value;
+    if (string.IsNullOrWhiteSpace(title)) title = analysis.SourceRootName;
+    return new OutputTemplateValues(title, FieldValue(metadata, SemanticField.Author), FieldValue(metadata, SemanticField.Series), FieldValue(metadata, SemanticField.SeriesPart), FieldValue(metadata, SemanticField.Narrator), FieldValue(metadata, SemanticField.Year));
   }
 
   private static string? FieldValue(BookMetadata metadata, SemanticField field) => metadata.Get(field).Value;

@@ -50,6 +50,52 @@ public sealed class OutputNamePlannerTests
   }
 
   [Fact]
+  public void Plan_adds_queued_paths_to_the_folder_listing_and_numbers_past_both()
+  {
+    using var folder = new TempFolder();
+    File.WriteAllText(Path.Combine(folder.Path, "Title.m4b"), "");
+    File.WriteAllText(Path.Combine(folder.Path, "title (2).M4B"), "");
+    var queued = new[] { Path.Combine(folder.Path, "Title (3).m4b") };
+    var plan = Plan(folder.Path, queued);
+    Assert.Equal(Path.Combine(folder.Path, "Title (4).m4b"), plan.Path);
+    Assert.Contains(plan.Notes, note => note.Code == "output.collision-renamed");
+  }
+
+  [Fact]
+  public void Plan_with_only_a_queued_path_suffixes_and_compares_case_insensitively()
+  {
+    using var folder = new TempFolder();
+    Assert.Equal(Path.Combine(folder.Path, "Title.m4b"), Plan(folder.Path, []).Path);
+    Assert.Equal(Path.Combine(folder.Path, "Title (2).m4b"), Plan(folder.Path, [Path.Combine(folder.Path.ToUpperInvariant(), "TITLE.M4B")]).Path);
+  }
+
+  [Fact]
+  public void Plan_ignores_queued_paths_in_other_folders()
+  {
+    using var folder = new TempFolder();
+    using var other = new TempFolder();
+    Assert.Equal(Path.Combine(folder.Path, "Title.m4b"), Plan(folder.Path, [Path.Combine(other.Path, "Title.m4b"), Path.Combine(folder.Path, "Sub", "Title.m4b")]).Path);
+  }
+
+  [Fact]
+  public void Plan_overwrite_policy_keeps_the_name_and_notes_a_queued_path()
+  {
+    using var folder = new TempFolder();
+    var plan = new OutputNamePlanner().Plan(folder.Path, OutputPathTemplate.Default, new OutputTemplateValues("Title"), null, CollisionPolicy.Overwrite, queuedOutputPaths: [Path.Combine(folder.Path, "Title.m4b")]);
+    Assert.Equal(Path.Combine(folder.Path, "Title.m4b"), plan.Path);
+    Assert.Contains(plan.Notes, note => note.Code == "output.collision-overwrite");
+  }
+
+  private static OutputPathPlan Plan(string folder, string[] queued)
+    => new OutputNamePlanner().Plan(folder, OutputPathTemplate.Default, new OutputTemplateValues("Title"), null, CollisionPolicy.AvoidCollision, queuedOutputPaths: queued);
+
+  private sealed class TempFolder : IDisposable
+  {
+    public string Path { get; } = Directory.CreateTempSubdirectory("booksplice-names-").FullName;
+    public void Dispose() => Directory.Delete(Path, true);
+  }
+
+  [Fact]
   public void CreateRequestedPath_bounds_component_including_extension()
   {
     var path = new OutputNamePlanner().CreateRequestedPath("out", new string('x', 400), null);

@@ -7,6 +7,7 @@ using BookSplice.Core.Covers;
 using BookSplice.Core.Discovery;
 using BookSplice.Core.Execution;
 using BookSplice.Core.Metadata;
+using BookSplice.Core.Naming;
 using BookSplice.Core.Ordering;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Settings;
@@ -359,7 +360,9 @@ public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConvers
       elapsed.Start();
       ApplySnapshot();
       timer.Start();
-      var request = new ConversionRequest(item.Source, item.Settings.CreateChapters, item.CreateOptions(),
+      var options = await OptionsWithQueuedNamesAsync(item);
+      cancellation.Token.ThrowIfCancellationRequested();
+      var request = new ConversionRequest(item.Source, item.Settings.CreateChapters, options,
         AnalysisOptions: item.AnalysisOptions, ExpectedSourcePaths: item.Analysis!.OrderedFiles.Select(file => file.FullPath).ToArray(),
         Selection: item.Selection, ExpectedSources: ReviewedIdentities(item.Analysis));
       var run = Task.Run(() => conversion.ConvertAsync(request, cancellation.Token, progress));
@@ -435,12 +438,48 @@ public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConvers
     item.IsBusy = true;
     try
     {
-      var result = await Task.Run(() => planner.CreateAsync(item.Analysis, item.CreateOptions(), CancellationToken.None));
+      var analysis = item.Analysis;
+      var options = await OptionsWithQueuedNamesAsync(item);
+      var result = await Task.Run(() => planner.CreateAsync(analysis, options, CancellationToken.None));
       item.Details = result.Plan is { } plan ? DescribePlan(plan, result.Diagnostics) : DescribeRefusal(result);
     }
     catch (Exception exception) { item.Details = exception.Message; }
     finally { item.IsBusy = false; }
   }
+
+  // Preview and conversion both build their options here, so a preview shows the name the conversion will write.
+  // Books ahead of this one keep the plain name and later ones get the suffix. A finished book is already on disk and
+  // the planner sees its file, and a failed, cancelled or removed book claims nothing.
+  private async Task<ConversionOptions> OptionsWithQueuedNamesAsync(BookQueueItemViewModel item)
+  {
+    var own = item.CreateOptions();
+    var ahead = Items.Take(Math.Max(0, Items.IndexOf(item))).Where(ClaimsOutputName).Select(book => (Analysis: book.Analysis!, Options: TryCreateOptions(book)))
+      .Where(book => book.Options is not null).Select(book => (book.Analysis, Options: book.Options!)).ToArray();
+    if (ahead.Length == 0) return own;
+    var claimed = await Task.Run(() =>
+    {
+      var names = new OutputNamePlanner();
+      var paths = new List<string>();
+      foreach (var (analysis, options) in ahead)
+      {
+        try { if (ConversionPlanner.PlanOutputPath(names, analysis, options.WithQueuedOutputPaths(paths)) is { } plan) paths.Add(plan.Path); }
+        catch (InvalidOperationException) { }
+      }
+      return paths;
+    });
+    return own.WithQueuedOutputPaths(claimed);
+  }
+
+  // A book whose quality profile is missing cannot plan a name, so it claims none until a profile is chosen.
+  private static ConversionOptions? TryCreateOptions(BookQueueItemViewModel book)
+  {
+    try { return book.CreateOptions(); }
+    catch (InvalidOperationException) { return null; }
+  }
+
+  private static bool ClaimsOutputName(BookQueueItemViewModel book)
+    => book.Analysis?.Status == BookAnalysisStatus.Ready && book.Status is not ("Complete" or "Cancelled")
+      && (book.IsBusy || book.Outcome is not (BookOutcome.Failure or BookOutcome.Cancelled));
 
   private static string DescribePlan(ConversionPlan plan, IReadOnlyList<AnalysisDiagnostic>? notes = null)
   {

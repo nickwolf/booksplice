@@ -62,7 +62,7 @@ public sealed partial class BookQueueItemViewModel(string source, AppSettings se
   public IReadOnlyList<OrderCandidate> OrderCandidates => Analysis?.OrderResolution?.Candidates.Where(candidate => candidate.IsCredible).ToArray() ?? [];
   public IReadOnlyList<CoverCandidate> Covers => Analysis?.Cover.Candidates ?? [];
   public IReadOnlyList<string> OrderedFiles => Analysis?.OrderedFiles.Select(file => file.RelativePath).ToArray() ?? [];
-  public string Summary => Analysis is null ? "" : $"{Analysis.OrderedFiles.Count} files{(Analysis.ExcludedFiles.Count > 0 ? $" ({Analysis.ExcludedFiles.Count} excluded)" : "")} | {TimeSpan.FromMicroseconds(Analysis.Chapters.TotalDurationMicroseconds):g} | {string.Join(", ", Analysis.OrderedFiles.SelectMany(file => file.ProbeResult.AudioStreams).Select(stream => stream.CodecName).Distinct())}";
+  public string Summary => Analysis is null ? "" : $"{Analysis.OrderedFiles.Count} files{(Analysis.ExcludedFiles.Count > 0 ? $" ({Analysis.ExcludedFiles.Count} excluded)" : "")} | {DurationText.Format(TimeSpan.FromMicroseconds(Analysis.Chapters.TotalDurationMicroseconds))} | {string.Join(", ", Analysis.OrderedFiles.SelectMany(file => file.ProbeResult.AudioStreams).Select(stream => stream.CodecName).Distinct())}";
   public string Status { get => _status; internal set { _status = value; Changed(); Changed(nameof(QueueStatus)); Changed(nameof(CanConvert)); } }
   public string QueueStatus => Result?.Title ?? (IsBusy && IsCancellationRequested ? $"{Status} · Cancellation requested" : AttentionStatus ?? Status);
   public ConversionResultDisplay? Result { get => _result; internal set { _result = value; Changed(); Changed(nameof(HasResult)); Changed(nameof(QueueStatus)); } }
@@ -93,14 +93,15 @@ public sealed partial class BookQueueItemViewModel(string source, AppSettings se
     cancellation.Cancel();
   }
 
-  public ConversionOptions CreateOptions()
+  public ConversionOptions CreateOptions(IReadOnlyCollection<string>? queuedOutputPaths = null)
   {
     var edits = Metadata.Where(field => field.IsEdited).ToDictionary(field => field.Field,
       field => string.IsNullOrWhiteSpace(field.Value) ? MetadataEdit.Clear() : MetadataEdit.Set(field.Value));
     return new ConversionOptions(Settings, QualityProfileCatalog.FindById(Settings.QualityProfileId)
       ?? throw new InvalidOperationException("The selected quality profile is unavailable."), edits,
       selectedCoverHash: SelectedCover?.ContentHash,
-      chapterTitles: Chapters.ToDictionary(chapter => chapter.Source, chapter => chapter.Title), omitCover: OmitCover);
+      chapterTitles: Chapters.ToDictionary(chapter => chapter.Source, chapter => chapter.Title), omitCover: OmitCover,
+      queuedOutputPaths: queuedOutputPaths);
   }
 
   private void UpdateSettings(AppSettings value)
