@@ -7,7 +7,17 @@ using BookSplice.Core.Settings;
 
 namespace BookSplice.Gui.ViewModels;
 
-public sealed record ChannelPolicyOption(ChannelPolicy Value, string DisplayName);
+// UI Automation names a data item by its ToString, not DisplayMemberPath, so each option returns its label.
+public sealed record ChannelPolicyOption(ChannelPolicy Value, string DisplayName)
+{
+  public override string ToString() => DisplayName;
+}
+
+// Null is Automatic. A null item in a ComboBox shows as a blank row that can't be selected again, so every choice is an object.
+public sealed record JobChoice(int? Value, string DisplayName)
+{
+  public override string ToString() => DisplayName;
+}
 
 public sealed class FirstLaunchViewModel(FirstLaunchService service, AppSettings initial, MetadataProfileCatalog? profiles = null) : INotifyPropertyChanged
 {
@@ -44,7 +54,9 @@ public sealed class FirstLaunchViewModel(FirstLaunchService service, AppSettings
   public IReadOnlyList<string> MetadataProfiles { get; } = (profiles ?? MetadataProfileCatalog.BuiltIn).Profiles.Select(profile => profile.Name).ToArray();
   public IReadOnlyList<ValidationLevel> ValidationLevels { get; } = Enum.GetValues<ValidationLevel>();
   public IReadOnlyList<LogLevel> LogLevels { get; } = Enum.GetValues<LogLevel>();
-  public IReadOnlyList<int?> JobChoices { get; } = new int?[] { null }.Concat(Enumerable.Range(1, 32).Select(value => (int?)value)).ToArray();
+  public IReadOnlyList<JobChoice> JobChoices { get; } = [new(null, $"Automatic ({ConversionPlanner.AutomaticConversionJobs})"), .. Enumerable.Range(1, 32).Select(value => new JobChoice(value, value.ToString(System.Globalization.CultureInfo.InvariantCulture)))];
+  public string JobsHelp { get; } = $"How many audio encodes run at once inside one book. Automatic runs {ConversionPlanner.AutomaticConversionJobs}.";
+  public JobChoice SelectedJobChoice { get => JobChoices.FirstOrDefault(choice => choice.Value == ConversionJobs) ?? JobChoices[0]; set => ConversionJobs = value?.Value; }
   public IReadOnlyList<int> BookChoices { get; } = Enumerable.Range(1, 32).ToArray();
   public bool Completed { get; private set; }
   public AppSettings? SavedSettings { get; private set; }

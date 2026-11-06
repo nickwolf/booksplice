@@ -42,9 +42,9 @@
           <ComboBox x:Name="Books" ItemsSource="{Binding BookChoices}" SelectedItem="{Binding BooksAtOnce}" AutomationProperties.Name="Books at once"/>
           <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
             <Label Content="Parallel _encodes per book" Target="{Binding ElementName=Jobs}"/>
-            <ctl:InfoIcon Subject="parallel encodes per book" Text="How many audio encodes run at once inside one book. Leave it blank to use Automatic, which picks a number for this computer."/>
+            <ctl:InfoIcon Subject="parallel encodes per book" Text="{Binding JobsHelp}"/>
           </StackPanel>
-          <ComboBox x:Name="Jobs" ItemsSource="{Binding JobChoices}" SelectedItem="{Binding ConversionJobs}" AutomationProperties.Name="Parallel encodes per book"/>
+          <ComboBox x:Name="Jobs" ItemsSource="{Binding JobChoices}" DisplayMemberPath="DisplayName" SelectedItem="{Binding SelectedJobChoice}" AutomationProperties.Name="Parallel encodes per book"/>
           <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
             <Label Content="Folder and file _name template" Target="{Binding ElementName=TemplateBox}"/>
             <ctl:InfoIcon Subject="folder and file name template" Text="{Binding TemplateHelp}"/>

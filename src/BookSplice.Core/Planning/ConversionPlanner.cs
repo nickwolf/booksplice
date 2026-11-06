@@ -9,6 +9,9 @@ public interface IConversionPlanner { Task<ConversionPlanningResult> CreateAsync
 
 public sealed class ConversionPlanner : IConversionPlanner
 {
+  /// <summary>Encodes run at once inside one book when the setting is Automatic (null).</summary>
+  public const int AutomaticConversionJobs = 6;
+
   public const int FilterConcatMaximumFiles = 32;
   public const decimal ContainerAndMetadataOverhead = 1.03m;
   public const decimal SafetyMargin = 1.10m;
@@ -49,7 +52,7 @@ public sealed class ConversionPlanner : IConversionPlanner
     if (options.OmitCover) cover = null;
     var chapters = analysis.Chapters.Entries.Select(chapter => options.ChapterTitles.TryGetValue(chapter.SourceRelativePath, out var title)
       ? chapter with { Title = string.IsNullOrWhiteSpace(title) ? chapter.Title : title.Trim() } : chapter).ToArray();
-    var jobs = options.Settings.ConversionJobs ?? 6;
+    var jobs = options.Settings.ConversionJobs ?? AutomaticConversionJobs;
     var metadataProfile = _profiles.Find(options.Settings.MetadataProfileId);
     if (metadataProfile is null) return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.metadata-profile-unknown", AnalysisDiagnosticSeverity.Error, "The selected metadata profile is unavailable.")]));
     var format = SelectAudioFormat(analysis, options.Settings.ChannelPolicy);
