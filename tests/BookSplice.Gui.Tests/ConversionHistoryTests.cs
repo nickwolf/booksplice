@@ -190,7 +190,11 @@ public sealed class ConversionHistoryTests : IDisposable
     page.Measure(new Size(640, 460));
     Assert.False(string.IsNullOrWhiteSpace(System.Windows.Automation.AutomationProperties.GetName(Assert.IsType<System.Windows.Controls.TextBox>(page.FindName("Search")))));
     var records = Assert.IsType<System.Windows.Controls.ListView>(page.FindName("Records"));
-    var actions = Assert.IsType<System.Windows.Controls.GridView>(records.View).Columns.First(column => (string)column.Header == "Actions");
+    var columns = Assert.IsType<System.Windows.Controls.GridView>(records.View).Columns;
+    Assert.Equal(["Output", "Outcome", "When", "Actions", "Elapsed", "Strategy", "Validation", "Warnings"], columns.Select(column => (string)column.Header));
+    // The settings window can shrink to 640 px, which leaves the list 570 px, so the row buttons must end inside that without scrolling.
+    Assert.InRange(columns.TakeWhile(column => (string)column.Header != "Actions").Sum(column => column.Width) + columns.Single(column => (string)column.Header == "Actions").Width, 0, 560);
+    var actions = columns.Single(column => (string)column.Header == "Actions");
     var row = (System.Windows.Controls.StackPanel)actions.CellTemplate.LoadContent();
     var buttons = row.Children.OfType<BookSplice.Gui.Controls.IconButton>().ToArray();
     Assert.Equal(["Open output folder", "Copy diagnostics", "Delete record"], buttons.Select(button => System.Windows.Automation.AutomationProperties.GetName(button)));
