@@ -31,6 +31,10 @@
               VirtualizingPanel.IsVirtualizing="True">
       <ListView.View>
         <GridView>
+          <!-- The most useful columns come first and Actions follows them, so the buttons stay in view down to the Settings window's 640 px minimum. The rest is also in the details box. -->
+          <GridViewColumn Header="Output" DisplayMemberBinding="{Binding OutputName}" Width="200"/>
+          <GridViewColumn Header="Outcome" DisplayMemberBinding="{Binding OutcomeText}" Width="120"/>
+          <GridViewColumn Header="When" DisplayMemberBinding="{Binding WhenText}" Width="120"/>
           <GridViewColumn Header="Actions" Width="116">
             <GridViewColumn.CellTemplate>
               <DataTemplate>
@@ -42,13 +46,10 @@
               </DataTemplate>
             </GridViewColumn.CellTemplate>
           </GridViewColumn>
-          <GridViewColumn Header="Outcome" DisplayMemberBinding="{Binding OutcomeText}" Width="150"/>
-          <GridViewColumn Header="When" DisplayMemberBinding="{Binding WhenText}" Width="130"/>
           <GridViewColumn Header="Elapsed" DisplayMemberBinding="{Binding ElapsedText}" Width="80"/>
           <GridViewColumn Header="Strategy" DisplayMemberBinding="{Binding Strategy}" Width="140"/>
           <GridViewColumn Header="Validation" DisplayMemberBinding="{Binding ValidationLevel}" Width="80"/>
           <GridViewColumn Header="Warnings" DisplayMemberBinding="{Binding WarningCountText}" Width="70"/>
-          <GridViewColumn Header="Output" DisplayMemberBinding="{Binding OutputName}" Width="260"/>
         </GridView>
       </ListView.View>
     </ListView>
