@@ -97,6 +97,16 @@ public partial class MainWindow : Window
     if (ChooseFolder(this, item.OutputDirectory) is { } folder) item.OutputDirectory = folder;
   }
 
+  // Replaced in tests so no modal dialog opens.
+  internal Func<MetadataEditorWindow, bool?> ShowMetadataEditor { get; set; } = editor => editor.ShowDialog();
+
+  private void EditMetadata_Click(object sender, RoutedEventArgs e)
+  {
+    if (Queue.SelectedItem is not BookQueueItemViewModel { CanEdit: true } item) return;
+    var editor = new MetadataEditorWindow(item.Name, item.Metadata) { Owner = this };
+    if (ShowMetadataEditor(editor) == true) editor.Apply();
+  }
+
   private void SavePreset_Click(object sender, RoutedEventArgs e)
   {
     if (Queue.SelectedItem is not BookQueueItemViewModel item) return;

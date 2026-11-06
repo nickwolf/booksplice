@@ -210,7 +210,7 @@
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
               </Expander>
-              <Expander Header="_Diagnostics" AutomationProperties.Name="Tool diagnostics">
+              <Expander Header="Diagnostics" AutomationProperties.Name="Tool diagnostics">
                 <TextBox Text="{Binding Result.DiagnosticsText, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="160" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Raw tool diagnostics"/>
               </Expander>
             </StackPanel>
@@ -228,15 +228,32 @@
         </TextBox>
         <TabControl Margin="8,0,0,0" MinHeight="220">
           <TabItem Header="_Metadata">
-            <DataGrid ItemsSource="{Binding Metadata}" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
-                      IsEnabled="{Binding CanEdit}" AutomationProperties.Name="Book metadata">
-              <DataGrid.Columns>
-                <DataGridTextColumn Header="Field" Binding="{Binding Name}" IsReadOnly="True" Width="130"/>
-                <DataGridTextColumn Header="Value" Binding="{Binding Value, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
-                <DataGridTextColumn Header="Imported state" Binding="{Binding State}" IsReadOnly="True" Width="110"/>
-                <DataGridTextColumn Header="Source values" Binding="{Binding Candidates}" IsReadOnly="True" Width="*"/>
-              </DataGrid.Columns>
-            </DataGrid>
+            <DockPanel IsEnabled="{Binding CanEdit}" Margin="8">
+              <!-- Cover above the grid so one layout fits the minimum window width; the preview is a fixed small square. -->
+              <Grid DockPanel.Dock="Top">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Image x:Name="CoverImage" Width="140" Height="140" Stretch="Uniform" VerticalAlignment="Top" AutomationProperties.Name="Selected cover preview"/>
+                <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                  <TextBlock Text="Choose artwork to embed. No artwork is required." TextWrapping="Wrap"/>
+                  <ComboBox ItemsSource="{Binding Covers}" SelectedItem="{Binding SelectedCover}" SelectionChanged="Cover_Changed" DisplayMemberPath="SourceIdentity"
+                            AutomationProperties.Name="Cover artwork" Margin="0,8"/>
+                  <CheckBox Content="Do _not embed artwork" IsChecked="{Binding OmitCover}"/>
+                  <Button x:Name="EditMetadataButton" Content="Edit meta_data..." Click="EditMetadata_Click" Padding="12,6" Margin="0,12,0,0" HorizontalAlignment="Left"
+                          AutomationProperties.HelpText="Opens a larger window for long values such as Comment and Description, with the source values beside each field"/>
+                </StackPanel>
+              </Grid>
+              <DataGrid ItemsSource="{Binding Metadata}" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" MinHeight="200" Margin="0,8,0,0"
+                        AutomationProperties.Name="Book metadata">
+                <DataGrid.Columns>
+                  <DataGridTextColumn Header="Field" Binding="{Binding Name}" IsReadOnly="True" Width="130"/>
+                  <DataGridTextColumn Header="Value" Binding="{Binding Value, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                  <DataGridTextColumn Header="Imported state" Binding="{Binding State}" IsReadOnly="True" Width="110"/>
+                </DataGrid.Columns>
+              </DataGrid>
+            </DockPanel>
           </TabItem>
           <TabItem Header="_Track order">
             <DockPanel Margin="8" IsEnabled="{Binding CanEdit}">
@@ -268,15 +285,6 @@
                 </DockPanel>
               </Grid>
             </DockPanel>
-          </TabItem>
-          <TabItem Header="_Cover">
-            <StackPanel Margin="8" IsEnabled="{Binding CanEdit}">
-              <TextBlock Text="Choose artwork to embed. No artwork is required." TextWrapping="Wrap"/>
-              <CheckBox Content="Do _not embed artwork" IsChecked="{Binding OmitCover}" Margin="0,8"/>
-              <ComboBox ItemsSource="{Binding Covers}" SelectedItem="{Binding SelectedCover}" SelectionChanged="Cover_Changed" DisplayMemberPath="SourceIdentity"
-                        AutomationProperties.Name="Cover artwork" Margin="0,8"/>
-              <Image x:Name="CoverImage" Height="280" Stretch="Uniform" AutomationProperties.Name="Selected cover preview"/>
-            </StackPanel>
           </TabItem>
           <TabItem Header="_Chapters">
             <DataGrid ItemsSource="{Binding Chapters}" AutoGenerateColumns="False" IsEnabled="{Binding CanEdit}"
