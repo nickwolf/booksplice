@@ -29,20 +29,12 @@ public sealed partial class BookQueueItemViewModel(string source, AppSettings se
   public string Name => Selection?.Name ?? Path.GetFileName(Source.TrimEnd(Path.DirectorySeparatorChar));
   public AppSettings Settings => _settings;
   public IReadOnlyList<QualityProfile> QualityProfiles { get; } = QualityProfileCatalog.Version1;
-  public IReadOnlyList<ChannelPolicyOption> ChannelPolicies { get; } =
-  [
-    new(ChannelPolicy.PreserveSourceChannels, "Preserve source channels"),
-    new(ChannelPolicy.ForceMono, "Force mono"),
-    new(ChannelPolicy.ForceStereo, "Force stereo"),
-  ];
-  public IReadOnlyList<ValidationLevel> ValidationLevels { get; } = Enum.GetValues<ValidationLevel>();
   private readonly MetadataProfileCatalog _profiles = profiles ?? MetadataProfileCatalog.BuiltIn;
   public IReadOnlyList<string> MetadataProfiles { get; } = (profiles ?? MetadataProfileCatalog.BuiltIn).Profiles.Select(profile => profile.Name).ToArray();
   public string OutputDirectory { get => Settings.OutputDirectory; set => UpdateSettings(Settings with { OutputDirectory = value }); }
   public string QualityProfileId { get => Settings.QualityProfileId; set { if (QualityProfileCatalog.FindById(value) is not null) UpdateSettings(Settings with { QualityProfileId = value }); } }
   public ChannelPolicy ChannelPolicy { get => Settings.ChannelPolicy; set => UpdateSettings(Settings with { ChannelPolicy = value }); }
   public string OutputTemplate { get => Settings.OutputTemplate; set => UpdateSettings(Settings with { OutputTemplate = value.Trim() }); }
-  public string TemplateHelp { get; } = OutputTemplateHelp.Text;
   public ValidationLevel ValidationLevel { get => Settings.ValidationLevel; set => UpdateSettings(Settings with { ValidationLevel = value }); }
   public string MetadataProfileId { get => Settings.MetadataProfileId; set { if (_profiles.Find(value) is not null) UpdateSettings(Settings with { MetadataProfileId = value }); } }
   public BookAnalysis? Analysis { get; private set; }
@@ -109,7 +101,7 @@ public sealed partial class BookQueueItemViewModel(string source, AppSettings se
     if (value == _settings) return;
     _settings = value;
     ClearBlockNote();
-    foreach (var property in new[] { nameof(BlockReason), nameof(CanConvert), nameof(QueueStatus), nameof(Settings), nameof(OutputDirectory), nameof(QualityProfileId), nameof(ChannelPolicy), nameof(ValidationLevel), nameof(MetadataProfileId), nameof(OutputTemplate) }) Changed(property);
+    foreach (var property in new[] { nameof(BlockReason), nameof(CanConvert), nameof(QueueStatus), nameof(Settings), nameof(OutputDirectory), nameof(QualityProfileId), nameof(ChannelPolicy), nameof(ValidationLevel), nameof(MetadataProfileId), nameof(OutputTemplate), nameof(QualityProfileMissing), nameof(MetadataProfileMissing), nameof(IsProfileBlocked) }) Changed(property);
   }
 
   // Copies the preset's values into this book. Later edits to the preset never reach it.

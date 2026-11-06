@@ -86,7 +86,7 @@
         <ColumnDefinition Width="8"/>
         <ColumnDefinition Width="11*" MinWidth="380"/>
       </Grid.ColumnDefinitions>
-      <ListBox x:Name="Queue" ItemsSource="{Binding Items}" HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled" PreviewKeyDown="Queue_KeyDown"
+      <ListBox x:Name="Queue" ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedItem, Mode=TwoWay}" HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled" PreviewKeyDown="Queue_KeyDown"
                AutomationProperties.Name="Audiobook queue" AutomationProperties.HelpText="Alt+Up and Alt+Down move the selected book, Delete removes it">
         <ListBox.ItemTemplate>
           <DataTemplate>
@@ -127,12 +127,57 @@
           <TextBlock Text="{Binding Name}" FontSize="20" FontWeight="SemiBold"/>
           <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" Margin="0,4"/>
           <TextBlock Text="{Binding Source}" TextWrapping="Wrap" Foreground="DimGray"/>
+          <!-- The planned file and audio strategy, or a short reason there is no plan. The full reasons, storage estimate and notes are behind the info icon. -->
+          <TextBlock x:Name="HeaderOutput" TextWrapping="Wrap" Margin="0,6,0,0" ToolTip="{Binding HeaderFullPath}"
+                     Visibility="{Binding HasHeaderPlan, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}"><Run Text="Output: "/><Run Text="{Binding HeaderFileName, Mode=OneWay}" FontWeight="SemiBold"/></TextBlock>
+          <WrapPanel Margin="0,2,0,0">
+            <TextBlock x:Name="HeaderAudio" Text="{Binding HeaderAudioText}" TextWrapping="Wrap" VerticalAlignment="Center"
+                       Visibility="{Binding HasHeaderPlan, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}"/>
+            <TextBlock x:Name="HeaderRefusal" Text="{Binding HeaderRefusalText}" TextWrapping="Wrap" Foreground="Firebrick" VerticalAlignment="Center" AutomationProperties.LiveSetting="Polite"
+                       Visibility="{Binding HasHeaderRefusal, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}"/>
+            <ctl:InfoIcon x:Name="HeaderInfo" Subject="the planned output" Text="{Binding HeaderInfoText}" Margin="4,0,0,0" VerticalAlignment="Center"
+                          Visibility="{Binding HasHeaderInfo, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}"/>
+          </WrapPanel>
           <WrapPanel Margin="0,8">
-            <Button Content="_Preview output" IsEnabled="{Binding CanConvert}" Click="Preview_Click" Padding="12,6" Margin="0,0,8,0"/>
             <Button x:Name="ConvertSelectedButton" Content="Conve_rt selected" Visibility="{Binding CanConvert, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}" Click="Convert_Click" Padding="12,6" Margin="0,0,8,0"/>
             <Button x:Name="CancelSelectedButton" Content="Cance_l" Visibility="{Binding CanCancel, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}" Click="Cancel_Click" Padding="12,6" Margin="0,0,8,0"/>
             <Button x:Name="CopyDiagnosticsButton" Content="Copy dia_gnostics" Click="CopyDiagnostics_Click" Padding="12,6"/>
           </WrapPanel>
+          <!-- Anything else that differs for one book is a preset: apply one here, or save this book's settings as a new one. -->
+          <Grid x:Name="BookSettings" IsEnabled="{Binding CanEdit}" Margin="0,0,0,4">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <Label Content="Preset" Target="{Binding ElementName=PresetPicker}" VerticalAlignment="Center"/>
+            <ComboBox x:Name="PresetPicker" Grid.Column="1" DisplayMemberPath="Display" VerticalAlignment="Center" AutomationProperties.Name="Preset to apply to the selected book"
+                      AutomationProperties.HelpText="Applying copies the preset into this book. Later changes to the preset do not change it"/>
+            <Button x:Name="ApplyPresetButton" Grid.Column="2" Content="_Apply" Click="ApplyPreset_Click" Padding="12,4" Margin="6,2,0,2"/>
+            <Button x:Name="SavePresetButton" Grid.Column="3" Content="Save as pr_eset..." Click="SavePreset_Click" Padding="12,4" Margin="6,2,0,2"/>
+            <Label Grid.Row="1" Content="Destination" Target="{Binding ElementName=BookOutputDirectory}" VerticalAlignment="Center"/>
+            <TextBox x:Name="BookOutputDirectory" Grid.Row="1" Grid.Column="1" Text="{Binding OutputDirectory, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" VerticalContentAlignment="Center"
+                     AutomationProperties.Name="Selected book destination folder"/>
+            <Button x:Name="BrowseDestinationButton" Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2" Content="C_hoose folder..." Click="BrowseDestination_Click" Padding="12,4" Margin="6,2,0,2" HorizontalAlignment="Left"/>
+          </Grid>
+          <!-- Only while a restored book names a quality or metadata profile that is gone. -->
+          <StackPanel x:Name="ProfileFix" Visibility="{Binding IsProfileBlocked, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}">
+            <DockPanel Margin="0,4,0,0" Visibility="{Binding QualityProfileMissing, Converter={StaticResource BooleanVisibility}}">
+              <Label DockPanel.Dock="Left" Content="Audio quality" Target="{Binding ElementName=MissingQualityPicker}"/>
+              <ComboBox x:Name="MissingQualityPicker" ItemsSource="{Binding QualityProfiles}" DisplayMemberPath="DisplayName" SelectedValuePath="Id" SelectedValue="{Binding QualityProfileId}"
+                        AutomationProperties.Name="Audio quality for the selected book"/>
+            </DockPanel>
+            <DockPanel Margin="0,4,0,0" Visibility="{Binding MetadataProfileMissing, Converter={StaticResource BooleanVisibility}}">
+              <Label DockPanel.Dock="Left" Content="Metadata profile" Target="{Binding ElementName=MissingMetadataPicker}"/>
+              <ComboBox x:Name="MissingMetadataPicker" ItemsSource="{Binding MetadataProfiles}" SelectedItem="{Binding MetadataProfileId}"
+                        AutomationProperties.Name="Metadata profile for the selected book"/>
+            </DockPanel>
+          </StackPanel>
         </StackPanel>
         <Border x:Name="ConversionResultCard" DockPanel.Dock="Top" Margin="8,0,0,8" Padding="12" BorderBrush="Gray" BorderThickness="1"
                 Visibility="{Binding HasResult, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}" AutomationProperties.Name="Conversion result">
@@ -232,33 +277,6 @@
                         AutomationProperties.Name="Cover artwork" Margin="0,8"/>
               <Image x:Name="CoverImage" Height="280" Stretch="Uniform" AutomationProperties.Name="Selected cover preview"/>
             </StackPanel>
-          </TabItem>
-          <TabItem Header="_Output">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-              <StackPanel Margin="8" IsEnabled="{Binding CanEdit}">
-                <TextBlock Text="These settings apply only to the selected book. Use Preview output to confirm the final filename and audio strategy." TextWrapping="Wrap" Margin="0,0,0,8"/>
-                <Label Content="Preset" Target="{Binding ElementName=PresetPicker}"/>
-                <ComboBox x:Name="PresetPicker" DisplayMemberPath="Display" AutomationProperties.Name="Preset to apply to the selected book"
-                          AutomationProperties.HelpText="Applying copies the preset into this book. Later changes to the preset do not change it"/>
-                <WrapPanel Margin="0,6,0,12">
-                  <Button Content="Apply to this boo_k" Click="ApplyPreset_Click" Padding="12,6" Margin="0,0,8,0"/>
-                  <Button Content="Save as ne_w preset..." Click="SavePreset_Click" Padding="12,6"/>
-                </WrapPanel>
-                <Label Content="_Destination folder" Target="{Binding ElementName=BookOutputDirectory}"/>
-                <TextBox x:Name="BookOutputDirectory" Text="{Binding OutputDirectory, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Selected book destination folder"/>
-                <Label Content="_Audio quality" Target="{Binding ElementName=BookQuality}" Margin="0,8,0,0"/>
-                <ComboBox x:Name="BookQuality" ItemsSource="{Binding QualityProfiles}" DisplayMemberPath="DisplayName" SelectedValuePath="Id" SelectedValue="{Binding QualityProfileId}" AutomationProperties.Name="Selected book audio quality"/>
-                <Label Content="C_hannel handling" Target="{Binding ElementName=BookChannels}" Margin="0,8,0,0"/>
-                <ComboBox x:Name="BookChannels" ItemsSource="{Binding ChannelPolicies}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding ChannelPolicy}" AutomationProperties.Name="Selected book channel handling"/>
-                <Label Content="_Metadata profile" Target="{Binding ElementName=BookMetadataProfile}" Margin="0,8,0,0"/>
-                <ComboBox x:Name="BookMetadataProfile" ItemsSource="{Binding MetadataProfiles}" SelectedItem="{Binding MetadataProfileId}" AutomationProperties.Name="Selected book metadata profile"/>
-                <Label Content="Folder and file _name template" Target="{Binding ElementName=BookOutputTemplate}" Margin="0,8,0,0"/>
-                <TextBox x:Name="BookOutputTemplate" Text="{Binding OutputTemplate, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="Selected book folder and file name template"/>
-                <TextBlock Text="{Binding TemplateHelp}" TextWrapping="Wrap" Margin="0,4,0,0"/>
-                <Label Content="_Validation" Target="{Binding ElementName=BookValidation}" Margin="0,8,0,0"/>
-                <ComboBox x:Name="BookValidation" ItemsSource="{Binding ValidationLevels}" SelectedItem="{Binding ValidationLevel}" AutomationProperties.Name="Selected book validation level"/>
-              </StackPanel>
-            </ScrollViewer>
           </TabItem>
           <TabItem Header="_Chapters">
             <DataGrid ItemsSource="{Binding Chapters}" AutoGenerateColumns="False" IsEnabled="{Binding CanEdit}"

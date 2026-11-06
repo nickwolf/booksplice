@@ -286,6 +286,70 @@ public sealed class QueueRestoreTests : IDisposable
     Assert.DoesNotContain("Choose", item.Details, StringComparison.Ordinal);
   }
 
+  // A 0.3.x queue can hold per-book values the window no longer edits. They still restore, convert and save back unchanged.
+  [Fact]
+  public async Task ASavedQueueConvertsWithItsPerBookSettingsEvenThoughTheWindowNoLongerEditsThem()
+  {
+    var store = new MemoryStore();
+    var disk = new Disk();
+    var (first, _, _) = await StartAsync(store, disk);
+    await first.AddAsync(_bookA);
+    first.FlushQueue();
+    var saved = new SavedItemSettings(Path.Combine(_directory, "old-out"), "efficient", BookSplice.Core.Planning.ChannelPolicy.ForceMono, false,
+      BookSplice.Core.Naming.CollisionPolicy.Overwrite, "GenericMp4", ValidationLevel.Full, "{Title}");
+    store.Snapshot = store.Snapshot! with { Items = [store.Snapshot.Items[0] with { Settings = saved }] };
+
+    var (second, converter, _) = await StartAsync(store, disk);
+    var item = second.Items[0];
+    await second.ResolveOrderAsync(item, OrderCandidateId.NaturalPath);
+    await second.ConvertAsync(item);
+
+    var options = Assert.Single(converter.Requests).Options;
+    Assert.Equal(saved.OutputDirectory, options.DestinationDirectory);
+    Assert.Equal("efficient", options.QualityProfile.Id);
+    Assert.Equal(BookSplice.Core.Planning.ChannelPolicy.ForceMono, options.Settings.ChannelPolicy);
+    Assert.False(options.Settings.CreateChapters);
+    Assert.Equal(BookSplice.Core.Naming.CollisionPolicy.Overwrite, options.CollisionPolicy);
+    Assert.Equal(ValidationLevel.Full, options.Settings.ValidationLevel);
+    Assert.Equal("{Title}", options.Settings.OutputTemplate);
+    second.FlushQueue();
+    Assert.Equal(saved, store.Snapshot!.Items[0].Settings);
+  }
+
+  [Theory]
+  [InlineData("metadata")]
+  [InlineData("quality")]
+  public async Task AnAppliedPresetResolvesAMissingProfile(string which)
+  {
+    var store = new MemoryStore();
+    var disk = new Disk();
+    var (first, _, _) = await StartAsync(store, disk);
+    await first.AddAsync(_bookA);
+    first.FlushQueue();
+    var record = store.Snapshot!.Items[0];
+    store.Snapshot = store.Snapshot with
+    {
+      Items = [record with { Settings = which == "metadata" ? record.Settings with { MetadataProfileId = "GoneProfile" } : record.Settings with { QualityProfileId = "gone-quality" } }],
+    };
+    var (second, _, _) = await StartAsync(store, disk);
+    var item = second.Items[0];
+    Assert.True(item.IsProfileBlocked);
+    Assert.Equal(which == "quality", item.QualityProfileMissing);
+    Assert.Equal(which == "metadata", item.MetadataProfileMissing);
+    Assert.Contains("apply a preset", item.BlockReason, StringComparison.Ordinal);
+    Assert.DoesNotContain("Output tab", item.BlockReason, StringComparison.Ordinal);
+
+    var presets = new BookSplice.Core.Presets.PresetStore(Path.Combine(_directory, "presets.json"));
+    presets.Save([new("Fix", "balanced", BookSplice.Core.Planning.ChannelPolicy.PreserveSourceChannels, true, ValidationLevel.Lightweight, "GenericMp4", null)]);
+    var model = new PresetsViewModel(presets);
+    model.Reload();
+    Assert.True(model.Apply(item, "Fix"));
+
+    Assert.False(item.IsProfileBlocked);
+    Assert.True(item.CanConvert);
+    Assert.DoesNotContain("Choose", item.Details, StringComparison.Ordinal);
+  }
+
   [Fact]
   public async Task ABookThatWasConvertingComesBackInterruptedAndIsNeverStartedByTheRestore()
   {
