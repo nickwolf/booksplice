@@ -154,10 +154,14 @@ function Start-Gui([string]$Path, $S) {
 function Open-UpdatesWindow {
     $main = Wait-MainWindow 60
     if (-not $main) { throw 'The BookSplice main window did not appear.' }
-    Invoke-Element (Find-Child $main 'UpdatesButton' $null)
-    # The Updates window is owned by the main window, so UI Automation lists it beneath it.
-    $w = Wait-Until { Find-Child $main 'BookSpliceUpdatesWindow' $null } 20
-    if (-not $w) { throw 'The Updates window did not open.' }
+    Invoke-Element (Find-Child $main 'SettingsButton' $null)
+    # Updates is a page of the settings window, which is owned by the main window, so UI Automation lists it beneath it.
+    $w = Wait-Until { Find-Child $main $null 'BookSplice settings' } 20
+    if (-not $w) { throw 'The settings window did not open.' }
+    $tab = Wait-Until { Find-Child $w $null 'Updates' } 10
+    if (-not $tab) { throw 'The settings window has no Updates page.' }
+    $tab.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select()
+    if (-not (Wait-Until { Find-Child $w 'Check' $null } 10)) { throw 'The Updates page did not open.' }
     Start-Sleep -Milliseconds 500
     $w
 }
@@ -203,6 +207,8 @@ function Describe-Process($Process) {
     "$($Process.ProcessName) windows=[$($windows -join '|')] $line"
 }
 function Close-AllGui {
+    # The settings window is modal, so the main window ignores a close request until it is gone.
+    try { $main = Get-MainWindow; if ($main) { $settings = Find-Child $main $null 'BookSplice settings'; if ($settings) { $settings.GetCurrentPattern([Windows.Automation.WindowPattern]::Pattern).Close(); Start-Sleep -Milliseconds 500 } } } catch { }
     foreach ($p in @(Get-OwnedProcesses | Where-Object { $_.ProcessName -eq 'BookSplice.Gui' })) {
         try { [void]$p.CloseMainWindow(); [void]$p.WaitForExit(15000) } catch { }
     }
@@ -217,7 +223,7 @@ function Invoke-Scenario([string]$Name, [scriptblock]$Body) {
     $started = [DateTime]::UtcNow
     $status = 'passed'; $error_ = $null
     try { & $Body } catch { $status = 'failed'; $error_ = $_.Exception.Message
-        try { $w = Get-MainWindow; if ($w) { $u = Find-Child $w 'BookSpliceUpdatesWindow' $null; if ($u) { Save-Shot $u "failure-$Name" } } } catch { } $script:assertions.Add([ordered]@{ name = 'scenario completed without an error'; passed = $false; detail = $error_ }) }
+        try { $w = Get-MainWindow; if ($w) { $u = Find-Child $w $null 'BookSplice settings'; if ($u) { Save-Shot $u "failure-$Name" } } } catch { } $script:assertions.Add([ordered]@{ name = 'scenario completed without an error'; passed = $false; detail = $error_ }) }
     finally { try { Stop-OwnedProcesses } catch { }; Clear-Environment }
     if (@($script:assertions | Where-Object { -not $_.passed }).Count -gt 0) { $status = 'failed' }
     $results.Add([ordered]@{ scenario = $Name; status = $status; seconds = [int]([DateTime]::UtcNow - $started).TotalSeconds; assertions = @($script:assertions) })
@@ -359,7 +365,7 @@ if ($Scenario -contains 'rollback') {
             $updates = Open-UpdatesWindow
             $rollbackButton = Find-Child $updates $null 'Roll back to previous version'
             Assert-That 'the rollback button is enabled (a previous version is recorded)' ([bool](Wait-Until { $rollbackButton.Current.IsEnabled } 20))
-            # Rollback asks for confirmation first; the box is owned by the Updates window, so UI Automation lists it beneath it.
+            # Rollback asks for confirmation first; the box is owned by the settings window, so UI Automation lists it beneath it.
             try { Invoke-Element $rollbackButton } catch { }
             $confirm = Wait-Until { Find-Child $updates $null 'Roll back BookSplice' } 20
             Assert-That 'the rollback confirmation appeared' ($null -ne $confirm)
