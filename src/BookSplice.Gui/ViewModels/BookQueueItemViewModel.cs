@@ -52,6 +52,18 @@ public sealed partial class BookQueueItemViewModel(string source, AppSettings se
   public ObservableCollection<ChapterViewModel> Chapters { get; } = [];
   public ObservableCollection<MetadataFieldViewModel> Metadata { get; } = [];
   public IReadOnlyList<OrderCandidate> OrderCandidates => Analysis?.OrderResolution?.Candidates.Where(candidate => candidate.IsCredible).ToArray() ?? [];
+  public IReadOnlyList<OrderChoiceViewModel> OrderChoices => OrderCandidates.Select(candidate => new OrderChoiceViewModel(candidate)).ToArray();
+  // The order to show in the dropdown: the one the user chose, else the one analysis settled on, else none.
+  public OrderCandidateId? PreselectedOrder
+  {
+    get
+    {
+      var credible = OrderCandidates;
+      if (SelectedOrder is { } chosen && credible.Any(candidate => candidate.Id == chosen)) return chosen;
+      var resolution = Analysis?.OrderResolution;
+      return resolution is { Status: OrderStatus.Resolved, SelectedCandidate: { } selected } && credible.Any(candidate => candidate.Id == selected.Id) ? selected.Id : null;
+    }
+  }
   public IReadOnlyList<CoverCandidate> Covers => Analysis?.Cover.Candidates ?? [];
   public IReadOnlyList<string> OrderedFiles => Analysis?.OrderedFiles.Select(file => file.RelativePath).ToArray() ?? [];
   public string Summary => Analysis is null ? "" : $"{Analysis.OrderedFiles.Count} files{(Analysis.ExcludedFiles.Count > 0 ? $" ({Analysis.ExcludedFiles.Count} excluded)" : "")} | {DurationText.Format(TimeSpan.FromMicroseconds(Analysis.Chapters.TotalDurationMicroseconds))} | {string.Join(", ", Analysis.OrderedFiles.SelectMany(file => file.ProbeResult.AudioStreams).Select(stream => stream.CodecName).Distinct())}";

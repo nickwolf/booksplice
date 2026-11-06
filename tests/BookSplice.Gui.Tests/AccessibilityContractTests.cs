@@ -194,14 +194,16 @@ public sealed class AccessibilityContractTests
           main.Show();
           var setupButtons = Descendants<Button>(setup).ToArray();
           var mainButtons = Descendants<Button>(main).ToArray();
-          Assert.All(setupButtons.Concat(mainButtons), button => Assert.Contains("_", Assert.IsType<string>(button.Content), StringComparison.Ordinal));
-          Assert.All(mainButtons.Where(button => button.IsVisible), button => Assert.False(string.IsNullOrWhiteSpace(new ButtonAutomationPeer(button).GetAccessKey())));
+          Assert.All(setupButtons.Concat(mainButtons).Where(button => !IsGlyphOnly(button)), button => Assert.Contains("_", Assert.IsType<string>(button.Content), StringComparison.Ordinal));
+          Assert.All(mainButtons.Where(button => button.IsVisible && !IsGlyphOnly(button)), button => Assert.False(string.IsNullOrWhiteSpace(new ButtonAutomationPeer(button).GetAccessKey())));
+          Assert.All(mainButtons.Where(IsGlyphOnly), button => Assert.False(string.IsNullOrWhiteSpace(AutomationProperties.GetName(button))));
           var tabs = Assert.Single(Descendants<TabControl>(main));
           foreach (var tab in tabs.Items.OfType<TabItem>())
           {
             tabs.SelectedItem = tab;
             main.UpdateLayout();
-            Assert.All(Descendants<Button>(tab).Where(button => button.IsVisible), button => Assert.False(string.IsNullOrWhiteSpace(new ButtonAutomationPeer(button).GetAccessKey())));
+            Assert.All(Descendants<Button>(tab).Where(button => button.IsVisible && !IsGlyphOnly(button)), button => Assert.False(string.IsNullOrWhiteSpace(new ButtonAutomationPeer(button).GetAccessKey())));
+            Assert.All(Descendants<Button>(tab).Where(IsGlyphOnly), button => Assert.False(string.IsNullOrWhiteSpace(AutomationProperties.GetName(button))));
           }
           setup.Close();
           main.Close();
@@ -308,6 +310,9 @@ public sealed class AccessibilityContractTests
   }
 
   private static readonly string[] ConditionalButtons = ["PauseQueueButton", "RetryFailedButton", "ClearCompletedButton"];
+
+  // Icon buttons without text carry no access key; they are named through AutomationProperties.Name instead, like the queue row buttons.
+  private static bool IsGlyphOnly(Button button) => button is BookSplice.Gui.Controls.IconButton && button.Content is null;
 
   private static string AccessKey(string content) => content[(content.IndexOf('_', StringComparison.Ordinal) + 1)..][..1];
 
