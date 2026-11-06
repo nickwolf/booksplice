@@ -47,6 +47,8 @@ public sealed class TracksAndChaptersTests
     var combo = (ComboBox)window.FindName("OrderChoice");
     Assert.Equal(["File and folder names", "Track numbers in metadata"], combo.Items.OfType<OrderChoiceViewModel>().Select(choice => choice.Name));
     Assert.Equal("Name", combo.DisplayMemberPath);
+    // UI Automation names a data item by its text, not DisplayMemberPath, so this is what a screen reader reads.
+    Assert.Equal(["File and folder names", "Track numbers in metadata"], combo.Items.Cast<object>().Select(choice => choice.ToString()));
   });
 
   [Fact]
