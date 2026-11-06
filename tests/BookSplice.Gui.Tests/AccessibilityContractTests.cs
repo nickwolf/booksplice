@@ -274,6 +274,12 @@ public sealed class AccessibilityContractTests
           var hint = (UIElement)window.FindName("DropHint");
           var conditional = ConditionalButtons.Select(name => (UIElement)window.FindName(name)).ToArray();
           Assert.True(hint.IsVisible);
+          // The hint sits over the empty queue list and lets drops through to the window.
+          var queue = (FrameworkElement)window.FindName("Queue");
+          Assert.Same(queue.Parent, ((FrameworkElement)hint).Parent);
+          Assert.Equal(System.Windows.Controls.Grid.GetColumn(queue), System.Windows.Controls.Grid.GetColumn(hint));
+          Assert.False(hint.IsHitTestVisible);
+          Assert.Contains(((System.Windows.Controls.Panel)hint).Children.OfType<System.Windows.Controls.TextBlock>(), text => text.Text == "Drop audiobook folders here to get started");
           Assert.All(conditional, button => Assert.False(button.IsVisible, $"{((FrameworkElement)button).Name} visible, pause={model.CanPauseQueue} retry={model.CanRetryFailed} clear={model.CanClearCompleted} items={model.Items.Count}"));
 
           var book = AddReady(model, "book");
