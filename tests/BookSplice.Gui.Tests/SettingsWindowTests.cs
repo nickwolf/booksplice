@@ -99,6 +99,35 @@ public sealed class SettingsWindowTests : IDisposable
   });
 
   [Fact]
+  public void ParallelEncodesCanBeSetBackToAutomaticAfterANumberIsChosen() => DispatcherTestHost.Run(dispatcher =>
+  {
+    var window = Window(dispatcher);
+    var page = Assert.Single(Descendants<SettingsPage>(window));
+    window.Show();
+    Assert.Single(Descendants<Expander>(page)).IsExpanded = true;
+    window.UpdateLayout();
+    var model = Assert.IsType<FirstLaunchViewModel>(page.DataContext);
+    var jobs = Assert.IsType<ComboBox>(page.FindName("Jobs"));
+
+    var automatic = Assert.IsType<JobChoice>(jobs.SelectedItem);
+    Assert.Null(automatic.Value);
+    Assert.Equal("Automatic (6)", automatic.DisplayName);
+    // UI Automation reads ToString, not DisplayMemberPath.
+    Assert.Equal("Automatic (6)", automatic.ToString());
+
+    jobs.SelectedItem = model.JobChoices.Single(choice => choice.Value == 4);
+    Assert.Equal(4, model.ConversionJobs);
+    jobs.SelectedIndex = 0;
+    Assert.Null(model.ConversionJobs);
+    Assert.Same(automatic, jobs.SelectedItem);
+
+    Assert.Contains(Descendants<InfoIcon>(page), icon => icon.Subject == "parallel encodes per book" && icon.Text.Contains("Automatic runs 6", StringComparison.Ordinal));
+    Assert.All(Assert.IsType<ComboBox>(page.FindName("Channels")).Items.Cast<ChannelPolicyOption>(), option => Assert.Equal(option.DisplayName, option.ToString()));
+    window.Close();
+    return Task.CompletedTask;
+  });
+
+  [Fact]
   public void EverySettingHasAnInfoIconAndTheAlwaysVisibleExplainersAreGone() => DispatcherTestHost.Run(dispatcher =>
   {
     var window = Window(dispatcher);

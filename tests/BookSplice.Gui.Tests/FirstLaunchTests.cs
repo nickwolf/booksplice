@@ -118,6 +118,19 @@ public sealed class FirstLaunchTests : IDisposable
   }
 
   [Fact]
+  public async Task ChoosingAutomaticAfterANumberSavesNoConversionJobs()
+  {
+    Directory.CreateDirectory(_root);
+    var store = new JsonSettingsStore(_root);
+    var model = new FirstLaunchViewModel(new FirstLaunchService(store), AppSettings.Defaults with { ConversionJobs = 3 }) { OutputDirectory = _root };
+    Assert.Equal(3, model.SelectedJobChoice.Value);
+    model.SelectedJobChoice = model.JobChoices[0];
+    Assert.True(await model.SaveAsync());
+    Assert.Null((await store.LoadAsync()).Settings!.ConversionJobs);
+    Assert.Equal(6, ConversionPlanner.AutomaticConversionJobs);
+  }
+
+  [Fact]
   public async Task AdvancedSettingsPersistThroughSetup()
   {
     Directory.CreateDirectory(_root);
