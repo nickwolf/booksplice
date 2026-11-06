@@ -71,8 +71,6 @@
         </WrapPanel>
       </StackPanel>
       <TextBlock x:Name="Destination" TextWrapping="Wrap"/>
-      <TextBlock x:Name="DropHint" Text="Drop audiobook folders here. Each folder becomes one book. Add files can make one book from the selected tracks or one book per file." TextWrapping="Wrap" Margin="0,6"
-                 Visibility="{Binding IsQueueEmpty, Converter={StaticResource BooleanVisibility}, FallbackValue=Visible}"/>
       <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Foreground="Firebrick" AutomationProperties.LiveSetting="Polite"/>
       <TextBlock Text="{Binding QueueNotice}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
       <StackPanel Visibility="{Binding IsBatchActive, Converter={StaticResource BooleanVisibility}}" Margin="0,4">
@@ -120,6 +118,15 @@
           </DataTemplate>
         </ListBox.ItemTemplate>
       </ListBox>
+      <!-- Sits over the empty queue. It never takes the mouse, so a drop still reaches the window. -->
+      <StackPanel x:Name="DropHint" IsHitTestVisible="False" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16" MaxWidth="320"
+                  Visibility="{Binding IsQueueEmpty, Converter={StaticResource BooleanVisibility}, FallbackValue=Visible}">
+        <TextBlock Text="&#xE8B7;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="48" HorizontalAlignment="Center"
+                   Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}" AutomationProperties.Name="Folder"/>
+        <TextBlock Text="Drop audiobook folders here to get started" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" TextAlignment="Center" Margin="0,12,0,4"/>
+        <TextBlock Text="or use Add folder or Add files above. Each folder becomes one book." TextWrapping="Wrap" TextAlignment="Center"
+                   Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"/>
+      </StackPanel>
       <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Center"/>
       <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
       <DockPanel x:Name="SelectedBookPanel" DataContext="{Binding SelectedItem, ElementName=Queue}">
