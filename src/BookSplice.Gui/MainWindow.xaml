@@ -122,7 +122,7 @@
       </ListBox>
       <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Center"/>
       <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
-      <DockPanel DataContext="{Binding SelectedItem, ElementName=Queue}">
+      <DockPanel x:Name="SelectedBookPanel" DataContext="{Binding SelectedItem, ElementName=Queue}">
         <StackPanel DockPanel.Dock="Top" Margin="8,0,0,8">
           <TextBlock Text="{Binding Name}" FontSize="20" FontWeight="SemiBold"/>
           <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" Margin="0,4"/>
@@ -255,46 +255,61 @@
               </DataGrid>
             </DockPanel>
           </TabItem>
-          <TabItem Header="_Track order">
-            <DockPanel Margin="8" IsEnabled="{Binding CanEdit}">
-              <StackPanel DockPanel.Dock="Top">
-                <TextBlock Text="Start from a candidate order, then move or exclude tracks. Alt+Up and Alt+Down move the selected track, Delete excludes it, Enter puts an excluded track back." TextWrapping="Wrap"/>
-                <ComboBox x:Name="OrderChoice" ItemsSource="{Binding OrderCandidates}" DisplayMemberPath="Id" SelectionChanged="OrderChoice_Changed" AutomationProperties.Name="Ordering candidate" Margin="0,8"/>
-              </StackPanel>
-              <Button DockPanel.Dock="Bottom" Content="_Use selected order" IsEnabled="{Binding CanApplyTrackList}" Click="Order_Click" Padding="12,6" Margin="0,8,0,0" HorizontalAlignment="Left"/>
+          <TabItem Header="_Tracks and chapters">
+            <StackPanel Margin="8" IsEnabled="{Binding CanEdit}">
+              <TextBlock Text="Start from a candidate order, then move or exclude tracks. Alt+Up and Alt+Down move the selected track, Delete excludes it, Enter puts an excluded track back." TextWrapping="Wrap"/>
+              <Grid Margin="0,8">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Track order" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <Grid Grid.Column="1">
+                  <ComboBox x:Name="OrderChoice" DisplayMemberPath="Name" SelectionChanged="OrderChoice_Changed" AutomationProperties.Name="Track order"/>
+                  <!-- A ComboBox has no placeholder, so this sits over its empty selection box. It never takes the click. -->
+                  <TextBlock x:Name="OrderPlaceholder" Text="Choose a track order" Visibility="Collapsed" IsHitTestVisible="False" VerticalAlignment="Center" Margin="8,0,30,0"
+                             Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"/>
+                </Grid>
+              </Grid>
               <Grid>
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="*"/>
                   <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <DockPanel Margin="0,0,8,0">
-                  <TextBlock DockPanel.Dock="Top" Text="Included tracks" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                  <WrapPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
-                    <Button Content="Move hi_gher" Click="TrackUp_Click" Padding="12,6" Margin="0,0,8,0"/>
-                    <Button Content="Move lo_wer" Click="TrackDown_Click" Padding="12,6" Margin="0,0,8,0"/>
-                    <Button Content="E_xclude" Click="TrackExclude_Click" Padding="12,6"/>
-                  </WrapPanel>
-                  <ListBox x:Name="IncludedList" ItemsSource="{Binding IncludedTracks}" PreviewKeyDown="IncludedList_KeyDown" AutomationProperties.Name="Included tracks in conversion order"/>
+                  <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                      <ctl:IconButton x:Name="TrackUpButton" Style="{StaticResource RowIconButton}" Glyph="&#xE74A;" ToolTip="Move track up" AutomationProperties.Name="Move track up" Click="TrackUp_Click"/>
+                      <ctl:IconButton x:Name="TrackDownButton" Style="{StaticResource RowIconButton}" Glyph="&#xE74B;" ToolTip="Move track down" AutomationProperties.Name="Move track down" Click="TrackDown_Click"/>
+                      <ctl:IconButton x:Name="TrackExcludeButton" Style="{StaticResource RowIconButton}" Glyph="&#xE738;" ToolTip="Exclude track" AutomationProperties.Name="Exclude track" Click="TrackExclude_Click"/>
+                    </StackPanel>
+                    <TextBlock Text="Included tracks" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                  </DockPanel>
+                  <ListBox x:Name="IncludedList" ItemsSource="{Binding IncludedTracks}" SelectionChanged="TrackList_SelectionChanged" PreviewKeyDown="IncludedList_KeyDown"
+                           MinHeight="96" MaxHeight="200" AutomationProperties.Name="Included tracks in conversion order"/>
                 </DockPanel>
                 <DockPanel Grid.Column="1">
-                  <TextBlock DockPanel.Dock="Top" Text="Excluded tracks" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                  <WrapPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
-                    <Button Content="Put bac_k" Click="TrackInclude_Click" Padding="12,6"/>
-                  </WrapPanel>
-                  <ListBox x:Name="ExcludedList" ItemsSource="{Binding ExcludedTracks}" PreviewKeyDown="ExcludedList_KeyDown" AutomationProperties.Name="Excluded tracks"/>
+                  <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                      <ctl:IconButton x:Name="TrackIncludeButton" Style="{StaticResource RowIconButton}" Glyph="&#xE710;" ToolTip="Put track back" AutomationProperties.Name="Put track back" Click="TrackInclude_Click"/>
+                    </StackPanel>
+                    <TextBlock Text="Excluded tracks" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                  </DockPanel>
+                  <ListBox x:Name="ExcludedList" ItemsSource="{Binding ExcludedTracks}" SelectionChanged="TrackList_SelectionChanged" PreviewKeyDown="ExcludedList_KeyDown"
+                           MinHeight="96" MaxHeight="200" AutomationProperties.Name="Excluded tracks"/>
                 </DockPanel>
               </Grid>
-            </DockPanel>
-          </TabItem>
-          <TabItem Header="_Chapters">
-            <DataGrid ItemsSource="{Binding Chapters}" AutoGenerateColumns="False" IsEnabled="{Binding CanEdit}"
-                      CanUserAddRows="False" CanUserDeleteRows="False" AutomationProperties.Name="Chapter titles">
-              <DataGrid.Columns>
-                <DataGridTextColumn Header="Start" Binding="{Binding Start}" IsReadOnly="True"/>
-                <DataGridTextColumn Header="Title" Binding="{Binding Title, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
-                <DataGridTextColumn Header="Source" Binding="{Binding Source}" IsReadOnly="True" Width="*"/>
-              </DataGrid.Columns>
-            </DataGrid>
+              <Button Content="_Use selected order" IsEnabled="{Binding CanApplyTrackList}" Click="Order_Click" Padding="12,6" Margin="0,8,0,12" HorizontalAlignment="Left"/>
+              <TextBlock Text="Chapter titles" FontWeight="SemiBold" Margin="0,0,0,6"/>
+              <DataGrid ItemsSource="{Binding Chapters}" AutoGenerateColumns="False" MinHeight="120" MaxHeight="240"
+                        CanUserAddRows="False" CanUserDeleteRows="False" AutomationProperties.Name="Chapter titles">
+                <DataGrid.Columns>
+                  <DataGridTextColumn Header="Start" Binding="{Binding Start}" IsReadOnly="True"/>
+                  <DataGridTextColumn Header="Title" Binding="{Binding Title, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                  <DataGridTextColumn Header="Source" Binding="{Binding Source}" IsReadOnly="True" Width="*"/>
+                </DataGrid.Columns>
+              </DataGrid>
+            </StackPanel>
           </TabItem>
         </TabControl>
       </DockPanel>

@@ -26,7 +26,7 @@ public sealed class MetadataEditorTests
   {
     var item = await AddAsync(model);
     var tabs = Assert.Single(Descendants<TabControl>(window));
-    Assert.Equal(["_Metadata", "_Track order", "_Chapters"], tabs.Items.OfType<TabItem>().Select(tab => tab.Header));
+    Assert.Equal(["_Metadata", "_Tracks and chapters"], tabs.Items.OfType<TabItem>().Select(tab => tab.Header));
     var metadata = (DependencyObject)tabs.Items.OfType<TabItem>().First().Content;
     Assert.NotNull(window.FindName("CoverImage"));
     Assert.Contains(Descendants<ComboBox>(metadata), box => AutomationProperties.GetName(box) == "Cover artwork");
@@ -187,8 +187,7 @@ public sealed class MetadataEditorTests
     finally { editor.Close(); }
 
     var area = AccessKeys(window).GroupBy(key => key).Where(group => group.Count() > 1).Select(group => group.Key).Order().ToArray();
-    // Chapters/Validation checks (C) and Move higher/Copy diagnostics (G) are known and fixed separately.
-    Assert.All(area, key => Assert.True(key is "C" or "G", $"{key} is shared"));
+    Assert.Empty(area);
     var button = (string)((Button)window.FindName("EditMetadataButton")).Content;
     Assert.DoesNotContain(char.ToUpperInvariant(button[button.IndexOf('_', StringComparison.Ordinal) + 1]).ToString(), area);
     Assert.Contains(char.ToUpperInvariant(button[button.IndexOf('_', StringComparison.Ordinal) + 1]).ToString(), AccessKeys(window));

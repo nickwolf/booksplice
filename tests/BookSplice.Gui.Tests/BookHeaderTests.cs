@@ -274,7 +274,7 @@ public sealed class BookHeaderTests
 
     Assert.DoesNotContain(Descendants<Button>(window), button => button.Content is string text && text.Contains("Preview", StringComparison.OrdinalIgnoreCase));
     var tabs = Assert.Single(Descendants<TabControl>(window));
-    Assert.Equal(["_Metadata", "_Track order", "_Chapters"], tabs.Items.OfType<TabItem>().Select(tab => tab.Header));
+    Assert.Equal(["_Metadata", "_Tracks and chapters"], tabs.Items.OfType<TabItem>().Select(tab => tab.Header));
     Assert.Null(window.FindName("BookQuality"));
     Assert.Null(window.FindName("BookOutputTemplate"));
     Assert.Null(window.FindName("BookValidation"));

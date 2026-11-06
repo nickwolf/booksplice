@@ -21,6 +21,7 @@ public partial class MainWindow : Window
   private readonly ISettingsStore _store;
   private readonly GuiServices? _services;
   private int _coverVersion;
+  private bool _showingOrder;
   private AppSettings _settings;
   private readonly MainWindowViewModel? _model;
   private readonly GuiOperationGate _gate;
@@ -43,6 +44,8 @@ public partial class MainWindow : Window
     _presets = new PresetsViewModel(new Core.Presets.PresetStore(Path.Combine(Path.GetDirectoryName(store.SettingsPath)!, Core.Presets.PresetStore.FileName)), services?.Profiles);
     PresetPicker.ItemsSource = _presets.Presets;
     _presets.Reload();
+    SelectedBookPanel.DataContextChanged += SelectedBook_DataContextChanged;
+    UpdateTrackButtons();
   }
 
   internal UpdatesViewModel? Updates => _updates;
@@ -220,13 +223,73 @@ public partial class MainWindow : Window
   private async void Order_Click(object sender, RoutedEventArgs e)
   {
     if (_model is not null && Queue.SelectedItem is BookQueueItemViewModel item)
-      await _model.UseTrackListAsync(item, (OrderChoice.SelectedItem as OrderCandidate)?.Id);
+      await _model.UseTrackListAsync(item, (OrderChoice.SelectedItem as OrderChoiceViewModel)?.Id);
+  }
+
+  private void SelectedBook_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+  {
+    if (e.OldValue is BookQueueItemViewModel old)
+    {
+      old.PropertyChanged -= SelectedBook_PropertyChanged;
+      old.IncludedTracks.CollectionChanged -= TrackLists_Changed;
+      old.ExcludedTracks.CollectionChanged -= TrackLists_Changed;
+    }
+    if (e.NewValue is BookQueueItemViewModel item)
+    {
+      item.PropertyChanged += SelectedBook_PropertyChanged;
+      item.IncludedTracks.CollectionChanged += TrackLists_Changed;
+      item.ExcludedTracks.CollectionChanged += TrackLists_Changed;
+    }
+    ShowOrderChoice(e.NewValue as BookQueueItemViewModel);
+  }
+
+  private void SelectedBook_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+  {
+    if (e.PropertyName == nameof(BookQueueItemViewModel.Analysis) && sender is BookQueueItemViewModel item) ShowOrderChoice(item);
+  }
+
+  private void TrackLists_Changed(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) => UpdateTrackButtons();
+
+  // Fills the dropdown and shows the book's current order in it. This is not a user pick, so it must never reload the track list.
+  private void ShowOrderChoice(BookQueueItemViewModel? item)
+  {
+    var choices = item?.OrderChoices ?? [];
+    var preselected = item?.PreselectedOrder;
+    _showingOrder = true;
+    try
+    {
+      OrderChoice.ItemsSource = choices;
+      OrderChoice.SelectedItem = choices.FirstOrDefault(choice => choice.Id == preselected);
+    }
+    finally { _showingOrder = false; }
+    UpdateOrderPlaceholder();
+    UpdateTrackButtons();
+  }
+
+  private void UpdateOrderPlaceholder()
+  {
+    var needsChoice = OrderChoice.Items.Count > 0 && OrderChoice.SelectedItem is null;
+    OrderPlaceholder.Visibility = needsChoice ? Visibility.Visible : Visibility.Collapsed;
+    System.Windows.Automation.AutomationProperties.SetHelpText(OrderChoice, needsChoice ? "Choose a track order" : "");
   }
 
   private void OrderChoice_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
   {
-    if (Queue.SelectedItem is BookQueueItemViewModel { CanEdit: true } item && OrderChoice.SelectedItem is OrderCandidate candidate)
-      item.LoadTrackList(candidate.FileIds, []);
+    if (_showingOrder) return;
+    UpdateOrderPlaceholder();
+    if (Queue.SelectedItem is BookQueueItemViewModel { CanEdit: true } item && OrderChoice.SelectedItem is OrderChoiceViewModel choice)
+      item.LoadTrackList(choice.Candidate.FileIds, []);
+  }
+
+  private void TrackList_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e) => UpdateTrackButtons();
+
+  private void UpdateTrackButtons()
+  {
+    var index = IncludedList.SelectedIndex;
+    TrackUpButton.IsEnabled = index > 0;
+    TrackDownButton.IsEnabled = index >= 0 && index < IncludedList.Items.Count - 1;
+    TrackExcludeButton.IsEnabled = index >= 0;
+    TrackIncludeButton.IsEnabled = ExcludedList.SelectedIndex >= 0;
   }
 
   private void TrackUp_Click(object sender, RoutedEventArgs e) => ApplyTrackAction(TrackListAction.MoveUp, IncludedList);
