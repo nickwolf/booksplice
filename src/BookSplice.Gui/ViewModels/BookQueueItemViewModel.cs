@@ -39,6 +39,8 @@ public sealed partial class BookQueueItemViewModel(string source, AppSettings se
   public string MetadataProfileId { get => Settings.MetadataProfileId; set { if (_profiles.Find(value) is not null) UpdateSettings(Settings with { MetadataProfileId = value }); } }
   public BookAnalysis? Analysis { get; private set; }
   public OrderCandidateId? SelectedOrder { get; set; }
+  // Picked in the dropdown but not applied yet. Not saved with the queue; the next analysis clears it.
+  public OrderCandidateId? PendingOrder { get; internal set; }
   public ReviewedTrackOrder? ReviewedOrder { get; internal set; }
   public BookAnalysisOptions AnalysisOptions => new(SelectedOrder, ReviewedOrder: ReviewedOrder);
   public ObservableCollection<string> IncludedTracks { get; } = [];
@@ -53,12 +55,13 @@ public sealed partial class BookQueueItemViewModel(string source, AppSettings se
   public ObservableCollection<MetadataFieldViewModel> Metadata { get; } = [];
   public IReadOnlyList<OrderCandidate> OrderCandidates => Analysis?.OrderResolution?.Candidates.Where(candidate => candidate.IsCredible).ToArray() ?? [];
   public IReadOnlyList<OrderChoiceViewModel> OrderChoices => OrderCandidates.Select(candidate => new OrderChoiceViewModel(candidate)).ToArray();
-  // The order to show in the dropdown: the one the user chose, else the one analysis settled on, else none.
+  // The order to show in the dropdown: the one the user picked, else the one they applied, else the one analysis settled on, else none.
   public OrderCandidateId? PreselectedOrder
   {
     get
     {
       var credible = OrderCandidates;
+      if (PendingOrder is { } picked && credible.Any(candidate => candidate.Id == picked)) return picked;
       if (SelectedOrder is { } chosen && credible.Any(candidate => candidate.Id == chosen)) return chosen;
       var resolution = Analysis?.OrderResolution;
       return resolution is { Status: OrderStatus.Resolved, SelectedCandidate: { } selected } && credible.Any(candidate => candidate.Id == selected.Id) ? selected.Id : null;
@@ -195,6 +198,7 @@ public sealed partial class BookQueueItemViewModel(string source, AppSettings se
   internal void SetAnalysis(BookAnalysis analysis)
   {
     Analysis = analysis;
+    PendingOrder = null;
     string? trackListNote = null;
     if (analysis.OrderedFiles.Count > 0) LoadTrackList(analysis.OrderedFiles.Select(file => file.RelativePath), analysis.ExcludedFiles.Select(file => file.RelativePath));
     else if (analysis.Diagnostics.Any(diagnostic => diagnostic.Code == "analysis.order-sources-changed")) trackListNote = ReconcileTrackList(analysis.DiscoveredFileIds);

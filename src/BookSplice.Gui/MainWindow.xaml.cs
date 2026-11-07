@@ -278,7 +278,10 @@ public partial class MainWindow : Window
     if (_showingOrder) return;
     UpdateOrderPlaceholder();
     if (Queue.SelectedItem is BookQueueItemViewModel { CanEdit: true } item && OrderChoice.SelectedItem is OrderChoiceViewModel choice)
+    {
+      item.PendingOrder = choice.Id;
       item.LoadTrackList(choice.Candidate.FileIds, []);
+    }
   }
 
   private void TrackList_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e) => UpdateTrackButtons();
