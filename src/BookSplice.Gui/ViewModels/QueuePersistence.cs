@@ -15,6 +15,7 @@ internal sealed class QueuePersistence : IDisposable
   private readonly Timer _timer;
   private readonly object _gate = new();
   private readonly object _writeLock = new();
+  private readonly object _captureLock = new();
   private bool _armed;
   private bool _disposed;
   private bool _requestedWhileHeld;
@@ -88,13 +89,18 @@ internal sealed class QueuePersistence : IDisposable
   private void Save(bool background)
   {
     QueueSnapshot snapshot;
-    try { snapshot = _capture(); }
-    catch (Exception exception)
+    long sequence;
+    // Numbered under the same lock as the capture, so a later number always means a newer snapshot.
+    lock (_captureLock)
     {
-      Report(exception);
-      return;
+      try { snapshot = _capture(); }
+      catch (Exception exception)
+      {
+        Report(exception);
+        return;
+      }
+      sequence = ++_sequence;
     }
-    var sequence = Interlocked.Increment(ref _sequence);
     if (background) _ = Task.Run(() => Write(sequence, snapshot));
     else Write(sequence, snapshot);
   }
