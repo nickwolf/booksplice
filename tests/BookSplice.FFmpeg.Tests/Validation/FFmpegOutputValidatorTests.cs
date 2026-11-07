@@ -96,6 +96,25 @@ public sealed class FFmpegOutputValidatorTests
   }
 
   [Theory]
+  [InlineData("4.000", 44_100, true)]
+  [InlineData("3.970", 44_100, true)]
+  [InlineData("3.940", 44_100, false)]
+  [InlineData("3.8943", 44_100, false)]
+  [InlineData("3.940", 16_000, true)]
+  public async Task ValidateAsyncFailsAFinalChapterThatEndsAfterTheAudio(string audioEndText, int sampleRate, bool expectedPass)
+  {
+    using var output = new TemporaryOutput();
+    var audioEnd = decimal.Parse(audioEndText, System.Globalization.CultureInfo.InvariantCulture);
+    var track = Track(sampleRate: sampleRate) with { Duration = audioEnd };
+
+    var report = await Validator(new Probe(Media(audio: [track]))).ValidateAsync(Plan(), output.Path, CancellationToken.None);
+
+    var timing = report.Checks.Single(check => check.Code == "chapters.timing");
+    Assert.Equal(expectedPass, timing.Passed);
+    if (!expectedPass) Assert.Equal("The last chapter ends after the audio.", timing.Message);
+  }
+
+  [Theory]
   [InlineData(1_000_000, 1, 2_000_000)]
   [InlineData(10_000_000_000, 100, 10_000_000)]
   public void DurationToleranceUsesTheDocumentedMaximum(long expectedUs, int files, long minimumToleranceUs)

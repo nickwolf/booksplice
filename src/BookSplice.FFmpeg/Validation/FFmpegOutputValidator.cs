@@ -111,7 +111,8 @@ public sealed partial class FFmpegOutputValidator : IOutputValidator
     var monotonic = chapters.All(chapter => chapter.EndTime > chapter.StartTime) && chapters.Zip(chapters.Skip(1), (left, right) => right.StartTime >= left.EndTime).All(value => value);
     checks.Add(Check(ValidationCodes.ChaptersMonotonic, monotonic, "The output chapters are not positive and monotonic."));
     var timing = chapters.Count == plan.Chapters.Count && chapters.Zip(plan.Chapters, (actual, expected) => WithinChapterTolerance(actual.StartTime, expected.StartMicroseconds) && WithinChapterTolerance(actual.EndTime, expected.EndMicroseconds)).All(value => value);
-    checks.Add(Check(ValidationCodes.ChaptersTiming, timing, "The output chapter timings do not match the plan."));
+    var pastAudio = chapters.Count > 0 && EndsPastAudio(chapters[^1].EndTime, facts.AudioStreams);
+    checks.Add(Check(ValidationCodes.ChaptersTiming, timing && !pastAudio, pastAudio ? "The last chapter ends after the audio." : "The output chapter timings do not match the plan."));
     var longTitlesPreserved = chapters.Count == plan.Chapters.Count && chapters.Zip(plan.Chapters, (actual, expected) =>
       Encoding.UTF8.GetByteCount(expected.Title) <= 255 ||
       (actual.RawTags.TryGetValue("title", out var title) && string.Equals(title, expected.Title, StringComparison.Ordinal))).All(value => value);
@@ -232,6 +233,14 @@ public sealed partial class FFmpegOutputValidator : IOutputValidator
     }
   }
 
+  // The chapter track can outlast the audio, and then the file duration follows the chapters, so the final end is also checked against the audio stream itself.
+  private static bool EndsPastAudio(decimal chapterEnd, IReadOnlyList<AudioTrack> audio)
+  {
+    if (audio is not [{ Duration: { } duration } primary]) return false;
+    var audioEnd = (primary.StartTime ?? 0m) + duration;
+    var frame = primary.SampleRate is > 0 ? 1024m / primary.SampleRate.Value : 0m;
+    return chapterEnd - audioEnd > decimal.Max(ChapterToleranceMicroseconds / 1_000_000m, frame);
+  }
   private static bool WithinChapterTolerance(decimal seconds, long expectedMicroseconds)
   {
     var actual = checked((long)decimal.Round(seconds * 1_000_000m, 0, MidpointRounding.AwayFromZero));
