@@ -128,8 +128,29 @@
                    Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"/>
       </StackPanel>
       <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Center"/>
-      <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
-      <DockPanel x:Name="SelectedBookPanel" DataContext="{Binding SelectedItem, ElementName=Queue}">
+      <Grid Grid.Column="2">
+      <TextBlock x:Name="NoBookHint" Text="Select a book in the queue to see its details." TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16"
+                 Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}">
+        <TextBlock.Style>
+          <Style TargetType="TextBlock">
+            <Setter Property="Visibility" Value="Collapsed"/>
+            <Style.Triggers>
+              <DataTrigger Binding="{Binding SelectedItem, ElementName=Queue}" Value="{x:Null}"><Setter Property="Visibility" Value="Visible"/></DataTrigger>
+            </Style.Triggers>
+          </Style>
+        </TextBlock.Style>
+      </TextBlock>
+      <!-- The panel is as tall as the viewport, so the tabs take what the header leaves. Under the MinHeight the pane scrolls instead. -->
+      <ScrollViewer x:Name="BookPaneScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <DockPanel x:Name="SelectedBookPanel" DataContext="{Binding SelectedItem, ElementName=Queue}"
+                 Height="{Binding ViewportHeight, ElementName=BookPaneScroll}" MinHeight="520">
+        <DockPanel.Style>
+          <Style TargetType="DockPanel">
+            <Style.Triggers>
+              <DataTrigger Binding="{Binding SelectedItem, ElementName=Queue}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+            </Style.Triggers>
+          </Style>
+        </DockPanel.Style>
         <StackPanel DockPanel.Dock="Top" Margin="8,0,0,8">
           <TextBlock Text="{Binding Name}" FontSize="20" FontWeight="SemiBold"/>
           <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" Margin="0,4"/>
@@ -188,7 +209,7 @@
         </StackPanel>
         <Border x:Name="ConversionResultCard" DockPanel.Dock="Top" Margin="8,0,0,8" Padding="12" BorderBrush="Gray" BorderThickness="1"
                 Visibility="{Binding HasResult, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}" AutomationProperties.Name="Conversion result">
-          <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="260">
+          <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="140">
             <StackPanel>
               <TextBlock x:Name="ResultTitle" Text="{Binding Result.Title}" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
               <TextBlock Text="{Binding Result.Summary}" TextWrapping="Wrap" Margin="0,4,0,0"/>
@@ -229,11 +250,13 @@
             <Style TargetType="TextBox">
               <Style.Triggers>
                 <DataTrigger Binding="{Binding HasResult}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+                <DataTrigger Binding="{Binding Details}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+                <DataTrigger Binding="{Binding Details}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
               </Style.Triggers>
             </Style>
           </TextBox.Style>
         </TextBox>
-        <TabControl Margin="8,0,0,0" MinHeight="220">
+        <TabControl Margin="8,0,0,0">
           <TabItem Header="_Metadata">
             <DockPanel IsEnabled="{Binding CanEdit}" Margin="8">
               <!-- Cover above the grid so one layout fits the minimum window width; the preview is a fixed small square. -->
@@ -252,7 +275,7 @@
                           AutomationProperties.HelpText="Opens a larger window for long values such as Comment and Description, with the source values beside each field"/>
                 </StackPanel>
               </Grid>
-              <DataGrid ItemsSource="{Binding Metadata}" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" MinHeight="200" Margin="0,8,0,0"
+              <DataGrid ItemsSource="{Binding Metadata}" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" MinHeight="60" Margin="0,8,0,0"
                         AutomationProperties.Name="Book metadata">
                 <DataGrid.Columns>
                   <DataGridTextColumn Header="Field" Binding="{Binding Name}" IsReadOnly="True" Width="130"/>
@@ -263,22 +286,32 @@
             </DockPanel>
           </TabItem>
           <TabItem Header="_Tracks and chapters">
-            <StackPanel Margin="8" IsEnabled="{Binding CanEdit}">
-              <TextBlock Text="Start from a candidate order, then move or exclude tracks. Alt+Up and Alt+Down move the selected track, Delete excludes it, Enter puts an excluded track back." TextWrapping="Wrap"/>
-              <Grid Margin="0,8">
+            <Grid Margin="8" IsEnabled="{Binding CanEdit}">
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="3*" MinHeight="70"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="2*" MinHeight="50"/>
+              </Grid.RowDefinitions>
+              <Grid Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
                   <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="Track order" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <Grid Grid.Column="1">
+                <TextBlock Text="Track order" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                <ctl:InfoIcon x:Name="TrackOrderInfo" Grid.Column="1" Subject="track ordering" Margin="0,0,8,0" VerticalAlignment="Center"
+                              Text="Start from a candidate order, then move or exclude tracks. Alt+Up and Alt+Down move the selected track, Delete excludes it, Enter puts an excluded track back."/>
+                <Grid Grid.Column="2">
                   <ComboBox x:Name="OrderChoice" DisplayMemberPath="Name" SelectionChanged="OrderChoice_Changed" AutomationProperties.Name="Track order"/>
                   <!-- A ComboBox has no placeholder, so this sits over its empty selection box. It never takes the click. -->
                   <TextBlock x:Name="OrderPlaceholder" Text="Choose a track order" Visibility="Collapsed" IsHitTestVisible="False" VerticalAlignment="Center" Margin="8,0,30,0"
                              Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"/>
                 </Grid>
+                <Button Grid.Column="3" Content="_Use selected order" IsEnabled="{Binding CanApplyTrackList}" Click="Order_Click" Padding="12,4" Margin="8,0,0,0"/>
               </Grid>
-              <Grid>
+              <Grid Grid.Row="1">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="*"/>
                   <ColumnDefinition Width="*"/>
@@ -293,7 +326,7 @@
                     <TextBlock Text="Included tracks" FontWeight="SemiBold" VerticalAlignment="Center"/>
                   </DockPanel>
                   <ListBox x:Name="IncludedList" ItemsSource="{Binding IncludedTracks}" SelectionChanged="TrackList_SelectionChanged" PreviewKeyDown="IncludedList_KeyDown"
-                           MinHeight="96" MaxHeight="200" AutomationProperties.Name="Included tracks in conversion order"/>
+                           AutomationProperties.Name="Included tracks in conversion order"/>
                 </DockPanel>
                 <DockPanel Grid.Column="1">
                   <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
@@ -303,12 +336,11 @@
                     <TextBlock Text="Excluded tracks" FontWeight="SemiBold" VerticalAlignment="Center"/>
                   </DockPanel>
                   <ListBox x:Name="ExcludedList" ItemsSource="{Binding ExcludedTracks}" SelectionChanged="TrackList_SelectionChanged" PreviewKeyDown="ExcludedList_KeyDown"
-                           MinHeight="96" MaxHeight="200" AutomationProperties.Name="Excluded tracks"/>
+                           AutomationProperties.Name="Excluded tracks"/>
                 </DockPanel>
               </Grid>
-              <Button Content="_Use selected order" IsEnabled="{Binding CanApplyTrackList}" Click="Order_Click" Padding="12,6" Margin="0,8,0,12" HorizontalAlignment="Left"/>
-              <TextBlock Text="Chapter titles" FontWeight="SemiBold" Margin="0,0,0,6"/>
-              <DataGrid ItemsSource="{Binding Chapters}" AutoGenerateColumns="False" MinHeight="120" MaxHeight="240"
+              <TextBlock Grid.Row="2" Text="Chapter titles" FontWeight="SemiBold" Margin="0,0,0,6"/>
+              <DataGrid Grid.Row="3" ItemsSource="{Binding Chapters}" AutoGenerateColumns="False"
                         CanUserAddRows="False" CanUserDeleteRows="False" AutomationProperties.Name="Chapter titles">
                 <DataGrid.Columns>
                   <DataGridTextColumn Header="Start" Binding="{Binding Start}" IsReadOnly="True"/>
@@ -316,11 +348,12 @@
                   <DataGridTextColumn Header="Source" Binding="{Binding Source}" IsReadOnly="True" Width="*"/>
                 </DataGrid.Columns>
               </DataGrid>
-            </StackPanel>
+            </Grid>
           </TabItem>
         </TabControl>
       </DockPanel>
       </ScrollViewer>
+      </Grid>
     </Grid>
   </DockPanel>
 </Window>
