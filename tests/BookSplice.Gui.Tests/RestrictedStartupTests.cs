@@ -2,7 +2,6 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Windows;
-using System.Windows.Threading;
 using BookSplice.Gui;
 using BookSplice.Gui.Updates;
 using BookSplice.Core.Settings;
@@ -11,6 +10,7 @@ using BookSplice.Updates.Windows;
 
 namespace BookSplice.Gui.Tests;
 
+[Collection("WPF")]
 public sealed class RestrictedStartupTests
 {
   [Theory]
@@ -80,7 +80,7 @@ public sealed class RestrictedStartupTests
   [InlineData(true)]
   public void AuthenticatedCandidateKeepsSameWindowRestrictedUntilCommit(bool disconnectBeforeCommit)
   {
-    OnStaAsync(async () =>
+    DispatcherTestHost.Run(async _ =>
     {
       PrepareVerifiedTools();
       var parent = Path.Combine(Path.GetTempPath(), "booksplice-candidate-" + Guid.NewGuid().ToString("N"));
@@ -179,30 +179,5 @@ public sealed class RestrictedStartupTests
     while (current is not null && !File.Exists(Path.Combine(current.FullName, "BookSplice.slnx")))
       current = current.Parent;
     return current?.FullName ?? throw new DirectoryNotFoundException();
-  }
-
-  private static void OnStaAsync(Func<Task> action)
-  {
-    Exception? failure = null;
-    var thread = new Thread(() =>
-    {
-      try
-      {
-        var dispatcher = Dispatcher.CurrentDispatcher;
-        SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(dispatcher));
-        var task = action();
-        var frame = new DispatcherFrame();
-        task.ContinueWith(_ => dispatcher.BeginInvoke(() => frame.Continue = false),
-          TaskScheduler.Default);
-        Dispatcher.PushFrame(frame);
-        task.GetAwaiter().GetResult();
-        dispatcher.InvokeShutdown();
-      }
-      catch (Exception error) { failure = error; }
-    });
-    thread.SetApartmentState(ApartmentState.STA);
-    thread.Start();
-    thread.Join();
-    if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
   }
 }
