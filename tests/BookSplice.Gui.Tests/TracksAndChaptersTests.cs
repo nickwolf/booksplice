@@ -100,6 +100,52 @@ public sealed class TracksAndChaptersTests
   }
 
   [Fact]
+  public async Task AnUnappliedPickWinsUntilTheNextAnalysis()
+  {
+    var model = new MainWindowViewModel(new OrderAnalyzer { Resolved = true }, new NoConverter(), AppSettings.Defaults);
+    await model.AddAsync(Path.GetFullPath("pending"));
+    var book = model.Items[0];
+
+    book.PendingOrder = OrderCandidateId.Metadata;
+    Assert.Equal(OrderCandidateId.Metadata, book.PreselectedOrder);
+    book.SelectedOrder = OrderCandidateId.NaturalPath;
+    Assert.Equal(OrderCandidateId.Metadata, book.PreselectedOrder);
+
+    await model.ResolveOrderAsync(book, OrderCandidateId.NaturalPath);
+
+    Assert.Null(book.PendingOrder);
+    Assert.Equal(OrderCandidateId.NaturalPath, book.PreselectedOrder);
+  }
+
+  [Fact]
+  public void APickThatIsNotAppliedYetIsStillShownAfterSwitchingBooks() => RunWindow(async (window, model) =>
+  {
+    var undecided = await AddAsync(model, "undecided");
+    var resolved = await AddAsync(model, "resolved", resolved: true);
+    var combo = (ComboBox)window.FindName("OrderChoice");
+    var placeholder = (TextBlock)window.FindName("OrderPlaceholder");
+    Select(window, undecided);
+    combo.SelectedItem = combo.Items.OfType<OrderChoiceViewModel>().Single(choice => choice.Id == OrderCandidateId.Metadata);
+    Select(window, resolved);
+    combo.SelectedItem = combo.Items.OfType<OrderChoiceViewModel>().Single(choice => choice.Id == OrderCandidateId.Metadata);
+
+    Select(window, undecided);
+    Assert.Equal(OrderCandidateId.Metadata, Assert.IsType<OrderChoiceViewModel>(combo.SelectedItem).Id);
+    Assert.Equal(Visibility.Collapsed, placeholder.Visibility);
+    Assert.Equal(Tags, undecided.IncludedTracks);
+    Assert.False(undecided.CanConvert);
+    Select(window, resolved);
+    Assert.Equal(OrderCandidateId.Metadata, Assert.IsType<OrderChoiceViewModel>(combo.SelectedItem).Id);
+    Assert.Equal(Tags, resolved.IncludedTracks);
+
+    await model.UseTrackListAsync(resolved, OrderCandidateId.Metadata);
+    Settle(window);
+    Assert.Null(resolved.PendingOrder);
+    Assert.Equal(OrderCandidateId.Metadata, resolved.SelectedOrder);
+    Assert.Equal(OrderCandidateId.Metadata, Assert.IsType<OrderChoiceViewModel>(combo.SelectedItem).Id);
+  });
+
+  [Fact]
   public void SelectingABookWithARestoredReviewedOrderKeepsItsListsAndEdits() => RunWindow(async (window, model) =>
   {
     var other = await AddAsync(model, "other", resolved: true);
