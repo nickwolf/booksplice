@@ -146,7 +146,8 @@ public sealed class SafeZipExtractor
         catch { retained.Dispose(); throw; }
       }
       cancellationToken.ThrowIfCancellationRequested();
-      var result = new PackageInventory(destination, root, directories, handles, inventory);
+      var result = new PackageInventory(destination, root, directories, handles, inventory,
+        contentsHashed: true);
       root = null;
       return result;
     }

@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using BookSplice.Updates.Handover;
 using BookSplice.Updates.Storage;
 using BookSplice.Updates.Windows;
@@ -98,5 +99,89 @@ public sealed class InstallationOpenerTests : IDisposable
     var message = CommittedFollowUp.Run(created, Programs);
     Assert.Contains(created.Layout.StableLauncherPath, message);
     Assert.Equal("someone else", File.ReadAllText(shortcut));
+  }
+
+  // Puts an older launcher in place and records it, as an installation made by an earlier release has.
+  private static OpenedInstallation WithOlderLauncher(OpenedInstallation created)
+  {
+    var older = Enumerable.Repeat((byte)'o', 4096).ToArray();
+    File.WriteAllBytes(created.Layout.StableLauncherPath, older);
+    created.State.Transition<InstallationRecord>(Path.Combine(created.RecordsPath, "installation.json"),
+      read => read.Value! with { StableLauncherSha256 = Convert.ToHexStringLower(SHA256.HashData(older)) });
+    return created;
+  }
+
+  private byte[] PackagedLauncher => File.ReadAllBytes(Path.Combine(Original, "BookSplice.Launcher.exe"));
+
+  [Fact]
+  public void RefreshReplacesAnOlderRecordedLauncherWithThePackagedOne()
+  {
+    var created = WithOlderLauncher(InstallationOpener.Create(Original, Data, "0.1.0", Programs));
+    var opened = InstallationOpener.Open(created.Layout.ManagedRoot.Path, programsDirectory: Programs);
+    Assert.True(StableLauncherBootstrap.Refresh(opened));
+    Assert.Equal(PackagedLauncher, File.ReadAllBytes(created.Layout.StableLauncherPath));
+    Assert.False(File.Exists(created.Layout.StableLauncherPath + ".new"));
+    var reopened = InstallationOpener.Open(created.Layout.ManagedRoot.Path, programsDirectory: Programs);
+    Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(PackagedLauncher)),
+      reopened.Record.StableLauncherSha256, ignoreCase: true);
+    Assert.False(StableLauncherBootstrap.Refresh(reopened));
+  }
+
+  [Fact]
+  public void RefreshLeavesTheCurrentLauncherAlone()
+  {
+    var created = InstallationOpener.Create(Original, Data, "0.1.0", Programs);
+    Assert.False(StableLauncherBootstrap.Refresh(created));
+    Assert.Equal(created.Record.StableLauncherIdentity,
+      InstallationOpener.Open(created.Layout.ManagedRoot.Path, programsDirectory: Programs)
+        .Record.StableLauncherIdentity);
+  }
+
+  [Fact]
+  public void RefreshRefusesAnUnrecordedLauncherImage()
+  {
+    var created = WithOlderLauncher(InstallationOpener.Create(Original, Data, "0.1.0", Programs));
+    File.AppendAllText(created.Layout.StableLauncherPath, "x");
+    Assert.Throws<InvalidDataException>(() => StableLauncherBootstrap.Refresh(created));
+    Assert.EndsWith("x", File.ReadAllText(created.Layout.StableLauncherPath));
+  }
+
+  [Fact]
+  public void RefreshWaitsWhileTheLauncherIsInUse()
+  {
+    var created = WithOlderLauncher(InstallationOpener.Create(Original, Data, "0.1.0", Programs));
+    var before = created.State.Read<InstallationRecord>(
+      Path.Combine(created.RecordsPath, "installation.json")).Value!;
+    using (File.Open(created.Layout.StableLauncherPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+      Assert.False(StableLauncherBootstrap.Refresh(created));
+    Assert.False(File.Exists(created.Layout.StableLauncherPath + ".new"));
+    var after = created.State.Read<InstallationRecord>(
+      Path.Combine(created.RecordsPath, "installation.json")).Value!;
+    Assert.Equal(before.StableLauncherIdentity, after.StableLauncherIdentity);
+    Assert.Equal(before.StableLauncherSha256, after.StableLauncherSha256);
+    Assert.True(StableLauncherBootstrap.Refresh(created));
+  }
+
+  [Fact]
+  public void OpenFinishesARefreshThatStoppedBeforeRecording()
+  {
+    var created = WithOlderLauncher(InstallationOpener.Create(Original, Data, "0.1.0", Programs));
+    File.Delete(created.Layout.StableLauncherPath);
+    File.WriteAllBytes(created.Layout.StableLauncherPath, PackagedLauncher);
+    var opened = InstallationOpener.Open(created.Layout.ManagedRoot.Path, programsDirectory: Programs);
+    Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(PackagedLauncher)),
+      opened.Record.StableLauncherSha256, ignoreCase: true);
+    using (var image = File.OpenHandle(created.Layout.StableLauncherPath))
+      Assert.Equal(NativeFileIdentity.Read(image), opened.Record.StableLauncherIdentity);
+    StableLauncherBootstrap.RequireRecorded(opened.Layout, opened.Record);
+  }
+
+  [Fact]
+  public void OpenRefusesAReplacedLauncherThatIsNotThePackagedOne()
+  {
+    var created = InstallationOpener.Create(Original, Data, "0.1.0", Programs);
+    File.AppendAllText(created.Layout.StableLauncherPath, "x");
+    Assert.Throws<InvalidDataException>(() =>
+      InstallationOpener.Open(created.Layout.ManagedRoot.Path, programsDirectory: Programs));
   }
 }

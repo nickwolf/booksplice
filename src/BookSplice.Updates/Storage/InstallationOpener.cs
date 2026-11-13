@@ -43,17 +43,36 @@ public static class InstallationOpener
         record.StableLauncherIdentity is not { } launcherIdentity ||
         record.StableLauncherSha256 is not { } launcherHash)
       throw new InvalidDataException("The installation record is invalid.");
+    InstallationRecord? repaired = null;
     using (var image = rootHandle.OpenFile("BookSplice.Launcher.exe"))
     {
       SafeDirectoryHandle.RejectReparseFile(image);
-      if (NativeFileIdentity.Read(image) != launcherIdentity ||
-          !string.Equals(PackageInventory.HashHandle(image), launcherHash,
-            StringComparison.OrdinalIgnoreCase))
-        throw new InvalidDataException("The stable launcher image changed.");
+      var imageIdentity = NativeFileIdentity.Read(image);
+      var imageHash = PackageInventory.HashHandle(image);
+      if (imageIdentity != launcherIdentity ||
+          !string.Equals(imageHash, launcherHash, StringComparison.OrdinalIgnoreCase))
+      {
+        // A launcher refresh renames the committed package's launcher into place before it records
+        // it; finish that record, and refuse any other image.
+        if (StableLauncherBootstrap.CommittedPayload(state, recordsPath) is not { } payload ||
+            !string.Equals(imageHash, payload.Sha256, StringComparison.OrdinalIgnoreCase))
+          throw new InvalidDataException("The stable launcher image changed.");
+        repaired = record with { StableLauncherIdentity = imageIdentity, StableLauncherSha256 = payload.Sha256 };
+      }
     }
     // The directory store walks the parent with write access, so release these guards first.
     rootHandle.Dispose();
     recordsHandle.Dispose();
+    if (repaired is not null)
+      record = state.Transition<InstallationRecord>(Path.Combine(recordsPath, "installation.json"),
+        read => read.Value is { } current && current.StableLauncherIdentity == launcherIdentity &&
+          string.Equals(current.StableLauncherSha256, launcherHash, StringComparison.OrdinalIgnoreCase) ?
+            current with
+            {
+              StableLauncherIdentity = repaired.StableLauncherIdentity,
+              StableLauncherSha256 = repaired.StableLauncherSha256
+            } :
+            throw new InvalidDataException("The stable launcher image changed."));
     var parent = Path.GetDirectoryName(record.OriginalApplicationPath)!;
     DurableOwnershipRecorder? recorder = canCreate ? new DurableOwnershipRecorder(state,
       Path.Combine(recordsPath, "ownership.json"), records, managed) : null;

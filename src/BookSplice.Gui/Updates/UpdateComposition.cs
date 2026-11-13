@@ -63,6 +63,19 @@ public sealed class UpdateComposition : IUpdateBackend, IDisposable
     StableLauncherBootstrap.Start(opened.Layout, opened.Record, []).Dispose();
   });
 
+  // Best effort and off the UI thread. The delay lets the launcher that started this window exit,
+  // since a running launcher cannot be replaced; any failure keeps the old launcher, which still works.
+  public void RefreshLauncherSoon() => _ = Task.Run(async () =>
+  {
+    await Task.Delay(TimeSpan.FromSeconds(10));
+    try
+    {
+      lock (_openGate)
+        if (FindInstallationUnlocked() is { } opened) StableLauncherBootstrap.Refresh(opened);
+    }
+    catch (Exception) { }
+  });
+
   public bool HasPrevious() => TryOpen() is { } opened &&
     opened.State.Read<CurrentTarget>(Path.Combine(opened.RecordsPath, "current.json"))
       .Value?.Previous is not null;
