@@ -71,24 +71,30 @@ public static class StableLauncherBootstrap
   }
 
   // Replaces the stable launcher with the committed package's copy when the two differ, so launcher
-  // fixes reach installations that already have one. Returns false when nothing was replaced; a
-  // launcher that is still running blocks the rename and the next start tries again.
-  public static bool Refresh(OpenedInstallation opened)
+  // fixes reach installations that already have one. Busy means try again later: an update holds the
+  // admission, or a launcher that is still running blocks the rename.
+  public static LauncherRefreshOutcome Refresh(OpenedInstallation opened)
   {
     ArgumentNullException.ThrowIfNull(opened);
     var layout = opened.Layout;
+    // Cheap check first: the admission below refuses CLI jobs, and the full resolve hashes the package.
+    var recorded = opened.State.Read<InstallationRecord>(
+      Path.Combine(opened.RecordsPath, "installation.json")).Value?.StableLauncherSha256;
+    if (CommittedPayload(opened.State, opened.RecordsPath) is not { } committed ||
+        string.Equals(committed.Sha256, recorded, StringComparison.OrdinalIgnoreCase))
+      return LauncherRefreshOutcome.Current;
     using var admission = new ActivityLeaseStore(layout.DataRoot).TryEnterUpdate();
-    if (admission is null) return false;
+    if (admission is null) return LauncherRefreshOutcome.Busy;
     var snapshot = JournalSnapshot.Read(opened.State, layout.Records.Path);
     if (snapshot.Installation.Value is not { } installation ||
         installation.StableLauncherIdentity is not { } oldIdentity ||
         installation.StableLauncherSha256 is not { } oldSha256)
-      return false;
+      return LauncherRefreshOutcome.Current;
     var decision = LaunchResolver.Resolve(layout, snapshot);
-    if (decision.Kind != LaunchDecisionKind.Ready || decision.Target is not { Package: { } package } ||
-        LauncherPayload(package) is not { } sourceFile ||
+    if (decision.Kind != LaunchDecisionKind.Ready) return LauncherRefreshOutcome.Busy;
+    if (decision.Target is not { Package: { } package } || LauncherPayload(package) is not { } sourceFile ||
         string.Equals(sourceFile.Sha256, oldSha256, StringComparison.OrdinalIgnoreCase))
-      return false;
+      return LauncherRefreshOutcome.Current;
     RevalidateCopy(layout, oldIdentity, oldSha256);
     using var sourceRoot = SafeDirectoryHandle.OpenPath(
       Path.GetDirectoryName(decision.Target.ExecutablePath)!, false);
@@ -103,13 +109,21 @@ public static class StableLauncherBootstrap
       File.Delete(tempPath);
       using (var created = root.CreateStateTemp(RefreshTempName))
       {
-        identity = CopyPayload(source, created, sourceFile);
-        try { SafeDirectoryHandle.RenameStateTemp(created, root, "BookSplice.Launcher.exe"); }
-        catch (System.ComponentModel.Win32Exception)
+        try
+        {
+          identity = CopyPayload(source, created, sourceFile);
+          // A managed package lives under the managed root, and the source walk holds that folder
+          // shared read-only; the rename needs it writable, so release the source first.
+          source.Dispose();
+          sourceRoot.Dispose();
+          SafeDirectoryHandle.RenameStateTemp(created, root, "BookSplice.Launcher.exe");
+        }
+        catch (Exception error)
         {
           created.Dispose();
           File.Delete(tempPath);
-          return false;
+          if (error is System.ComponentModel.Win32Exception) return LauncherRefreshOutcome.Busy;
+          throw;
         }
       }
     }
@@ -122,7 +136,7 @@ public static class StableLauncherBootstrap
           current with { StableLauncherIdentity = identity, StableLauncherSha256 = sourceFile.Sha256 } :
           throw new InvalidDataException("The installation record changed during launcher refresh."));
     RevalidateCopy(layout, identity, sourceFile.Sha256);
-    return true;
+    return LauncherRefreshOutcome.Replaced;
   }
 
   internal const string RefreshTempName = "BookSplice.Launcher.exe.new";
@@ -207,4 +221,11 @@ public static class StableLauncherBootstrap
           StringComparison.OrdinalIgnoreCase))
       throw new InvalidDataException("The copied launcher was replaced.");
   }
+}
+
+public enum LauncherRefreshOutcome
+{
+  Current,
+  Replaced,
+  Busy,
 }

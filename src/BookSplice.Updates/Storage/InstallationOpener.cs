@@ -65,7 +65,12 @@ public static class InstallationOpener
     recordsHandle.Dispose();
     if (repaired is not null)
       record = state.Transition<InstallationRecord>(Path.Combine(recordsPath, "installation.json"),
-        read => read.Value is { } current && current.StableLauncherIdentity == launcherIdentity &&
+        read => read.Value is not { } current ? throw new InvalidDataException("The stable launcher image changed.") :
+          // Another launch may have finished the same repair first.
+          current.StableLauncherIdentity == repaired.StableLauncherIdentity &&
+          string.Equals(current.StableLauncherSha256, repaired.StableLauncherSha256, StringComparison.OrdinalIgnoreCase) ?
+            current :
+          current.StableLauncherIdentity == launcherIdentity &&
           string.Equals(current.StableLauncherSha256, launcherHash, StringComparison.OrdinalIgnoreCase) ?
             current with
             {

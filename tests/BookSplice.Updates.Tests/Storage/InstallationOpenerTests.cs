@@ -118,20 +118,25 @@ public sealed class InstallationOpenerTests : IDisposable
   {
     var created = WithOlderLauncher(InstallationOpener.Create(Original, Data, "0.1.0", Programs));
     var opened = InstallationOpener.Open(created.Layout.ManagedRoot.Path, programsDirectory: Programs);
-    Assert.True(StableLauncherBootstrap.Refresh(opened));
+    Assert.Equal(LauncherRefreshOutcome.Replaced, StableLauncherBootstrap.Refresh(opened));
     Assert.Equal(PackagedLauncher, File.ReadAllBytes(created.Layout.StableLauncherPath));
     Assert.False(File.Exists(created.Layout.StableLauncherPath + ".new"));
     var reopened = InstallationOpener.Open(created.Layout.ManagedRoot.Path, programsDirectory: Programs);
     Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(PackagedLauncher)),
       reopened.Record.StableLauncherSha256, ignoreCase: true);
-    Assert.False(StableLauncherBootstrap.Refresh(reopened));
+    Assert.Equal(LauncherRefreshOutcome.Current, StableLauncherBootstrap.Refresh(reopened));
   }
 
   [Fact]
   public void RefreshLeavesTheCurrentLauncherAlone()
   {
     var created = InstallationOpener.Create(Original, Data, "0.1.0", Programs);
-    Assert.False(StableLauncherBootstrap.Refresh(created));
+    // A current launcher is settled without the update admission, so it never blocks CLI jobs.
+    using (var update = new ActivityLeaseStore(created.Layout.DataRoot).TryEnterUpdate())
+    {
+      Assert.NotNull(update);
+      Assert.Equal(LauncherRefreshOutcome.Current, StableLauncherBootstrap.Refresh(created));
+    }
     Assert.Equal(created.Record.StableLauncherIdentity,
       InstallationOpener.Open(created.Layout.ManagedRoot.Path, programsDirectory: Programs)
         .Record.StableLauncherIdentity);
@@ -153,13 +158,13 @@ public sealed class InstallationOpenerTests : IDisposable
     var before = created.State.Read<InstallationRecord>(
       Path.Combine(created.RecordsPath, "installation.json")).Value!;
     using (File.Open(created.Layout.StableLauncherPath, FileMode.Open, FileAccess.Read, FileShare.Read))
-      Assert.False(StableLauncherBootstrap.Refresh(created));
+      Assert.Equal(LauncherRefreshOutcome.Busy, StableLauncherBootstrap.Refresh(created));
     Assert.False(File.Exists(created.Layout.StableLauncherPath + ".new"));
     var after = created.State.Read<InstallationRecord>(
       Path.Combine(created.RecordsPath, "installation.json")).Value!;
     Assert.Equal(before.StableLauncherIdentity, after.StableLauncherIdentity);
     Assert.Equal(before.StableLauncherSha256, after.StableLauncherSha256);
-    Assert.True(StableLauncherBootstrap.Refresh(created));
+    Assert.Equal(LauncherRefreshOutcome.Replaced, StableLauncherBootstrap.Refresh(created));
   }
 
   [Fact]

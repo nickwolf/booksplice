@@ -65,15 +65,25 @@ public sealed class UpdateComposition : IUpdateBackend, IDisposable
 
   // Best effort and off the UI thread. The delay lets the launcher that started this window exit,
   // since a running launcher cannot be replaced; any failure keeps the old launcher, which still works.
+  // Right after an update the launcher that applied it is still running and holding the installation
+  // open, so a busy refresh or a sharing violation retries for a few minutes; any later start tries again.
   public void RefreshLauncherSoon() => _ = Task.Run(async () =>
   {
-    await Task.Delay(TimeSpan.FromSeconds(10));
-    try
+    for (var attempt = 0; attempt < 20; attempt++)
     {
-      lock (_openGate)
-        if (FindInstallationUnlocked() is { } opened) StableLauncherBootstrap.Refresh(opened);
+      await Task.Delay(TimeSpan.FromSeconds(attempt == 0 ? 10 : 15));
+      try
+      {
+        lock (_openGate)
+          if (FindInstallationUnlocked() is not { } opened ||
+              StableLauncherBootstrap.Refresh(opened) != LauncherRefreshOutcome.Busy)
+            return;
+      }
+      catch (Exception error) when (error is IOException or UnauthorizedAccessException or
+        System.ComponentModel.Win32Exception)
+      { }
+      catch (Exception) { return; }
     }
-    catch (Exception) { }
   });
 
   public bool HasPrevious() => TryOpen() is { } opened &&
