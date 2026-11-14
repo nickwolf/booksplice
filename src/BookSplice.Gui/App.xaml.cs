@@ -163,8 +163,11 @@ public partial class App : Application
   private void AttachUpdates(MainWindow window)
   {
     if (PackagedIdentity.Version is { } version)
+    {
       window.UseUpdates(_updates!, _preferenceStore!, _preferences!, version,
         _applicationDirectory);
+      _updates!.RefreshLauncherSoon();
+    }
   }
 
   protected override void OnExit(ExitEventArgs e)

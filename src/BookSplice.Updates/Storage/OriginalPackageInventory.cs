@@ -231,14 +231,14 @@ public sealed class OriginalPackageInventory : IDisposable
       }
     if (seen.Count != expectedFiles.Count + expectedDirectories.Count)
       throw new PackageException("The original package is missing an entry.");
+    // Capture hashed every file through these retained handles, which share read only, so the
+    // bytes cannot have changed since.
     foreach (var file in _snapshot.Files)
     {
       var handle = _files[file.RelativePath];
       RequireSingleLink(handle);
       if (NativeFileIdentity.Read(handle) != file.Identity ||
-          RandomAccess.GetLength(handle) != file.Length ||
-          !string.Equals(PackageInventory.HashHandle(handle), file.Sha256,
-            StringComparison.OrdinalIgnoreCase))
+          RandomAccess.GetLength(handle) != file.Length)
         throw new PackageException("The original package file bytes changed.");
     }
   }

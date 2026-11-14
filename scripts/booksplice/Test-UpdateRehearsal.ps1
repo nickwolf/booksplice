@@ -328,6 +328,9 @@ if ($Scenario -contains 'upgrade' -or $Scenario -contains 'rollback') {
         $shortcut = "$($S.Programs)\BookSplice.lnk"
         Assert-That 'shortcut was created in the isolated programs directory' ([bool](Wait-Until { Test-Path -LiteralPath $shortcut } 30)) (Rel $shortcut)
         Assert-OneResponsiveGui (Split-Path $rec.Current.current.executablePath)
+        # The new GUI replaces the stable launcher with its own package's copy shortly after it starts.
+        $packagedLauncher = Sha "$(Split-Path $rec.Current.current.executablePath)\BookSplice.Launcher.exe"
+        Assert-That 'the stable launcher was refreshed from the new package' ([bool](Wait-Until { (Sha "$($rec.Root)\BookSplice.Launcher.exe") -eq $packagedLauncher } 60))
         Assert-Intact $S
         # Generated-audio conversion with the new version's bundled tools.
         $dir = Split-Path $rec.Current.current.executablePath

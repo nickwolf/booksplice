@@ -42,13 +42,16 @@ public sealed class PackageInventory : IDisposable
   private readonly IReadOnlyDictionary<string, SafeDirectoryHandle> _directories;
   private readonly IReadOnlyDictionary<string, SafeFileHandle> _handles;
   private readonly IReadOnlyDictionary<string, PackageFile> _files;
+  // The retained handles share read only, so bytes hashed through them cannot change until disposal.
+  private bool _contentsHashed;
   private bool _disposed;
 
   internal PackageInventory(OwnedDirectory destination, SafeDirectoryHandle root,
     Dictionary<string, SafeDirectoryHandle> directories, Dictionary<string, SafeFileHandle> handles,
-    IEnumerable<PackageFile> files)
+    IEnumerable<PackageFile> files, bool contentsHashed = false)
   {
     Destination = destination;
+    _contentsHashed = contentsHashed;
     _root = root;
     _directories = new ReadOnlyDictionary<string, SafeDirectoryHandle>(directories);
     _handles = new ReadOnlyDictionary<string, SafeFileHandle>(handles);
@@ -167,10 +170,11 @@ public sealed class PackageInventory : IDisposable
     {
       var handle = _handles[file.RelativePath];
       if (NativeFileIdentity.Read(handle) != file.Identity) throw new PackageException("A package file changed.");
-      if (RandomAccess.GetLength(handle) != file.Length || !string.Equals(HashHandle(handle),
-        file.Sha256, StringComparison.OrdinalIgnoreCase))
+      if (RandomAccess.GetLength(handle) != file.Length || !_contentsHashed &&
+          !string.Equals(HashHandle(handle), file.Sha256, StringComparison.OrdinalIgnoreCase))
         throw new PackageException("A package file changed.");
     }
+    _contentsHashed = true;
   }
 
   public void ValidatePackage(VerifiedManifest manifest)
