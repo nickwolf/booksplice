@@ -49,8 +49,8 @@ public sealed class UpdateComposition : IUpdateBackend, IDisposable
 
   public static LaunchedImage Self()
   {
-    using var self = SupervisedProcess.CaptureCurrent();
-    return new LaunchedImage(self.Identity.ExecutablePath, self.ImageIdentity);
+    var (path, identity) = SupervisedProcess.CurrentImage();
+    return new LaunchedImage(path, identity);
   }
 
   // The committed image for this executable's installation, or null when it has none.
@@ -175,10 +175,14 @@ public sealed class UpdateComposition : IUpdateBackend, IDisposable
     // Release these handles before opening: the installation store walks the shared parent folder
     // with write access, which a retained read-only handle on the same ancestors would block.
     using (var directory = SafeDirectoryHandle.OpenCanonical(_applicationDirectory))
-    using (var self = SupervisedProcess.CaptureCurrent())
+    {
+      var self = SupervisedProcess.CurrentImage();
       binding = InstallationRegistry.Open(_dataRoot, create: false)?.Resolve(
-        self.Identity.ExecutablePath, directory.Identity, self.ImageIdentity);
-    return binding is null ? null : InstallationOpener.Open(binding.ManagedRootPath, canCreate: true);
+        self.Path, directory.Identity, self.Identity);
+    }
+    // Starting or refreshing the launcher hashes it first, so finding the installation does not.
+    return binding is null ? null :
+      InstallationOpener.Open(binding.ManagedRootPath, canCreate: true, hashLauncher: false);
   }
 
   // For forwarding and the rollback check, where any problem simply means "no installation".

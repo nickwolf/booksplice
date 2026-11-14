@@ -90,12 +90,12 @@ public sealed class OriginalPackageInventory : IDisposable
   }
 
   public static OriginalPackageInventory Reopen(string path, FileIdentity expectedParent,
-    PersistedPackage persisted, string expectedVersion)
+    PersistedPackage persisted, string expectedVersion, bool verifyContents = true)
   {
     ValidatePath(path);
     ArgumentNullException.ThrowIfNull(persisted);
     var snapshot = persisted.Restore();
-    var inventory = Open(path, expectedParent, snapshot.RootIdentity, snapshot);
+    var inventory = Open(path, expectedParent, snapshot.RootIdentity, snapshot, verifyContents);
     try
     {
       inventory.ValidatePackage(expectedVersion);
@@ -105,8 +105,12 @@ public sealed class OriginalPackageInventory : IDisposable
   }
 
   private static OriginalPackageInventory Open(string path, FileIdentity expectedParent,
-    FileIdentity expectedRoot, PackageSnapshot? expected)
+    FileIdentity expectedRoot, PackageSnapshot? expected, bool verifyContents = true)
   {
+    // Without content verification each file must match its recorded identity and length, and keeps
+    // its recorded hash, so the package hash below still covers the set of files and folders.
+    var recorded = verifyContents || expected is null ? null :
+      expected.Files.ToDictionary(file => file.RelativePath, StringComparer.OrdinalIgnoreCase);
     var parentPath = Path.GetDirectoryName(path)!;
     SafeDirectoryHandle? root = null;
     var directories = new Dictionary<string, SafeDirectoryHandle>(StringComparer.OrdinalIgnoreCase);
@@ -154,8 +158,14 @@ public sealed class OriginalPackageInventory : IDisposable
             if (length is < 0 or > 1024L * 1024 * 1024 ||
                 (total = checked(total + length)) > 4L * 1024 * 1024 * 1024)
               throw new PackageException("The original package exceeds its file limits.");
-            recordedFiles.Add(new PackageFile(relative, length,
-              PackageInventory.HashHandle(handle), NativeFileIdentity.Read(handle)));
+            var identity = NativeFileIdentity.Read(handle);
+            string sha256;
+            if (recorded is null) sha256 = PackageInventory.HashHandle(handle);
+            else if (recorded.TryGetValue(relative, out var file) && file.Length == length &&
+                file.Identity == identity)
+              sha256 = file.Sha256;
+            else throw new PackageException("The original package differs from its recorded inventory.");
+            recordedFiles.Add(new PackageFile(relative, length, sha256, identity));
           }
         }
       }

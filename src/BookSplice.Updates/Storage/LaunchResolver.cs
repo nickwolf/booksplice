@@ -46,7 +46,8 @@ public static class LaunchResolver
     left.Package?.Sha256 == right.Package?.Sha256 &&
     left.OwnedDirectory == right.OwnedDirectory;
 
-  public static LaunchDecision Resolve(InstallationLayout layout, JournalSnapshot snapshot)
+  public static LaunchDecision Resolve(InstallationLayout layout, JournalSnapshot snapshot,
+    bool verifyContents = true)
   {
     ArgumentNullException.ThrowIfNull(layout);
     ArgumentNullException.ThrowIfNull(snapshot);
@@ -102,7 +103,7 @@ public static class LaunchResolver
               StringComparison.OrdinalIgnoreCase) && entry.Identity == owned.Identity &&
               entry.Kind == "version" && entry.UpdaterCreatedMarker == OwnershipEntry.Marker)))
         return LaunchDecision.Refuse("The managed target is not owned by this installation.");
-      using var executable = OpenTarget(layout, installation, target);
+      using var executable = OpenTarget(layout, installation, target, verifyContents);
       return new LaunchDecision(LaunchDecisionKind.Ready, target, null);
     }
     catch (Exception error) when (error is IOException or InvalidDataException or
@@ -113,8 +114,10 @@ public static class LaunchResolver
     }
   }
 
+  // verifyContents false checks identity and length only; the update handover, recovery and rollback
+  // keep the full hash.
   internal static VerifiedExecutable OpenTarget(InstallationLayout layout,
-    InstallationRecord installation, OwnedOrOriginalTarget target)
+    InstallationRecord installation, OwnedOrOriginalTarget target, bool verifyContents = true)
   {
     if (target.Kind == TargetKind.Original)
     {
@@ -127,7 +130,7 @@ public static class LaunchResolver
           installation.OriginalParentIdentity is not { } parent)
         throw new InvalidDataException("The original target is not bound to this installation.");
       var inventory = OriginalPackageInventory.Reopen(layout.OriginalApplicationPath,
-        parent, target.Package, target.Version);
+        parent, target.Package, target.Version, verifyContents);
       try { return VerifiedExecutable.FromOriginal(inventory, target); }
       catch { inventory.Dispose(); throw; }
     }
@@ -138,33 +141,36 @@ public static class LaunchResolver
       throw new InvalidDataException("The managed target is not owned by this installation.");
     var store = new OwnedDirectoryStore(Path.GetDirectoryName(layout.OriginalApplicationPath)!,
       _ => throw new InvalidOperationException("Launch resolution cannot create directories."));
-    var package = PackageInventory.ReopenSnapshot(owned, target.Package.Restore(), store, false);
+    var package = PackageInventory.ReopenSnapshot(owned, target.Package.Restore(), store, false,
+      verifyContents: verifyContents);
     try { return VerifiedExecutable.FromManaged(package, target); }
     catch { package.Dispose(); throw; }
   }
 
-  public static LaunchDecision LaunchCurrent(InstallationLayout layout, AtomicStateStore state)
+  public static LaunchDecision LaunchCurrent(InstallationLayout layout, AtomicStateStore state,
+    bool verifyContents = true)
   {
     ArgumentNullException.ThrowIfNull(layout);
     ArgumentNullException.ThrowIfNull(state);
-    var decision = Resolve(layout, JournalSnapshot.Read(state, layout.Records.Path));
+    var decision = Resolve(layout, JournalSnapshot.Read(state, layout.Records.Path), verifyContents);
     if (decision.Kind != LaunchDecisionKind.Ready) return decision;
     using var child = StartVerified(layout, JournalSnapshot.Read(state, layout.Records.Path),
-      decision, [], ChildEnvironment(layout.DataRoot, layout.DataIdentity));
+      decision, [], ChildEnvironment(layout.DataRoot, layout.DataIdentity), verifyContents);
     return decision;
   }
 
   internal static SupervisedProcess StartVerified(InstallationLayout layout,
     JournalSnapshot snapshot, LaunchDecision decision,
-    IReadOnlyList<string> args, IReadOnlyDictionary<string, string> environment)
+    IReadOnlyList<string> args, IReadOnlyDictionary<string, string> environment,
+    bool verifyContents = true)
   {
     if (decision.Kind != LaunchDecisionKind.Ready || decision.Target is not { } target ||
         args.Count != 0)
       throw new InvalidOperationException("Only a validated normal launch is allowed.");
-    var again = Resolve(layout, snapshot);
+    var again = Resolve(layout, snapshot, verifyContents);
     if (again.Kind != LaunchDecisionKind.Ready || !SameTarget(again.Target, target))
       throw new InvalidDataException("The committed launch target changed.");
-    using var executable = OpenTarget(layout, snapshot.Installation.Value!, target);
+    using var executable = OpenTarget(layout, snapshot.Installation.Value!, target, verifyContents);
     return ProcessSupervisor.Start(executable, args, environment);
   }
 }

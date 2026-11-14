@@ -17,8 +17,11 @@ public static class InstallationOpener
 {
   internal const string Prefix = ".booksplice-managed-";
 
+  // hashLauncher false checks the launcher image by identity only. The launcher passes it for its own
+  // running image, which Windows refuses to write, and the GUI because starting or refreshing the
+  // launcher hashes it again first. A different identity always gets the full check below.
   public static OpenedInstallation Open(string managedRootPath, bool canCreate = false,
-    string? programsDirectory = null)
+    string? programsDirectory = null, bool hashLauncher = true)
   {
     var rootName = Path.GetFileName(managedRootPath);
     if (!rootName.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase) ||
@@ -48,7 +51,8 @@ public static class InstallationOpener
     {
       SafeDirectoryHandle.RejectReparseFile(image);
       var imageIdentity = NativeFileIdentity.Read(image);
-      var imageHash = PackageInventory.HashHandle(image);
+      var imageHash = !hashLauncher && imageIdentity == launcherIdentity ? launcherHash :
+        PackageInventory.HashHandle(image);
       if (imageIdentity != launcherIdentity ||
           !string.Equals(imageHash, launcherHash, StringComparison.OrdinalIgnoreCase))
       {

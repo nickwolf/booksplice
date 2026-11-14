@@ -81,6 +81,34 @@ public sealed class OriginalPackageTests
   }
 
   [Fact]
+  public void LaunchReopenChecksIdentityAndLengthButNotBytes()
+  {
+    var parent = Path.Combine(Path.GetTempPath(), "booksplice-original-" + Guid.NewGuid().ToString("N"));
+    var root = Path.Combine(parent, "BookSplice");
+    OriginalPackageFixture.Write(root);
+    try
+    {
+      FileIdentity parentId;
+      PersistedPackage package;
+      using (var identity = SafeDirectoryHandle.OpenPath(root, false))
+      using (var capture = OriginalPackageInventory.Capture(root, identity.Identity, "1.0.0"))
+      { parentId = capture.ParentIdentity; package = PersistedPackage.FromSnapshot(capture.Snapshot); }
+      var licensePath = Path.Combine(root, "LICENSE");
+      File.WriteAllText(licensePath, "LICENSe");
+      using (OriginalPackageInventory.Reopen(root, parentId, package, "1.0.0", verifyContents: false)) { }
+      Assert.Throws<PackageException>(() => OriginalPackageInventory.Reopen(root, parentId, package, "1.0.0"));
+      File.WriteAllText(licensePath, "LICENSE!");
+      Assert.Throws<PackageException>(() =>
+        OriginalPackageInventory.Reopen(root, parentId, package, "1.0.0", verifyContents: false));
+      File.WriteAllText(licensePath, "LICENSE");
+      File.WriteAllText(Path.Combine(root, "added.txt"), "new");
+      Assert.Throws<PackageException>(() =>
+        OriginalPackageInventory.Reopen(root, parentId, package, "1.0.0", verifyContents: false));
+    }
+    finally { Directory.Delete(parent, true); }
+  }
+
+  [Fact]
   public void CaptureRejectsMissingPayloadAndVersionMismatch()
   {
     var parent = Path.Combine(Path.GetTempPath(), "booksplice-original-" + Guid.NewGuid().ToString("N"));

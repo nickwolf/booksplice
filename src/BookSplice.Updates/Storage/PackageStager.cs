@@ -194,7 +194,17 @@ public sealed class PackageStager
       cancellationToken.ThrowIfCancellationRequested();
       SafeDirectoryHandle.RejectReparseFile(destinationParent.Handle);
       source.ReleaseContentsForRename();
-      source.RootHandle.RenameChildTo(destinationParent, leaf);
+      for (var attempt = 1; ; attempt++)
+      {
+        try { source.RootHandle.RenameChildTo(destinationParent, leaf); break; }
+        // Right after the self-check ran the new executables, something (often a virus scanner) can
+        // still hold one of them open for a moment, and the folder rename is refused until it lets go.
+        catch (System.ComponentModel.Win32Exception error) when (
+          error.NativeErrorCode is 5 or 32 && attempt < 20)
+        {
+          if (cancellationToken.WaitHandle.WaitOne(250)) cancellationToken.ThrowIfCancellationRequested();
+        }
+      }
     }
     var promoted = new OwnedDirectory(destination, staged.Payload.Identity, layout.InstallationId,
       staged.OperationId, "version");
