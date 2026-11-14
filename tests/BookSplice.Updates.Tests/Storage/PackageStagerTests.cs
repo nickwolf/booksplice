@@ -462,6 +462,25 @@ public sealed class PackageStagerTests
   }
 
   [Fact]
+  public async Task PromotionWaitsForABriefHandleOnAPayloadFile()
+  {
+    using var fixture = new Fixture();
+    using var staged = await fixture.Stager.StageAsync(fixture.Release, fixture.Manifest,
+      fixture.Layout, CancellationToken.None);
+    FileStream? held = null;
+    var stager = fixture.CreateStager(_ => long.MaxValue, afterRelease: payload =>
+    {
+      held = new FileStream(Path.Combine(payload, "BookSplice.Gui.exe"), FileMode.Open,
+        FileAccess.Read, FileShare.Read);
+      _ = Task.Delay(1000).ContinueWith(_ => held.Dispose(), TaskScheduler.Default);
+    });
+    using var promoted = await stager.PromoteAsync(staged, fixture.Layout, CancellationToken.None);
+    Assert.NotNull(held);
+    Assert.True(Directory.Exists(promoted.Owned.Path));
+    Assert.False(Directory.Exists(staged.Payload.Path));
+  }
+
+  [Fact]
   public async Task ReplacedStageParentIsRefusedEvenWhenPayloadIdentityMatches()
   {
     using var fixture = new Fixture();

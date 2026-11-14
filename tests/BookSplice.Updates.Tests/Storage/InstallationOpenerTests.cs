@@ -128,14 +128,14 @@ public sealed class InstallationOpenerTests : IDisposable
   }
 
   [Fact]
-  public void TheRunningLauncherIsCheckedByIdentityWithoutHashing()
+  public void HashLauncherFalseChecksTheLauncherByIdentityOnly()
   {
     var created = InstallationOpener.Create(Original, Data, "0.1.0", Programs);
     var bytes = File.ReadAllBytes(created.Layout.StableLauncherPath);
     bytes[^1] ^= 0xFF;
     File.WriteAllBytes(created.Layout.StableLauncherPath, bytes);
     _ = InstallationOpener.Open(created.Layout.ManagedRoot.Path, programsDirectory: Programs,
-      imageIsRunning: true);
+      hashLauncher: false);
     Assert.Throws<InvalidDataException>(() =>
       InstallationOpener.Open(created.Layout.ManagedRoot.Path, programsDirectory: Programs));
   }

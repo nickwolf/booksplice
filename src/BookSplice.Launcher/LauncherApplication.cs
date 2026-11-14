@@ -100,5 +100,5 @@ public static class LauncherApplication
 
   private static OpenedInstallation OpenInstallation() => InstallationOpener.Open(
     Path.GetDirectoryName(Environment.ProcessPath ??
-      throw new IOException("The launcher image path is unavailable."))!, imageIsRunning: true);
+      throw new IOException("The launcher image path is unavailable."))!, hashLauncher: false);
 }

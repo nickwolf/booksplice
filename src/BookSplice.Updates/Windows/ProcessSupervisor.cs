@@ -172,6 +172,18 @@ public sealed class SupervisedProcess : IDisposable
   public bool HasExited => _process.HasExited;
   public int ExitCode => _process.ExitCode;
 
+  // This process's image path and file identity, without hashing the image. For callers that only
+  // compare identities; the update handshake uses CaptureCurrent.
+  public static (string Path, FileIdentity Identity) CurrentImage()
+  {
+    using var process = Process.GetCurrentProcess();
+    var path = ProcessSupervisor.ImagePath(process.SafeHandle);
+    using var file = File.OpenHandle(path, FileMode.Open, FileAccess.Read,
+      FileShare.ReadWrite | FileShare.Delete);
+    SafeDirectoryHandle.RejectReparseFile(file);
+    return (path, NativeFileIdentity.Read(file));
+  }
+
   public static SupervisedProcess CaptureCurrent()
   {
     var process = Process.GetCurrentProcess();
