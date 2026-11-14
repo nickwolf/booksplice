@@ -31,12 +31,12 @@ public sealed class FFprobeMediaProbeTests
   [Fact]
   public async Task ProbeAsyncMapsAudioCoverTagsAndChapters()
   {
-    var runner = new FixtureRunner(File.ReadAllText(FixturePath));
+    var runner = new SequenceRunner(File.ReadAllText(FixturePath), "1024");
     var probe = new FFprobeMediaProbe(runner, new MediaToolSet("ffmpeg", "ffprobe", "ffmpeg version x", "ffprobe version x"));
 
     var result = await probe.ProbeAsync(FixturePath, CancellationToken.None);
 
-    Assert.Equal(["-v", "warning", "-print_format", "json", "-show_format", "-show_streams", "-show_chapters", "-show_data_hash", "sha256", "-show_error", FixturePath], runner.LastSpec!.Arguments);
+    Assert.Equal(["-v", "warning", "-print_format", "json", "-show_format", "-show_streams", "-show_chapters", "-show_data_hash", "sha256", "-show_error", FixturePath], runner.Specs[0].Arguments);
 
     Assert.Single(result.AudioStreams);
     Assert.Equal("aac", result.AudioStreams[0]!.CodecName);
@@ -59,8 +59,8 @@ public sealed class FFprobeMediaProbeTests
   [Fact]
   public async Task ProbeAsyncKeepsTheFirstNonEmptyValueWhenATagRepeatsInADifferentCase()
   {
-    var runner = new FixtureRunner(
-      """{"streams":[{"index":0,"codec_name":"aac","codec_type":"audio","sample_rate":"44100","duration":"2","start_time":"0","time_base":"1/44100","tags":{"encoder":"LAME","ENCODER":"other"}}],"format":{"duration":"2","format_name":"aac","tags":{"encoder":"-b=128","Encoder":"Lame 3.98.4","title":"","TITLE":"The Ugly Truth"}}}""");
+    var runner = new SequenceRunner(
+      """{"streams":[{"index":0,"codec_name":"aac","codec_type":"audio","sample_rate":"44100","duration":"2","start_time":"0","time_base":"1/44100","tags":{"encoder":"LAME","ENCODER":"other"}}],"format":{"duration":"2","format_name":"aac","tags":{"encoder":"-b=128","Encoder":"Lame 3.98.4","title":"","TITLE":"The Ugly Truth"}}}""", "1024");
     var probe = new FFprobeMediaProbe(runner, new MediaToolSet("ffmpeg", "ffprobe", "", ""));
 
     var result = await probe.ProbeAsync("generated.aac", CancellationToken.None);
@@ -100,8 +100,50 @@ public sealed class FFprobeMediaProbeTests
     Assert.Equal(114_624m / 44_100m, result.Duration);
     Assert.Equal(2, runner.Specs.Count);
   }
+  [Fact]
+  public async Task ProbeAsyncSubtractsAacDiscardPaddingFromLastPacket()
+  {
+    var runner = new SequenceRunner(
+      """{"streams":[{"index":0,"codec_name":"aac","codec_type":"audio","sample_rate":"22050","duration":"650.901769","start_time":"0.045986","time_base":"1/22050"}],"format":{"duration":"650.901769","format_name":"mov,mp4,m4a,3gp,3g2,mj2"}}""",
+      Packets("1024", 14_014, "1024,Skip Samples,0,1014", "1024"));
+    var probe = new FFprobeMediaProbe(runner, new MediaToolSet("ffmpeg", "ffprobe", "", ""));
+
+    var result = await probe.ProbeAsync("part.aac", CancellationToken.None);
+
+    Assert.Equal((14_016m * 1024m - 1014m) / 22_050m, result.Duration);
+    Assert.Equal(result.Duration, result.AudioStreams.Single().Duration);
+  }
+
+  [Fact]
+  public async Task ProbeAsyncScalesHeAacPacketDurationBySampleRate()
+  {
+    var runner = new SequenceRunner(
+      """{"streams":[{"index":0,"codec_name":"aac","codec_type":"audio","sample_rate":"44100","duration":"99","start_time":"0","time_base":"1/22050"}],"format":{"duration":"99","format_name":"mov,mp4,m4a,3gp,3g2,mj2"}}""",
+      Packets("1024,Skip Samples,4096,0", 98, "1024,Skip Samples,0,1536", "1024"));
+    var probe = new FFprobeMediaProbe(runner, new MediaToolSet("ffmpeg", "ffprobe", "", ""));
+
+    var result = await probe.ProbeAsync("hevc.aac", CancellationToken.None);
+
+    Assert.Equal((100m * 2048m - 4096m - 1536m) / 44_100m, result.Duration);
+  }
+
+  [Fact]
+  public async Task ProbeAsyncTakesSamplesPerPacketFromMostCommonDuration()
+  {
+    var runner = new SequenceRunner(
+      """{"streams":[{"index":0,"codec_name":"aac","codec_type":"audio","sample_rate":"44100","duration":"99","start_time":"0","time_base":"1/44100"}],"format":{"duration":"99","format_name":"mov,mp4,m4a,3gp,3g2,mj2"}}""",
+      string.Join("\r\n", ["512,Skip Samples,1024,0", .. Enumerable.Repeat("1024", 20), "2176", "2176", .. Enumerable.Repeat("1024", 20), "394,Skip Samples,0,630"]));
+    var probe = new FFprobeMediaProbe(runner, new MediaToolSet("ffmpeg", "ffprobe", "", ""));
+
+    var result = await probe.ProbeAsync("odd.aac", CancellationToken.None);
+
+    Assert.Equal((44m * 1024m - 1024m - 630m) / 44_100m, result.Duration);
+  }
+
   private static string Packets(string first, int middle, string last)
-    => string.Join("\r\n", [first, .. Enumerable.Repeat("368640", middle), last]);
+    => Packets(first, middle, last, "368640");
+  private static string Packets(string first, int middle, string last, string filler)
+    => string.Join("\r\n", [first, .. Enumerable.Repeat(filler, middle), last]);
 
   [Fact]
   public async Task ProbeAsyncRetainsWarningsAndReportsNonzeroExit()
@@ -155,7 +197,7 @@ public sealed class FFprobeMediaProbeTests
   [Fact]
   public async Task ProbeAsyncRetainsDataStreamFactsForWarningAttribution()
   {
-    var runner = new FixtureRunner("""{"streams":[{"index":0,"codec_name":"aac","codec_type":"audio"},{"index":1,"codec_name":"bin_data","codec_type":"data","codec_tag_string":"text"}],"format":{}}""");
+    var runner = new SequenceRunner("""{"streams":[{"index":0,"codec_name":"aac","codec_type":"audio","sample_rate":"44100","time_base":"1/44100"},{"index":1,"codec_name":"bin_data","codec_type":"data","codec_tag_string":"text"}],"format":{}}""", "1024");
     var result = await new FFprobeMediaProbe(runner, new MediaToolSet("", "ffprobe", "", "")).ProbeAsync("generated.wav");
     Assert.Equal(new MediaStreamInfo(1, "data", "bin_data", "text"), Assert.Single(result.OtherStreams!));
     Assert.Single(result.AudioStreams);

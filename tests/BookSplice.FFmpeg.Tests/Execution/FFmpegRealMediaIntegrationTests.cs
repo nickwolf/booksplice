@@ -141,6 +141,18 @@ public sealed class FFmpegRealMediaIntegrationTests
   }
 
   [PinnedMediaFact]
+  public async Task ProbeReportsAacDurationFromPacketsWithinOneSample()
+  {
+    var tools = ResolveTools();
+    using var root = new TemporaryDirectory();
+    var path = await GenerateAudioAsync(tools, Path.Combine(root.Path, "tone.m4a"), "aac", "1", "44100", "440", "7.3");
+
+    var media = await new FFprobeMediaProbe(new ProcessRunner(), tools).ProbeAsync(path);
+
+    Assert.InRange(media.Duration!.Value, 7.3m - 1m / 44_100m, 7.3m + 1m / 44_100m);
+  }
+
+  [PinnedMediaFact]
   public async Task StreamCopyUsesRealConcatManifestWithApostropheAndUnicodePath()
   {
     var tools = ResolveTools();
