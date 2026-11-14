@@ -43,6 +43,7 @@ public sealed class PackageInventory : IDisposable
   private readonly IReadOnlyDictionary<string, SafeFileHandle> _handles;
   private readonly IReadOnlyDictionary<string, PackageFile> _files;
   // The retained handles share read only, so bytes hashed through them cannot change until disposal.
+  // A normal launch starts with this set and checks identity and length only.
   private bool _contentsHashed;
   private bool _disposed;
 
@@ -72,7 +73,8 @@ public sealed class PackageInventory : IDisposable
   }
 
   internal static PackageInventory ReopenSnapshot(OwnedDirectory owned, PackageSnapshot snapshot,
-    OwnedDirectoryStore store, bool permitRename, OwnedDirectory? expectedParent = null)
+    OwnedDirectoryStore store, bool permitRename, OwnedDirectory? expectedParent = null,
+    bool verifyContents = true)
   {
     if (owned.Identity != snapshot.RootIdentity)
       throw new PackageException("The package root identity differs from the staged snapshot.");
@@ -104,7 +106,8 @@ public sealed class PackageInventory : IDisposable
         if (NativeFileIdentity.Read(handle) != file.Identity)
           throw new PackageException("A package file was replaced.");
       }
-      var inventory = new PackageInventory(owned, root, directories, handles, snapshot.Files);
+      var inventory = new PackageInventory(owned, root, directories, handles, snapshot.Files,
+        contentsHashed: !verifyContents);
       root = null;
       directories = new Dictionary<string, SafeDirectoryHandle>();
       handles = new Dictionary<string, SafeFileHandle>();

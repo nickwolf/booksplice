@@ -31,7 +31,8 @@ public static class LauncherApplication
         throw new InvalidOperationException(
           "The new BookSplice version from an interrupted update is still running. Close it, then start BookSplice again.");
       Cleanup(installation);
-      var decision = LaunchResolver.LaunchCurrent(layout, state);
+      // A normal start checks identity and length only; the update handover keeps the full hash.
+      var decision = LaunchResolver.LaunchCurrent(layout, state, verifyContents: false);
       if (decision.Kind != LaunchDecisionKind.Ready)
         throw new InvalidDataException(decision.Reason ?? "Launch recovery is required.");
       return 0;
@@ -99,5 +100,5 @@ public static class LauncherApplication
 
   private static OpenedInstallation OpenInstallation() => InstallationOpener.Open(
     Path.GetDirectoryName(Environment.ProcessPath ??
-      throw new IOException("The launcher image path is unavailable."))!);
+      throw new IOException("The launcher image path is unavailable."))!, imageIsRunning: true);
 }

@@ -17,8 +17,10 @@ public static class InstallationOpener
 {
   internal const string Prefix = ".booksplice-managed-";
 
+  // The launcher passes imageIsRunning: Windows refuses writes to a running image, so with the
+  // recorded identity its bytes are the recorded ones and need no hash.
   public static OpenedInstallation Open(string managedRootPath, bool canCreate = false,
-    string? programsDirectory = null)
+    string? programsDirectory = null, bool imageIsRunning = false)
   {
     var rootName = Path.GetFileName(managedRootPath);
     if (!rootName.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase) ||
@@ -48,7 +50,8 @@ public static class InstallationOpener
     {
       SafeDirectoryHandle.RejectReparseFile(image);
       var imageIdentity = NativeFileIdentity.Read(image);
-      var imageHash = PackageInventory.HashHandle(image);
+      var imageHash = imageIsRunning && imageIdentity == launcherIdentity ? launcherHash :
+        PackageInventory.HashHandle(image);
       if (imageIdentity != launcherIdentity ||
           !string.Equals(imageHash, launcherHash, StringComparison.OrdinalIgnoreCase))
       {
