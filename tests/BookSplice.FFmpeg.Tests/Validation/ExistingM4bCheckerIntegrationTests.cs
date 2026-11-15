@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using BookSplice.Core.Execution;
 using BookSplice.Core.Validation;
@@ -110,6 +111,41 @@ public sealed class ExistingM4bCheckerIntegrationTests
 
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Checker(tools).CheckAsync(path, true, cancellation.Token, progress));
 
+    Assert.Equal(before, Hash(path));
+  }
+
+  [PinnedMediaFact]
+  public async Task CancelOnceTheDecodeIsRunningStopsItEarlyAndLeavesTheFileUntouched()
+  {
+    using var root = new TemporaryDirectory();
+    var tools = Tools();
+    var seed = await GenerateAsync(root, tools, cover: false, seconds: 600);
+    var path = root.GetPath("long.m4b");
+    var looped = await new ProcessRunner().RunAsync(new ProcessSpec(tools.FFmpegPath, ["-hide_banner", "-v", "error", "-y", "-stream_loop", "35", "-i", seed, "-map", "0:a:0", "-c", "copy", path]), null, CancellationToken.None);
+    Assert.Equal(0, looped.ExitCode);
+    var before = Hash(path);
+    var uncancelled = Stopwatch.StartNew();
+    var baseline = await Checker(tools).CheckAsync(path, true, CancellationToken.None);
+    uncancelled.Stop();
+    Assert.Contains(baseline.Checks, check => check.Code == "decode.full" && check.Status == ExistingCheckStatus.Passed);
+
+    using var cancellation = new CancellationTokenSource();
+    var cancelledAt = TimeSpan.Zero;
+    var watch = Stopwatch.StartNew();
+    var progress = new SyncProgress(value =>
+    {
+      if (value.Phase == ConversionPhase.FullDecode && value.PhasePercent is > 0 && !cancellation.IsCancellationRequested)
+      {
+        cancelledAt = watch.Elapsed;
+        cancellation.Cancel();
+      }
+    });
+
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Checker(tools).CheckAsync(path, true, cancellation.Token, progress));
+    watch.Stop();
+
+    Assert.NotEqual(TimeSpan.Zero, cancelledAt);
+    Assert.True(watch.Elapsed < uncancelled.Elapsed / 2, $"Cancelled run took {watch.Elapsed.TotalSeconds:F1}s, full decode took {uncancelled.Elapsed.TotalSeconds:F1}s, cancel requested at {cancelledAt.TotalSeconds:F1}s.");
     Assert.Equal(before, Hash(path));
   }
 
