@@ -14,7 +14,7 @@ namespace BookSplice.FFmpeg.Validation;
 
 public sealed partial class FFmpegOutputValidator : IOutputValidator
 {
-  private const long ChapterToleranceMicroseconds = 50_000;
+  private const long ChapterToleranceMicroseconds = SharedOutputChecks.ChapterToleranceMicroseconds;
   private readonly IMediaProbe _probe;
   private readonly IProcessRunner _runner;
   private readonly MediaToolSet _tools;
@@ -67,13 +67,12 @@ public sealed partial class FFmpegOutputValidator : IOutputValidator
 
   private static void ValidateAudio(ConversionPlan plan, MediaProbeResult facts, List<ValidationCheck> checks)
   {
-    var audio = facts.AudioStreams;
-    var primary = audio.Count == 1 ? audio[0] : null;
-    checks.Add(Check(ValidationCodes.AudioPrimaryCount, primary is not null, "The output must contain exactly one primary audio stream."));
-    checks.Add(Check(ValidationCodes.AudioCodec, primary is not null && string.Equals(primary.CodecName, "aac", StringComparison.OrdinalIgnoreCase) && (string.IsNullOrWhiteSpace(primary.CodecProfile) || primary.CodecProfile.Contains("LC", StringComparison.OrdinalIgnoreCase)), "The primary audio stream is not AAC-LC."));
+    var primary = SharedOutputChecks.PrimaryAudio(facts);
+    checks.Add(SharedOutputChecks.AudioPrimaryCount(facts));
+    checks.Add(SharedOutputChecks.AudioCodec(facts));
     checks.Add(Check(ValidationCodes.AudioSampleRate, primary?.SampleRate == plan.SampleRate, "The primary audio stream does not have the planned sample rate."));
     checks.Add(Check(ValidationCodes.AudioLayout, primary?.Channels == plan.Channels && string.Equals(primary.ChannelLayout, plan.ChannelLayout, StringComparison.OrdinalIgnoreCase), "The primary audio stream does not have the planned channel layout."));
-    checks.Add(Check(ValidationCodes.AudioExtra, audio.Count <= 1, "The output contains extra audio streams."));
+    checks.Add(SharedOutputChecks.AudioExtra(facts));
   }
 
   private static void ValidateDuration(ConversionPlan plan, MediaProbeResult facts, List<ValidationCheck> checks)
@@ -90,28 +89,16 @@ public sealed partial class FFmpegOutputValidator : IOutputValidator
   }
 
   private async Task ValidatePacketEndAsync(string outputPath, List<ValidationCheck> checks, CancellationToken cancellationToken)
-  {
-    try
-    {
-      var result = await _runner.RunAsync(new ProcessSpec(_tools.FFprobePath, ["-v", "error", "-select_streams", "a:0", "-read_intervals", "-2%+2", "-show_packets", "-of", "csv=p=0", outputPath]), null, cancellationToken).ConfigureAwait(false);
-      checks.Add(Check(ValidationCodes.PacketsEndRegion, result.ExitCode == 0 && !string.IsNullOrWhiteSpace(result.StandardOutput), "The output audio packet end region could not be read."));
-    }
-    catch (OperationCanceledException) { throw; }
-    catch (Exception)
-    {
-      checks.Add(Check(ValidationCodes.PacketsEndRegion, false, "The output audio packet end region could not be read."));
-    }
-  }
+    => checks.Add(await SharedOutputChecks.PacketEndRegionAsync(_runner, _tools, outputPath, cancellationToken).ConfigureAwait(false));
 
   private static void ValidateChapters(ConversionPlan plan, MediaProbeResult facts, List<ValidationCheck> checks)
   {
     if (plan.Chapters.Count == 0) return;
     var chapters = facts.Chapters;
     checks.Add(Check(ValidationCodes.ChaptersCount, chapters.Count == plan.Chapters.Count, "The output chapter count does not match the plan."));
-    var monotonic = chapters.All(chapter => chapter.EndTime > chapter.StartTime) && chapters.Zip(chapters.Skip(1), (left, right) => right.StartTime >= left.EndTime).All(value => value);
-    checks.Add(Check(ValidationCodes.ChaptersMonotonic, monotonic, "The output chapters are not positive and monotonic."));
+    checks.Add(SharedOutputChecks.ChaptersMonotonic(chapters));
     var timing = chapters.Count == plan.Chapters.Count && chapters.Zip(plan.Chapters, (actual, expected) => WithinChapterTolerance(actual.StartTime, expected.StartMicroseconds) && WithinChapterTolerance(actual.EndTime, expected.EndMicroseconds)).All(value => value);
-    var pastAudio = chapters.Count > 0 && EndsPastAudio(chapters[^1].EndTime, facts.AudioStreams);
+    var pastAudio = chapters.Count > 0 && SharedOutputChecks.EndsPastAudio(chapters[^1].EndTime, facts.AudioStreams);
     checks.Add(Check(ValidationCodes.ChaptersTiming, timing && !pastAudio, pastAudio ? "The last chapter ends after the audio." : "The output chapter timings do not match the plan."));
     var longTitlesPreserved = chapters.Count == plan.Chapters.Count && chapters.Zip(plan.Chapters, (actual, expected) =>
       Encoding.UTF8.GetByteCount(expected.Title) <= 255 ||
@@ -141,22 +128,10 @@ public sealed partial class FFmpegOutputValidator : IOutputValidator
 
   private async Task ValidateFullDecodeAsync(string outputPath, decimal? outputDuration, List<ValidationCheck> checks, List<string> warnings, List<string> toolDiagnostics, CancellationToken cancellationToken, IProgress<ConversionProgress>? progress)
   {
-    var duration = ValidDurationMicroseconds(outputDuration);
-    using var phase = ConversionPhaseScope.Start(progress, ConversionPhase.FullDecode, duration is not null);
-    using var processProgress = new FullDecodeProgress(phase, duration, _clock);
-    try
-    {
-      var result = await _runner.RunAsync(new ProcessSpec(_tools.FFmpegPath, ["-hide_banner", "-v", "warning", "-progress", "pipe:1", "-nostats", "-i", outputPath, "-map", "0:a:0", "-f", "null", "-"]), processProgress, cancellationToken).ConfigureAwait(false);
-      if (!string.IsNullOrWhiteSpace(result.StandardError)) toolDiagnostics.Add(result.StandardError);
-      warnings.AddRange(result.StandardError.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Select(Sanitize));
-      var decodeError = result.ExitCode != 0 || Regex.IsMatch(result.StandardError, "\\b(error|invalid data)\\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-      checks.Add(Check(ValidationCodes.FullDecode, !decodeError, "A full FFmpeg decode reported an error."));
-    }
-    catch (OperationCanceledException) { throw; }
-    catch (Exception)
-    {
-      checks.Add(Check(ValidationCodes.FullDecode, false, "A full FFmpeg decode could not be started."));
-    }
+    var outcome = await SharedOutputChecks.FullDecodeAsync(_runner, _tools, _clock, outputPath, outputDuration, progress, cancellationToken).ConfigureAwait(false);
+    if (!string.IsNullOrWhiteSpace(outcome.StandardError)) toolDiagnostics.Add(outcome.StandardError);
+    warnings.AddRange(outcome.StandardError.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Select(Sanitize));
+    checks.Add(outcome.Check);
   }
 
   private static List<string> ExtractKnownNotes(List<string> warnings, MediaProbeResult facts)
@@ -188,59 +163,6 @@ public sealed partial class FFmpegOutputValidator : IOutputValidator
   private static void ReportCheckActivity(ConversionPhaseScope phase)
     => phase.Report(new ConversionProgress(null, null, null, 0));
 
-  private static long? ValidDurationMicroseconds(decimal? duration)
-  {
-    if (duration is not > 0) return null;
-    try
-    {
-      var microseconds = checked((long)decimal.Round(duration.Value * 1_000_000m, 0, MidpointRounding.AwayFromZero));
-      return microseconds > 0 ? microseconds : null;
-    }
-    catch (OverflowException) { return null; }
-  }
-
-  private sealed class FullDecodeProgress(ConversionPhaseScope phase, long? duration, TimeProvider clock) : IProgress<string>, IDisposable
-  {
-    private readonly object _gate = new();
-    private readonly long _started = clock.GetTimestamp();
-    private long _processed;
-    private bool _disposed;
-
-    public void Report(string line)
-    {
-      var parsed = ConversionProgressParser.Parse(line, 0);
-      if (parsed is null) return;
-      lock (_gate)
-      {
-        if (_disposed) return;
-        if (parsed.OutTimeMicroseconds is { } time && time >= 0)
-          _processed = Math.Max(_processed, duration is { } total ? Math.Min(time, total) : time);
-        double? percent = duration is { } valid ? 100d * _processed / valid : null;
-        double? speed = null;
-        var elapsed = clock.GetElapsedTime(_started, clock.GetTimestamp()).TotalSeconds;
-        if (percent is not null && elapsed > 0 && _processed > 0)
-        {
-          var measured = _processed / 1_000_000d / elapsed;
-          if (double.IsFinite(measured) && measured > 0) speed = measured;
-        }
-        phase.Report(new ConversionProgress(null, null, null, 0, PhasePercent: percent, PhaseSpeed: speed, ExpectsMeasurableUpdates: duration is not null));
-      }
-    }
-
-    public void Dispose()
-    {
-      lock (_gate) _disposed = true;
-    }
-  }
-
-  // The chapter track can outlast the audio, and then the file duration follows the chapters, so the final end is also checked against the audio stream itself.
-  private static bool EndsPastAudio(decimal chapterEnd, IReadOnlyList<AudioTrack> audio)
-  {
-    if (audio is not [{ Duration: { } duration } primary]) return false;
-    var audioEnd = (primary.StartTime ?? 0m) + duration;
-    var frame = primary.SampleRate is > 0 ? 1024m / primary.SampleRate.Value : 0m;
-    return chapterEnd - audioEnd > decimal.Max(ChapterToleranceMicroseconds / 1_000_000m, frame);
-  }
   private static bool WithinChapterTolerance(decimal seconds, long expectedMicroseconds)
   {
     var actual = checked((long)decimal.Round(seconds * 1_000_000m, 0, MidpointRounding.AwayFromZero));
