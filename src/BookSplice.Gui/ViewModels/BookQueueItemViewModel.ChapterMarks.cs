@@ -136,12 +136,16 @@ public sealed partial class BookQueueItemViewModel
   {
     if (_marks is null && _undo.Count == 0) return null;
     var now = TrackSignatureOf(next);
-    if (TrackSignatureOf(Analysis).Matches(now.Sources, now.TotalMicroseconds)) return null;
+    if (TrackSignatureOf(Analysis).Matches(now.Sources, now.TotalMicroseconds) && !SourceFilesChanged(Analysis, next)) return null;
     var hadMarks = _marks is not null;
     _marks = null;
     _undo.Clear();
     return hadMarks ? ChapterEditsClearedNote : null;
   }
+
+  // Same names and length can still be different files: a source that was replaced or rewritten also drops the marks.
+  private static bool SourceFilesChanged(BookAnalysis? before, BookAnalysis after)
+    => before is not null && before.OrderedFiles.Zip(after.OrderedFiles).Any(pair => pair.First.Identity is { } was && pair.Second.Identity is { } now && !was.Matches(now));
 
   // Restored marks apply only to the tracks they were saved with.
   private IEnumerable<string> RestoreMarks(QueueItemRecord saved)

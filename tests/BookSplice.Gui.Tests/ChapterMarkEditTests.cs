@@ -15,7 +15,9 @@ public sealed class ChapterMarkEditTests
   private const long Second = 1_000_000;
   private static readonly string Root = Path.GetFullPath("marks-book");
 
-  private static BookAnalysis Analysis(int seconds = 100, params string[] tracks)
+  private static BookAnalysis Analysis(int seconds = 100, params string[] tracks) => Analysis(seconds, 100, tracks);
+
+  private static BookAnalysis Analysis(int seconds, long fileLength, params string[] tracks)
   {
     if (tracks.Length == 0) tracks = ["a.mp3", "b.mp3"];
     var each = seconds * Second / tracks.Length;
@@ -26,7 +28,7 @@ public sealed class ChapterMarkEditTests
     }, new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>());
     var files = tracks.Select(name => new SourceFile(Path.Combine(Root, name), name,
       new MediaProbeResult([new AudioTrack(0, "mp3", "audio", 1, 44100, 1m, new Rational(1, 44100), new Dictionary<string, string>())], [], [], new TagCollection([]), new Dictionary<string, string>(), [], 1m),
-      new SourceIdentity(Path.Combine(Root, name), 100, DateTime.UnixEpoch, name)));
+      new SourceIdentity(Path.Combine(Root, name), fileLength, DateTime.UnixEpoch, name)));
     return new BookAnalysis(BookAnalysisStatus.Ready, Root, "book", files, null, metadata, new CoverDiscoveryResult([], [], null), ChapterPlan.Valid(entries, entries[^1].EndMicroseconds), [], [], tracks);
   }
 
@@ -233,6 +235,19 @@ public sealed class ChapterMarkEditTests
     Assert.True(item.CanUndoChapters);
     Assert.Equal(3, item.CreateOptions().ChapterMarks!.Count);
     Assert.DoesNotContain(BookQueueItemViewModel.ChapterEditsClearedNote, item.Details, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void AReplacedSourceFileWithTheSameNameAndLengthClearsMarks()
+  {
+    var item = Book();
+    Assert.True(item.Split(0, 20 * Second).IsAccepted);
+
+    item.SetAnalysis(Analysis(100, 101, "a.mp3", "b.mp3"));
+
+    Assert.False(item.HasChapterEdits);
+    Assert.False(item.CanUndoChapters);
+    Assert.Contains(BookQueueItemViewModel.ChapterEditsClearedNote, item.Details, StringComparison.Ordinal);
   }
 
   [Fact]
