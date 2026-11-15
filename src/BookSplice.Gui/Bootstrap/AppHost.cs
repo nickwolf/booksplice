@@ -8,6 +8,7 @@ using BookSplice.Core.Naming;
 using BookSplice.Core.Ordering;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Settings;
+using BookSplice.Core.Validation;
 using BookSplice.FFmpeg.Commands;
 using BookSplice.FFmpeg.Execution;
 using BookSplice.FFmpeg.Probing;
@@ -30,13 +31,14 @@ public sealed class AppHost(string localAppDataRoot)
       new OrderResolver(), new MetadataAggregator(), new CoverDiscoverer(new BookSplice.FFmpeg.Covers.MediaCoverPayloadOpener(tools)), new ChapterPlanner());
     var localDirectory = Path.Combine(Path.GetFullPath(localAppDataRoot), "BookSplice");
     var temporaryRoot = Path.Combine(localDirectory, "temp");
+    var jobLog = new JsonJobLogWriter(Path.Combine(localDirectory, "logs"));
     var planner = new ConversionPlanner(new OutputNamePlanner(), new StorageSpaceProvider(), Profiles, temporaryRoot);
     var service = new ConversionService(analyzer, planner,
       new FFmpegConversionExecutor(runner, new FFmpegCommandFactory(tools), new Mp4MetadataWriter(), temporaryRoot),
       new FFmpegOutputValidator(probe, runner, tools, new CoverPayloadValidator()),
       new AtomicPublisher(), new TemporaryArtifactCleaner(temporaryRoot),
-      new JsonJobLogWriter(Path.Combine(localDirectory, "logs")));
-    return new(analyzer, planner, service, new BookSplice.FFmpeg.Covers.MediaCoverPayloadOpener(tools), Profiles);
+      jobLog);
+    return new(analyzer, planner, service, new BookSplice.FFmpeg.Covers.MediaCoverPayloadOpener(tools), Profiles, new ExistingM4bChecker(probe, runner, tools), jobLog);
   }
 
   private sealed class StorageSpaceProvider : IStorageSpaceProvider
@@ -53,4 +55,4 @@ public sealed class AppHost(string localAppDataRoot)
   }
 }
 
-public sealed record GuiServices(IBookAnalyzer Analyzer, IConversionPlanner Planner, IConversionService Conversion, ICoverPayloadOpener CoverPayloads, MetadataProfileCatalog? Profiles = null);
+public sealed record GuiServices(IBookAnalyzer Analyzer, IConversionPlanner Planner, IConversionService Conversion, ICoverPayloadOpener CoverPayloads, MetadataProfileCatalog? Profiles = null, IExistingFileChecker? Checker = null, IJobLogWriter? JobLog = null);

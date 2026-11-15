@@ -39,7 +39,7 @@ public partial class MainWindow : Window
     _settings = settings;
     _gate = new GuiOperationGate(Dispatcher);
     if (services is not null) DataContext = _model = new MainWindowViewModel(services.Analyzer, services.Conversion, settings, services.Planner, _gate, services.Profiles,
-      new WindowsToastNotifier(Environment.ProcessPath, key => Dispatcher.BeginInvoke(() => ShowResult(key))), coverPayloads: services.CoverPayloads);
+      new WindowsToastNotifier(Environment.ProcessPath, key => Dispatcher.BeginInvoke(() => ShowResult(key))), coverPayloads: services.CoverPayloads, checker: services.Checker, checkLog: services.JobLog);
     WindowsToastNotifier.Sync(settings.NotificationsEnabled, Environment.ProcessPath);
     Destination.Text = $"Output folder: {settings.OutputDirectory}";
     _presets = new PresetsViewModel(new Core.Presets.PresetStore(Path.Combine(Path.GetDirectoryName(store.SettingsPath)!, Core.Presets.PresetStore.FileName)), services?.Profiles);
@@ -510,6 +510,11 @@ public partial class MainWindow : Window
   private async void Convert_Click(object sender, RoutedEventArgs e)
   {
     if (_model is not null && Queue.SelectedItem is BookQueueItemViewModel item) await _model.ConvertAsync(item);
+  }
+
+  private async void Check_Click(object sender, RoutedEventArgs e)
+  {
+    if (_model is not null && Queue.SelectedItem is BookQueueItemViewModel item) await _model.CheckAsync(item);
   }
 
   private async void ConvertAll_Click(object sender, RoutedEventArgs e)

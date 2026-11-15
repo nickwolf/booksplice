@@ -70,22 +70,30 @@ public sealed partial class BookQueueItemViewModel(string source, AppSettings se
   public IReadOnlyList<CoverCandidate> Covers => Analysis?.Cover.Candidates ?? [];
   public IReadOnlyList<string> OrderedFiles => Analysis?.OrderedFiles.Select(file => file.RelativePath).ToArray() ?? [];
   public string Summary => Analysis is null ? "" : $"{Analysis.OrderedFiles.Count} files{(Analysis.ExcludedFiles.Count > 0 ? $" ({Analysis.ExcludedFiles.Count} excluded)" : "")} | {DurationText.Format(TimeSpan.FromMicroseconds(Analysis.Chapters.TotalDurationMicroseconds))} | {string.Join(", ", Analysis.OrderedFiles.SelectMany(file => file.ProbeResult.AudioStreams).Select(stream => stream.CodecName).Distinct())}";
-  public string Status { get => _status; internal set { _status = value; Changed(); Changed(nameof(QueueStatus)); Changed(nameof(CanConvert)); } }
+  public string Status { get => _status; internal set { _status = value; Changed(); Changed(nameof(QueueStatus)); Changed(nameof(CanConvert)); Changed(nameof(CanCheck)); } }
   public string QueueStatus => Result?.Title ?? (IsBusy && IsCancellationRequested ? $"{Status} · Cancellation requested" : AttentionStatus ?? Status);
-  public ConversionResultDisplay? Result { get => _result; internal set { _result = value; Changed(); Changed(nameof(HasResult)); Changed(nameof(QueueStatus)); } }
+  public ConversionResultDisplay? Result { get => _result; internal set { _result = value; Changed(); Changed(nameof(HasResult)); Changed(nameof(HasConversionResult)); Changed(nameof(HasCheckResult)); Changed(nameof(QueueStatus)); } }
   public bool HasResult => Result is not null;
+  public bool HasConversionResult => Result is { IsCheck: false };
+  public bool HasCheckResult => Result is { IsCheck: true };
   public string Details { get => _details; internal set { _details = value; Changed(); } }
   public double Percent { get => _percent; internal set { _percent = value; Changed(); } }
   public bool IsProgressIndeterminate { get => _progressIndeterminate; internal set { _progressIndeterminate = value; Changed(); } }
   public bool IsCancellationRequested { get => _cancellationRequested; internal set { _cancellationRequested = value; Changed(); Changed(nameof(QueueStatus)); } }
   public string? PublishedPath { get => _publishedPath; internal set { _publishedPath = value; Changed(); Changed(nameof(CanOpenOutput)); } }
   public bool CanOpenOutput => !IsBusy && PublishedPath is { } path && File.Exists(path);
-  public bool IsBusy { get => _busy; internal set { _busy = value; Changed(); Changed(nameof(QueueStatus)); Changed(nameof(CanEdit)); Changed(nameof(CanRemove)); Changed(nameof(CanConvert)); Changed(nameof(CanOpenOutput)); Changed(nameof(CanCancel)); } }
-  public bool IsWaiting { get => _waiting; internal set { _waiting = value; Changed(); Changed(nameof(CanCancel)); } }
+  public bool IsBusy { get => _busy; internal set { _busy = value; Changed(); Changed(nameof(QueueStatus)); Changed(nameof(CanEdit)); Changed(nameof(CanRemove)); Changed(nameof(CanConvert)); Changed(nameof(CanCheck)); Changed(nameof(CanOpenOutput)); Changed(nameof(CanCancel)); } }
+  public bool IsWaiting { get => _waiting; internal set { _waiting = value; Changed(); Changed(nameof(CanCancel)); Changed(nameof(CanCheck)); } }
   public bool CanCancel => IsBusy || IsWaiting;
   public bool CanRemove => !IsBusy;
   public bool CanEdit => !IsBusy && Status != "Complete";
   public bool CanConvert => !IsBusy && Analysis?.Status == BookAnalysisStatus.Ready && Status != "Complete" && BlockReason is null && ReviewReason is null && ChapterProblem is null;
+  // A single existing M4B can only be inspected, so it gets Check file where a convertible book gets Convert selected.
+  public bool IsInspectOnly => Analysis?.Status == BookAnalysisStatus.InspectOnly;
+  public bool CanCheck => !IsBusy && !IsWaiting && IsInspectOnly;
+  // Whether the check also decodes every audio frame. Per book and not saved with the queue.
+  public bool DecodeAllAudio { get => _decodeAllAudio; set { _decodeAllAudio = value; Changed(); } }
+  private bool _decodeAllAudio;
   internal CancellationTokenSource? Cancellation { get; set; }
   // The last conversion's outcome, so a batch retry can pick only the books that failed.
   public BookOutcome? Outcome { get => _outcome; internal set { _outcome = value; Changed(); } }
@@ -223,7 +231,7 @@ public sealed partial class BookQueueItemViewModel(string source, AppSettings se
     };
     Details = string.Join(Environment.NewLine, analysis.Diagnostics.Select(diagnostic => diagnostic.Message).Concat(trackListNote is null ? [] : [trackListNote]).Concat(restoreNotes).Concat(clearedNote is null ? [] : [clearedNote]));
     WatchReviewedChoices();
-    foreach (var property in new[] { nameof(Analysis), nameof(OrderCandidates), nameof(Covers), nameof(SelectedCover), nameof(OrderedFiles), nameof(Summary), nameof(CanConvert) }) Changed(property);
+    foreach (var property in new[] { nameof(Analysis), nameof(OrderCandidates), nameof(Covers), nameof(SelectedCover), nameof(OrderedFiles), nameof(Summary), nameof(CanConvert), nameof(IsInspectOnly), nameof(CanCheck) }) Changed(property);
     RaiseChapterEditsChanged();
   }
 }

@@ -23,7 +23,10 @@ public sealed record ConversionAuditRecord(
   string? SelectedCoverOrigin,
   IReadOnlyList<ServiceStageTiming> Timings,
   IReadOnlyList<ServiceDiagnostic> Diagnostics,
-  string? PublishedPath)
+  string? PublishedPath,
+  string? Kind = null,
+  string? CheckedPath = null,
+  string? CheckLevel = null)
 {
   public const int CurrentSchemaVersion = 1;
 }

@@ -2,7 +2,7 @@ using BookSplice.Gui.ViewModels;
 
 namespace BookSplice.Gui.History;
 
-public enum HistoryOutcome { Completed, Cancelled, Failed, Preview }
+public enum HistoryOutcome { Completed, Cancelled, Failed, Preview, Checked, CheckFailed }
 
 public sealed record ConversionHistoryEntry(
   Guid JobId,
@@ -23,12 +23,15 @@ public sealed record ConversionHistoryEntry(
     HistoryOutcome.Completed => HasWarnings ? "Completed with warnings" : "Completed",
     HistoryOutcome.Cancelled => "Cancelled",
     HistoryOutcome.Preview => "Preview only",
+    HistoryOutcome.Checked => "Checked",
+    HistoryOutcome.CheckFailed => "Check failed",
     _ => "Failed",
   };
   public string WhenText => StartedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.CurrentCulture);
   public string ElapsedText => ConversionProgressDisplay.FormatDuration(Elapsed);
   public string WarningCountText => Warnings.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
   public bool CanOpenOutput => OutputPath is not null && OutputExists;
+  public const string CheckStrategyText = "Check";
   public string OutputText => OutputPath is null ? "No output was published." : OutputExists ? OutputPath : $"{OutputPath} (file is missing)";
   public string OutputName => OutputPath is null ? "" : System.IO.Path.GetFileName(OutputPath);
   public string Details => string.Join(Environment.NewLine, new[]
