@@ -152,6 +152,26 @@ public sealed class ChapterMarksTests
     => Assert.Equal("A (2)", ChapterMarks.Split([new(0, " A ")], 0, 5 * Second, 10 * Second).Marks![1].Title);
 
   [Fact]
+  public void Split_numbers_new_chapters_from_the_base_title_and_skips_taken_numbers()
+  {
+    var marks = ChapterMarks.Split([new(0, "Ch 1")], 0, 20 * Second, 100 * Second).Marks!;
+    Assert.Equal("Ch 1 (2)", marks[1].Title);
+    marks = ChapterMarks.Split(marks, 1, 40 * Second, 100 * Second).Marks!;
+    Assert.Equal("Ch 1 (3)", marks[2].Title);
+    marks = ChapterMarks.Split(marks, 0, 10 * Second, 100 * Second).Marks!;
+    Assert.Equal("Ch 1 (4)", marks[1].Title);
+    Assert.Equal("Ch 1 (5)", ChapterMarks.Split(marks, 3, 60 * Second, 100 * Second).Marks![4].Title);
+  }
+
+  [Fact]
+  public void Split_only_strips_a_trailing_number_in_parentheses()
+  {
+    Assert.Equal("Part (x) (2)", ChapterMarks.Split([new(0, "Part (x)")], 0, 5 * Second, 10 * Second).Marks![1].Title);
+    Assert.Equal("A (1) b (2)", ChapterMarks.Split([new(0, "A (1) b")], 0, 5 * Second, 10 * Second).Marks![1].Title);
+    Assert.Equal("(7) (2)", ChapterMarks.Split([new(0, "(7)")], 0, 5 * Second, 10 * Second).Marks![1].Title);
+  }
+
+  [Fact]
   public void MergeWithNext_keeps_the_first_title_and_start()
   {
     var result = ChapterMarks.MergeWithNext(Three(), 0, 30 * Second);

@@ -1,9 +1,14 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
+
 namespace BookSplice.Core.Chapters;
 
-public static class ChapterMarks
+public static partial class ChapterMarks
 {
+  [GeneratedRegex(@" \(\d+\)$", RegexOptions.CultureInvariant)]
+  private static partial Regex NumberSuffix();
+
   public const long MinimumLengthMicroseconds = 1_000_000;
-  public const string SplitTitleSuffix = " (2)";
 
   public static ChapterMarkValidation Validate(IReadOnlyList<ChapterMark> marks, long totalMicroseconds)
   {
@@ -40,7 +45,7 @@ public static class ChapterMarks
   {
     if (!InRange(marks, index, out var rejected)) return rejected!;
     var result = marks.ToList();
-    result.Insert(index + 1, new ChapterMark(atMicroseconds, marks[index].Title.Trim() + SplitTitleSuffix));
+    result.Insert(index + 1, new ChapterMark(atMicroseconds, SplitTitle(marks, marks[index].Title)));
     return Finish(result, totalMicroseconds);
   }
 
@@ -85,6 +90,17 @@ public static class ChapterMarks
       entries.Add(new ChapterEntry(start, end, marks[index].Title.Trim(), source.OriginalTitle, source.SourceRelativePath));
     }
     return entries;
+  }
+
+  // "<base> (n)" with the smallest n >= 2 no mark already uses, where base is the title without a trailing " (k)".
+  private static string SplitTitle(IReadOnlyList<ChapterMark> marks, string title)
+  {
+    var baseTitle = NumberSuffix().Replace(title.Trim(), string.Empty);
+    for (var number = 2; ; number++)
+    {
+      var candidate = string.Create(CultureInfo.InvariantCulture, $"{baseTitle} ({number})");
+      if (!marks.Any(mark => string.Equals(mark.Title.Trim(), candidate, StringComparison.Ordinal))) return candidate;
+    }
   }
 
   private static bool InRange(IReadOnlyList<ChapterMark> marks, int index, out ChapterMarkEditResult? rejected)
