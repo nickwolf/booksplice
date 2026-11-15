@@ -12,6 +12,7 @@ namespace BookSplice.Gui.ViewModels;
 public sealed class PreviewViewModel(IPreviewDecoder decoder, Func<IAudioPlayer> playerFactory, string previewRoot) : ObservableModel
 {
   public const string UnavailableMessage = PreviewUnavailableException.DefaultMessage;
+  public const string PlaybackFailedMessage = "The preview could not be played.";
 
   private sealed record Window(PreviewRegion Region, string Path, int TrackIndex);
 
@@ -264,8 +265,9 @@ public sealed class PreviewViewModel(IPreviewDecoder decoder, Func<IAudioPlayer>
   private void OnFailed(object? sender, string message)
   {
     if (!ReferenceEquals(sender, _player)) return;
+    // MediaPlayer's own text is an HRESULT description, which helps nobody reading the book pane.
     Teardown();
-    Message = message;
+    Message = PlaybackFailedMessage;
   }
 
   private void SwitchToNext()

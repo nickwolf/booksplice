@@ -366,7 +366,7 @@ public sealed class PreviewViewModelTests : IDisposable
 
     _players[0].RaiseFailed("device gone");
 
-    Assert.Equal("device gone", preview.Message);
+    Assert.Equal("The preview could not be played.", preview.Message);
     Assert.False(preview.IsPlaying);
     Assert.True(_players[0].IsDisposed);
     Assert.Empty(Files());
