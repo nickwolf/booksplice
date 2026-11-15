@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using BookSplice.Core.Chapters;
 using BookSplice.Core.Discovery;
 using BookSplice.Core.Ordering;
 using BookSplice.Core.Settings;
@@ -241,6 +242,7 @@ public partial class MainWindow : Window
       item.ExcludedTracks.CollectionChanged += TrackLists_Changed;
     }
     ShowOrderChoice(e.NewValue as BookQueueItemViewModel);
+    ResetChapterEditing();
   }
 
   private void SelectedBook_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -293,6 +295,153 @@ public partial class MainWindow : Window
     TrackDownButton.IsEnabled = index >= 0 && index < IncludedList.Items.Count - 1;
     TrackExcludeButton.IsEnabled = index >= 0;
     TrackIncludeButton.IsEnabled = ExcludedList.SelectedIndex >= 0;
+  }
+
+  private const string BadTimeMessage = "Type a time like 1:02:03.500.";
+
+  private BookQueueItemViewModel? ChapterBook => ChapterGrid.DataContext as BookQueueItemViewModel;
+
+  private void ResetChapterEditing()
+  {
+    SplitPanel.Visibility = Visibility.Collapsed;
+    ChapterEditMessage.Text = "";
+    UpdateChapterButtons();
+  }
+
+  private void UpdateChapterButtons()
+  {
+    var index = ChapterGrid.SelectedIndex;
+    ChapterSplitButton.IsEnabled = index >= 0;
+    ChapterMergeButton.IsEnabled = index >= 0 && index < ChapterGrid.Items.Count - 1;
+    if (index < 0) SplitPanel.Visibility = Visibility.Collapsed;
+  }
+
+  private void ChapterGrid_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e) => UpdateChapterButtons();
+
+  // Runs one edit, shows why it was refused, and keeps the same row selected when the grid is refilled.
+  private bool ApplyChapterEdit(int index, Func<BookQueueItemViewModel, ChapterMarkEditResult> edit)
+  {
+    if (ChapterBook is not { } item || index < 0) return false;
+    var result = edit(item);
+    ChapterEditMessage.Text = result.IsAccepted ? "" : result.Problems.Count > 0 ? result.Problems[0].Message : "That chapter edit was not accepted.";
+    SelectChapter(index);
+    return result.IsAccepted;
+  }
+
+  private void SelectChapter(int index)
+  {
+    ChapterGrid.SelectedIndex = ChapterGrid.Items.Count == 0 ? -1 : Math.Clamp(index, 0, ChapterGrid.Items.Count - 1);
+    UpdateChapterButtons();
+  }
+
+  private void ChapterGrid_CellEditEnding(object sender, System.Windows.Controls.DataGridCellEditEndingEventArgs e)
+  {
+    if (e.EditAction != System.Windows.Controls.DataGridEditAction.Commit || e.Row.Item is not ChapterRow row || FindEditBox(e.EditingElement) is not { } box) return;
+    var text = box.Text;
+    var isStart = ReferenceEquals(e.Column, ChapterGrid.Columns[0]);
+    var isTitle = ReferenceEquals(e.Column, ChapterGrid.Columns[3]);
+    if (!isStart && !isTitle) return;
+    // The grid is refilled by the edit, which cannot happen while the cell is still committing.
+    Dispatcher.BeginInvoke(() => CommitChapterCell(row, isStart, text), System.Windows.Threading.DispatcherPriority.Background);
+  }
+
+  private static System.Windows.Controls.TextBox? FindEditBox(DependencyObject element)
+  {
+    if (element is System.Windows.Controls.TextBox box) return box;
+    for (var index = 0; index < System.Windows.Media.VisualTreeHelper.GetChildrenCount(element); index++)
+      if (FindEditBox(System.Windows.Media.VisualTreeHelper.GetChild(element, index)) is { } found) return found;
+    return null;
+  }
+
+  internal void CommitChapterCell(ChapterRow row, bool isStart, string text)
+  {
+    if (!isStart)
+    {
+      ApplyChapterEdit(row.Index, item => item.Rename(row.Index, text));
+      return;
+    }
+    if (!ChapterTime.TryParse(text, out var start))
+    {
+      ChapterEditMessage.Text = BadTimeMessage;
+      SelectChapter(row.Index);
+      return;
+    }
+    ApplyChapterEdit(row.Index, item => item.MoveStart(row.Index, start));
+  }
+
+  private void ChapterSplit_Click(object sender, RoutedEventArgs e)
+  {
+    if (ChapterGrid.SelectedItem is not ChapterRow row) return;
+    var end = row.Index + 1 < ChapterGrid.Items.Count && ChapterGrid.Items[row.Index + 1] is ChapterRow next ? next.StartMicroseconds
+      : ChapterTime.TryParse(row.End, out var last) ? last : row.StartMicroseconds;
+    SplitTime.Text = ChapterTime.Format(row.StartMicroseconds + (end - row.StartMicroseconds) / 2);
+    ChapterEditMessage.Text = "";
+    SplitPanel.Visibility = Visibility.Visible;
+    SplitTime.Focus();
+    SplitTime.SelectAll();
+  }
+
+  private void SplitConfirm_Click(object sender, RoutedEventArgs e)
+  {
+    var index = ChapterGrid.SelectedIndex;
+    if (index < 0) return;
+    if (!ChapterTime.TryParse(SplitTime.Text, out var at))
+    {
+      ChapterEditMessage.Text = BadTimeMessage;
+      return;
+    }
+    if (ApplyChapterEdit(index, item => item.Split(index, at)))
+    {
+      SplitPanel.Visibility = Visibility.Collapsed;
+      ChapterGrid.Focus();
+    }
+  }
+
+  private void SplitCancel_Click(object sender, RoutedEventArgs e)
+  {
+    SplitPanel.Visibility = Visibility.Collapsed;
+    ChapterEditMessage.Text = "";
+    ChapterSplitButton.Focus();
+  }
+
+  private void SplitTime_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+  {
+    if (e.Key == System.Windows.Input.Key.Enter) { SplitConfirm_Click(sender, e); e.Handled = true; }
+    else if (e.Key == System.Windows.Input.Key.Escape) { SplitCancel_Click(sender, e); e.Handled = true; }
+  }
+
+  private void ChapterMerge_Click(object sender, RoutedEventArgs e)
+  {
+    var index = ChapterGrid.SelectedIndex;
+    ApplyChapterEdit(index, item => item.MergeWithNext(index));
+  }
+
+  private void ChapterReset_Click(object sender, RoutedEventArgs e) => UndoOrReset(item => item.ResetToTracks());
+  private void ChapterUndo_Click(object sender, RoutedEventArgs e) => UndoOrReset(item => item.UndoChapters());
+
+  private void UndoOrReset(Func<BookQueueItemViewModel, bool> action)
+  {
+    var index = ChapterGrid.SelectedIndex;
+    if (ChapterBook is not { } item) return;
+    action(item);
+    ChapterEditMessage.Text = "";
+    SplitPanel.Visibility = Visibility.Collapsed;
+    SelectChapter(index);
+  }
+
+  // Ctrl+Z reaches the grid as the Undo command. A cell being edited has a TextBox with its own undo, so the command is left to it.
+  private void ChapterUndo_CanExecute(object sender, System.Windows.Input.CanExecuteRoutedEventArgs e)
+  {
+    if (e.OriginalSource is System.Windows.Controls.TextBox) return;
+    e.CanExecute = ChapterBook is { CanUndoChapters: true };
+    e.Handled = true;
+  }
+
+  private void ChapterUndo_Executed(object sender, System.Windows.Input.ExecutedRoutedEventArgs e)
+  {
+    if (e.OriginalSource is System.Windows.Controls.TextBox) return;
+    UndoOrReset(item => item.UndoChapters());
+    e.Handled = true;
   }
 
   private void TrackUp_Click(object sender, RoutedEventArgs e) => ApplyTrackAction(TrackListAction.MoveUp, IncludedList);
