@@ -11,6 +11,7 @@ using BookSplice.Core.Naming;
 using BookSplice.Core.Ordering;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Settings;
+using BookSplice.Core.Validation;
 using BookSplice.Gui.Diagnostics;
 using BookSplice.Gui.Notifications;
 using BookSplice.Gui.Updates;
@@ -19,7 +20,7 @@ namespace BookSplice.Gui.ViewModels;
 
 public enum FileImportChoice { OneBook, SeparateBooks, Cancel }
 
-public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConversionService conversion, AppSettings settings, IConversionPlanner? planner = null, GuiOperationGate? gate = null, MetadataProfileCatalog? profiles = null, IConversionNotifier? notifier = null, BookGroupPlanner? groupPlanner = null, ICoverPayloadOpener? coverPayloads = null, PreviewViewModel? preview = null) : ObservableModel, IDisposable
+public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConversionService conversion, AppSettings settings, IConversionPlanner? planner = null, GuiOperationGate? gate = null, MetadataProfileCatalog? profiles = null, IConversionNotifier? notifier = null, BookGroupPlanner? groupPlanner = null, ICoverPayloadOpener? coverPayloads = null, IExistingFileChecker? checker = null, IJobLogWriter? checkLog = null, PreviewViewModel? preview = null) : ObservableModel, IDisposable
 {
   private readonly QueueScheduler _scheduler = new(settings.BooksAtOnce ?? 1);
   public PreviewViewModel Preview { get; } = preview ?? PreviewViewModel.CreateUnavailable();

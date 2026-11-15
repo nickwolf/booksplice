@@ -232,10 +232,11 @@ public sealed class TracksAndChaptersTests
     var book = await AddAsync(model, "keys", resolved: true);
     Select(window, book);
     var pause = (UIElement)window.FindName("PauseQueueButton");
+    var check = (Button)window.FindName("CheckSelectedButton");
     var entries = new List<(string Key, string Source)>();
     foreach (var element in Logical(window))
     {
-      if (element == pause) continue;
+      if (element == pause || element == check) continue;
       var text = element switch
       {
         ContentControl { Content: string content } => content,
@@ -250,6 +251,10 @@ public sealed class TracksAndChaptersTests
     entries.Add((pauseKey, "Pause queue"));
     model.PauseQueue();
     Assert.Equal(pauseKey, AccessKey(model.QueuePauseLabel));
+
+    // Check file only shows for an inspect-only book, which never has the conversion result card that holds Validation checks, so they share C.
+    Assert.Equal("C", AccessKey((string)check.Content), StringComparer.OrdinalIgnoreCase);
+    Assert.Contains(entries, entry => entry.Key.Equals("C", StringComparison.OrdinalIgnoreCase) && entry.Source.Contains("Validation", StringComparison.Ordinal));
 
     Assert.Contains(entries, entry => entry.Source.Contains("Tracks and chapters", StringComparison.Ordinal));
     Assert.Contains(entries, entry => entry.Source.Contains("Convert ready", StringComparison.Ordinal));

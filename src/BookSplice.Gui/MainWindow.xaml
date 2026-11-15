@@ -178,6 +178,10 @@
           </WrapPanel>
           <WrapPanel Margin="0,8">
             <Button x:Name="ConvertSelectedButton" Content="Conve_rt selected" Visibility="{Binding CanConvert, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}" Click="Convert_Click" Padding="12,6" Margin="0,0,8,0"/>
+            <Button x:Name="CheckSelectedButton" Content="_Check file" Visibility="{Binding CanCheck, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}" Click="Check_Click" Padding="12,6" Margin="0,0,8,0"/>
+            <CheckBox x:Name="DecodeAllAudioBox" Content="Decode all audio" IsChecked="{Binding DecodeAllAudio}" IsEnabled="{Binding CanCheck}" VerticalAlignment="Center" Margin="0,0,12,0"
+                      Visibility="{Binding IsInspectOnly, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}"
+                      AutomationProperties.HelpText="Reads every audio frame, so it takes longer but catches damage the quick checks cannot"/>
             <Button x:Name="CancelSelectedButton" Content="Cance_l" Visibility="{Binding CanCancel, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}" Click="Cancel_Click" Padding="12,6" Margin="0,0,8,0"/>
             <Button x:Name="CopyDiagnosticsButton" Content="Copy dia_gnostics" Click="CopyDiagnostics_Click" Padding="12,6"/>
           </WrapPanel>
@@ -218,7 +222,7 @@
           </StackPanel>
         </StackPanel>
         <Border x:Name="ConversionResultCard" DockPanel.Dock="Top" Margin="8,0,0,8" Padding="12" BorderBrush="Gray" BorderThickness="1"
-                Visibility="{Binding HasResult, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}" AutomationProperties.Name="Conversion result">
+                Visibility="{Binding HasConversionResult, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}" AutomationProperties.Name="Conversion result">
           <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="140">
             <StackPanel>
               <TextBlock x:Name="ResultTitle" Text="{Binding Result.Title}" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
@@ -251,6 +255,20 @@
               <Expander Header="Diagnostics" AutomationProperties.Name="Tool diagnostics">
                 <TextBox Text="{Binding Result.DiagnosticsText, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="160" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Raw tool diagnostics"/>
               </Expander>
+            </StackPanel>
+          </ScrollViewer>
+        </Border>
+        <Border x:Name="CheckResultCard" DockPanel.Dock="Top" Margin="8,0,0,8" Padding="12" BorderBrush="Gray" BorderThickness="1"
+                Visibility="{Binding HasCheckResult, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}" AutomationProperties.Name="Check result">
+          <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="200">
+            <StackPanel>
+              <TextBlock x:Name="CheckResultTitle" Text="{Binding Result.Title}" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+              <TextBlock Text="{Binding Result.ElapsedText}" Margin="0,4,0,0"/>
+              <ItemsControl ItemsSource="{Binding Result.CheckLines}" AutomationProperties.Name="Check results">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,3"/></DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
             </StackPanel>
           </ScrollViewer>
         </Border>

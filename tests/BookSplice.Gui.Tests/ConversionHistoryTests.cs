@@ -52,6 +52,64 @@ public sealed class ConversionHistoryTests : IDisposable
   }
 
   [Fact]
+  public async Task CheckRecordsReadAsCheckedCheckFailedAndCancelledWithTheCheckedFileAsOutput()
+  {
+    var file = Path.Combine(_root, "existing.m4b");
+    await File.WriteAllTextAsync(file, "audio");
+    var now = DateTimeOffset.UtcNow;
+    async Task<Guid> Check(ConversionTerminalStatus status, DateTimeOffset started, string level, params ServiceDiagnostic[] diagnostics)
+    {
+      var id = Guid.NewGuid();
+      await new JsonJobLogWriter(_root).WriteAsync(Record(id, status, started, TimeSpan.FromSeconds(4), null, diagnostics) with { Kind = "check", CheckedPath = file, CheckLevel = level }, CancellationToken.None);
+      return id;
+    }
+    var passed = await Check(ConversionTerminalStatus.Succeeded, now.AddMinutes(-3), "Lightweight", new ServiceDiagnostic("check.container.read", ServiceDiagnosticSeverity.Information, "The file opens."));
+    var failed = await Check(ConversionTerminalStatus.ValidationFailed, now.AddMinutes(-2), "Full decode", new ServiceDiagnostic("check.audio.codec", ServiceDiagnosticSeverity.Error, "The audio is not AAC."));
+    var cancelled = await Check(ConversionTerminalStatus.Cancelled, now.AddMinutes(-1), "Lightweight");
+
+    var load = new ConversionHistoryReader(_root).Read();
+
+    Assert.Empty(load.Skipped);
+    Assert.Equal(new[] { cancelled, failed, passed }, load.Entries.Select(entry => entry.JobId).ToArray());
+    var entry = load.Entries[2];
+    Assert.Equal(HistoryOutcome.Checked, entry.Outcome);
+    Assert.Equal("Checked", entry.OutcomeText);
+    Assert.Equal(file, entry.OutputPath);
+    Assert.True(entry.CanOpenOutput);
+    Assert.Equal("Check", entry.Strategy);
+    Assert.Equal("Lightweight", entry.ValidationLevel);
+    Assert.Equal("", entry.Summary);
+    entry = load.Entries[1];
+    Assert.Equal(HistoryOutcome.CheckFailed, entry.Outcome);
+    Assert.Equal("Check failed", entry.OutcomeText);
+    Assert.Equal("The audio is not AAC.", entry.Summary);
+    Assert.Equal("Full decode", entry.ValidationLevel);
+    Assert.Equal(file, entry.OutputPath);
+    entry = load.Entries[0];
+    Assert.Equal(HistoryOutcome.Cancelled, entry.Outcome);
+    Assert.Equal("Cancelled", entry.OutcomeText);
+    Assert.Equal(file, entry.OutputPath);
+    Assert.Equal("Check", entry.Strategy);
+    File.Delete(file);
+    Assert.False(new ConversionHistoryReader(_root).Read().Entries[0].CanOpenOutput);
+  }
+
+  [Fact]
+  public async Task ARecordWithoutAKindStillReadsAsAConversion()
+  {
+    var output = Path.Combine(_root, "book.m4b");
+    await File.WriteAllTextAsync(output, "audio");
+    var id = await WriteAsync(ConversionTerminalStatus.ValidationFailed, DateTimeOffset.UtcNow, TimeSpan.FromSeconds(2), output, new ServiceDiagnostic("validation.failed", ServiceDiagnosticSeverity.Error, "Bad output"));
+
+    var entry = Assert.Single(new ConversionHistoryReader(_root).Read().Entries);
+
+    Assert.Equal(id, entry.JobId);
+    Assert.Equal(HistoryOutcome.Failed, entry.Outcome);
+    Assert.Equal("Not recorded", entry.Strategy);
+    Assert.Equal(output, entry.OutputPath);
+  }
+
+  [Fact]
   public async Task CopiedDiagnosticsDoNotCarryOutputOrTemporaryPaths()
   {
     var output = Path.Combine(_root, "Secret Title.m4b");

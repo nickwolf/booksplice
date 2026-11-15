@@ -197,9 +197,28 @@ public sealed class CliEndToEndTests
       var exitCode = await application.RunAsync(arguments, TextWriter.Null, error, CancellationToken.None);
 
       Assert.Equal(CliExitCode.InvalidInput, exitCode);
-      Assert.Contains("This is already a single M4B. Editing existing M4B files isn't supported yet.", error.ToString(), StringComparison.Ordinal);
+      Assert.Contains("This is already a single M4B, so there is nothing to convert. Use Check file in the app, or --check on the command line, to check it.", error.ToString(), StringComparison.Ordinal);
     }
     Assert.Empty(Directory.GetFiles(outputDirectory));
+  }
+
+  [PinnedCliMediaFact]
+  public async Task CheckReportsAnExistingM4bWithoutChangingIt()
+  {
+    var tools = ResolveTools();
+    using var root = new TemporaryDirectory();
+    var source = Directory.CreateDirectory(Path.Combine(root.Path, "Existing")).FullName;
+    var input = await GenerateAudioAsync(tools, Path.Combine(source, "01.m4b"), "aac", "440", "1");
+    var before = Hashes(input);
+    var stdout = new StringWriter();
+
+    var exitCode = await CliComposition.Create(Path.Combine(root.Path, "local"), ToolDirectory()).RunAsync(
+      [input, "--check"], stdout, TextWriter.Null, CancellationToken.None);
+
+    Assert.Equal(CliExitCode.Success, exitCode);
+    Assert.Contains("Check passed", stdout.ToString(), StringComparison.Ordinal);
+    Assert.Equal(before, Hashes(input));
+    Assert.False(Directory.Exists(Path.Combine(root.Path, "local", "BookSplice", "logs")));
   }
 
   [PinnedCliMediaFact]

@@ -59,7 +59,7 @@ public static class CliComposition
       new AtomicPublisher(),
       new TemporaryArtifactCleaner(temporaryRoot),
       logs);
-    return new CliApplication(new JsonSettingsStore(localAppDataRoot), service, logs, profiles, presets: presets);
+    return new CliApplication(new JsonSettingsStore(localAppDataRoot), service, logs, profiles, presets: presets, checker: new ExistingM4bChecker(probe, runner, tools));
   }
 
   private sealed class UnavailableToolConversionService(IJobLogWriter logs) : IConversionService
