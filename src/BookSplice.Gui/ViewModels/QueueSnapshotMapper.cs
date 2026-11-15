@@ -28,7 +28,10 @@ internal static class QueueSnapshotMapper
       pending is not null ? pending.ChapterTitles : item.Chapters.Where(chapter => chapter.Title != chapter.OriginalTitle).ToDictionary(chapter => chapter.Source, chapter => chapter.Title, StringComparer.Ordinal),
       pending is not null ? pending.Metadata : item.Metadata.Where(field => field.IsEdited).ToDictionary(field => field.Name, field => field.Value, StringComparer.Ordinal),
       state, state == QueueItemState.Succeeded ? item.PublishedPath : null,
-      state is QueueItemState.NotConverted or QueueItemState.Succeeded ? null : Truncate(MessageOf(item)));
+      state is QueueItemState.NotConverted or QueueItemState.Succeeded ? null : Truncate(MessageOf(item)),
+      pending is not null ? pending.ChapterMarks : item.ChapterMarksSnapshot?.Select(mark => new SavedChapterMark(mark.StartMicroseconds, mark.Title)).ToArray(),
+      pending is not null ? pending.ChapterMarksTotalMicroseconds : item.ChapterMarksSnapshot is null ? null : item.TrackSignature().TotalMicroseconds,
+      pending is not null ? pending.ChapterMarksSources : item.ChapterMarksSnapshot is null ? null : item.TrackSignature().Sources);
   }
 
   private static QueueItemState StateOf(BookQueueItemViewModel item)

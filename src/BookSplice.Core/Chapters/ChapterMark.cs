@@ -14,6 +14,7 @@ public enum ChapterMarkProblemCode
   EmptyTitle,
   NoNextChapter,
   Overflow,
+  Unavailable,
 }
 
 // Index is the offending mark, or -1 when the problem is about the whole list.
