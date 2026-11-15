@@ -47,6 +47,9 @@ public sealed record SavedItemSettings(
 
 }
 
+/// <summary>One edited chapter boundary. Absent from the file when the book's chapters are unedited.</summary>
+public sealed record SavedChapterMark([property: JsonRequired] long StartMicroseconds, [property: JsonRequired] string Title);
+
 /// <summary>Identifies a cover by where it came from, not by object reference. The hash says whether it is still the same picture.</summary>
 public sealed record SavedCover([property: JsonRequired] CoverOrigin Origin, [property: JsonRequired] string SourcePath, [property: JsonRequired] string ContentHash, int? EmbeddedPictureIndex = null);
 
@@ -63,4 +66,7 @@ public sealed record QueueItemRecord(
   IReadOnlyDictionary<string, string>? Metadata = null,
   QueueItemState State = QueueItemState.NotConverted,
   string? PublishedPath = null,
-  string? Message = null);
+  string? Message = null,
+  IReadOnlyList<SavedChapterMark>? ChapterMarks = null,
+  long? ChapterMarksTotalMicroseconds = null,
+  IReadOnlyList<string>? ChapterMarksSources = null);

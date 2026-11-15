@@ -55,7 +55,7 @@ public sealed class BookPaneLayoutTests
     Assert.True(metadata.ActualHeight >= gridNeeds, $"Metadata grid is {metadata.ActualHeight} high, the header and 3 rows need {gridNeeds}.");
     tabs.SelectedIndex = 1;
     Settle(window);
-    var chapters = Descendants<DataGrid>(tabs).Single(grid => AutomationProperties.GetName(grid) == "Chapter titles");
+    var chapters = Descendants<DataGrid>(tabs).Single(grid => AutomationProperties.GetName(grid) == "Chapters");
     Assert.True(chapters.ActualHeight >= gridNeeds, $"Chapter grid is {chapters.ActualHeight} high, the header and 3 rows need {gridNeeds}.");
     var included = (ListBox)window.FindName("IncludedList");
     var probe = new ListBox();

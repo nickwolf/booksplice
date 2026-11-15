@@ -1,3 +1,4 @@
+using BookSplice.Core.Chapters;
 using BookSplice.Core.Metadata;
 using BookSplice.Core.Naming;
 using BookSplice.Core.Settings;
@@ -12,7 +13,7 @@ public sealed record MetadataEdit(bool IsSet, string? Value)
 
 public sealed class ConversionOptions
 {
-  public ConversionOptions(AppSettings settings, QualityProfile qualityProfile, IReadOnlyDictionary<SemanticField, MetadataEdit>? metadataEdits = null, string? destinationDirectory = null, CollisionPolicy? collisionPolicy = null, string? selectedCoverHash = null, IReadOnlyDictionary<string, string>? chapterTitles = null, bool omitCover = false, IReadOnlyCollection<string>? queuedOutputPaths = null)
+  public ConversionOptions(AppSettings settings, QualityProfile qualityProfile, IReadOnlyDictionary<SemanticField, MetadataEdit>? metadataEdits = null, string? destinationDirectory = null, CollisionPolicy? collisionPolicy = null, string? selectedCoverHash = null, IReadOnlyDictionary<string, string>? chapterTitles = null, bool omitCover = false, IReadOnlyCollection<string>? queuedOutputPaths = null, IReadOnlyList<ChapterMark>? chapterMarks = null)
   {
     Settings = settings;
     QualityProfile = qualityProfile;
@@ -23,6 +24,7 @@ public sealed class ConversionOptions
     ChapterTitles = new Dictionary<string, string>(chapterTitles ?? new Dictionary<string, string>(), StringComparer.Ordinal);
     OmitCover = omitCover;
     QueuedOutputPaths = queuedOutputPaths?.ToArray() ?? [];
+    ChapterMarks = chapterMarks is null ? null : Array.AsReadOnly(chapterMarks.ToArray());
   }
   public AppSettings Settings { get; }
   public QualityProfile QualityProfile { get; }
@@ -30,11 +32,13 @@ public sealed class ConversionOptions
   public string DestinationDirectory { get; }
   public CollisionPolicy CollisionPolicy { get; }
   public IReadOnlyDictionary<string, string> ChapterTitles { get; }
+  // Null keeps one chapter per track (with ChapterTitles applied). When set, the marks replace the track chapters and ChapterTitles is ignored.
+  public IReadOnlyList<ChapterMark>? ChapterMarks { get; }
   public bool OmitCover { get; }
   public string? SelectedCoverHash { get; }
   // Output paths other queued books have claimed. The planner adds them to the files already in the destination folder.
   public IReadOnlyCollection<string> QueuedOutputPaths { get; }
 
   public ConversionOptions WithQueuedOutputPaths(IReadOnlyCollection<string> paths)
-    => new(Settings, QualityProfile, MetadataEdits, DestinationDirectory, CollisionPolicy, SelectedCoverHash, ChapterTitles, OmitCover, paths);
+    => new(Settings, QualityProfile, MetadataEdits, DestinationDirectory, CollisionPolicy, SelectedCoverHash, ChapterTitles, OmitCover, paths, ChapterMarks);
 }
