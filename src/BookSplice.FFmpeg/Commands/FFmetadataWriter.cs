@@ -21,7 +21,7 @@ public sealed class FFmetadataWriter
     return output.ToString();
   }
 
-  private static string Escape(string value)
+  internal static string Escape(string value)
   {
     var output = new StringBuilder(value.Length);
     for (var index = 0; index < value.Length; index++)
