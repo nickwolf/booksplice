@@ -376,9 +376,9 @@ public sealed class CliApplicationTests
     string[] expected =
     [
       "Checking Book.m4b",
-      "Passed: Passed.",
-      "Note: No title tag.",
-      "Not checked: Decode all audio was not selected.",
+      "Passed: file.exists",
+      "Note: tags.title. No title tag.",
+      "Not checked: full.decode. Decode all audio was not selected.",
       NotEstablishedLine,
       "A warning.",
       "Check passed",
@@ -398,7 +398,7 @@ public sealed class CliApplicationTests
     Assert.Equal(CliExitCode.CheckFailed, exitCode);
     Assert.Equal(9, (int)exitCode);
     var lines = Lines(output);
-    Assert.Contains("Failed: Audio is not AAC-LC.", lines);
+    Assert.Contains("Failed: audio.codec. Audio is not AAC-LC.", lines);
     Assert.Equal("Check failed", lines[^1]);
   }
 

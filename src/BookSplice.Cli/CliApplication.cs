@@ -224,7 +224,7 @@ public sealed class CliApplication
     else
     {
       foreach (var check in report.Checks)
-        standardOutput.WriteLine(PublicTextRedactor.Sanitize($"{CheckLabel(check.Status)}: {check.Message}", [options.Source]));
+        standardOutput.WriteLine(PublicTextRedactor.Sanitize(ExistingCheckText.Line(check), [options.Source]));
       foreach (var line in notEstablished) standardOutput.WriteLine(line);
       foreach (var line in warnings) standardOutput.WriteLine(line);
       standardOutput.WriteLine(report.IsValid ? "Check passed" : "Check failed");
@@ -240,13 +240,6 @@ public sealed class CliApplication
     finally { await progress.StopAttemptAsync().ConfigureAwait(false); }
   }
 
-  private static string CheckLabel(ExistingCheckStatus status) => status switch
-  {
-    ExistingCheckStatus.Passed => "Passed",
-    ExistingCheckStatus.Failed => "Failed",
-    ExistingCheckStatus.NotChecked => "Not checked",
-    _ => "Note",
-  };
 
   private CliExitCode ListPresets(bool json, TextWriter standardOutput, TextWriter standardError)
   {

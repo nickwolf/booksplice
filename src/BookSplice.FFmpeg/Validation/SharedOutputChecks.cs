@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using BookSplice.Core.Analysis;
 using BookSplice.Core.Execution;
@@ -7,7 +8,7 @@ using BookSplice.FFmpeg.Tools;
 
 namespace BookSplice.FFmpeg.Validation;
 
-internal static class SharedOutputChecks
+internal static partial class SharedOutputChecks
 {
   internal const long ChapterToleranceMicroseconds = 50_000;
 
@@ -120,4 +121,24 @@ internal static class SharedOutputChecks
       lock (_gate) _disposed = true;
     }
   }
+
+  // ffmpeg lines every MP4 with a chapter track produces. They say nothing about the file being broken.
+  internal static bool IsKnownNote(string line, MediaProbeResult facts)
+  {
+    var text = line.Trim();
+    var timescale = TimescaleNotSet().Match(text);
+    if (timescale.Success)
+      return int.TryParse(timescale.Groups["index"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var audio) && facts.AudioStreams.Any(value => value.Index == audio);
+    var match = UnsupportedChapterCodec().Match(text);
+    if (!match.Success || !int.TryParse(match.Groups["index"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var index)) return false;
+    var stream = facts.OtherStreams?.SingleOrDefault(value => value.Index == index);
+    return stream is not null && string.Equals(stream.CodecType, "data", StringComparison.OrdinalIgnoreCase) && string.Equals(stream.CodecTag, "text", StringComparison.OrdinalIgnoreCase);
+  }
+
+  [GeneratedRegex(@"^(\[[^\]]*\] )?stream (?<index>[0-9]+), timescale not set$", RegexOptions.CultureInvariant)]
+  private static partial Regex TimescaleNotSet();
+
+  // 98314 is ffmpeg's bin_data id, which the mov demuxer reports for the chapter text track.
+  [GeneratedRegex(@"^Unsupported codec with id 98314 for input stream (?<index>[0-9]+)$", RegexOptions.CultureInvariant)]
+  private static partial Regex UnsupportedChapterCodec();
 }

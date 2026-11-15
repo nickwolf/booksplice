@@ -28,6 +28,8 @@ public sealed class ExistingM4bCheckerIntegrationTests
     Assert.Contains(report.Checks, check => check.Code == "cover.found" && check.Status == ExistingCheckStatus.Note && check.Message == "Cover: mjpeg 64x64");
     Assert.Contains(report.Checks, check => check.Code == "decode.full" && check.Status == ExistingCheckStatus.Passed);
     Assert.Contains(report.Checks, check => check.Code == "chapters.within-audio" && check.Status == ExistingCheckStatus.Passed);
+    // The chapter text track makes ffmpeg print "Unsupported codec with id 98314", which says nothing about the file.
+    Assert.DoesNotContain(report.Warnings, warning => warning.Contains("98314", StringComparison.Ordinal));
     Assert.Equal(before, Hash(path));
   }
 

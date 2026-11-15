@@ -80,6 +80,7 @@ public sealed class ExistingM4bChecker : IExistingFileChecker
       checks.Add(Convert(outcome.Check));
     }
     else checks.Add(new ExistingFileCheck(ValidationCodes.FullDecode, ExistingCheckStatus.NotChecked, "Decode all audio was not selected.", false));
+    warnings.RemoveAll(warning => SharedOutputChecks.IsKnownNote(warning, facts));
     return new ExistingFileCheckReport(fullPath, checks, notEstablished, facts, warnings);
   }
 

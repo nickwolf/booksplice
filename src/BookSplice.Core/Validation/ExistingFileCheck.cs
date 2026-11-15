@@ -24,3 +24,18 @@ public sealed class ExistingFileCheckReport
   public IReadOnlyList<string> Warnings { get; }
   public bool IsValid => !Checks.Any(check => check.Required && check.Status == ExistingCheckStatus.Failed);
 }
+
+public static class ExistingCheckText
+{
+  public static string Label(ExistingCheckStatus status) => status switch
+  {
+    ExistingCheckStatus.Passed => "Passed",
+    ExistingCheckStatus.Failed => "Failed",
+    ExistingCheckStatus.NotChecked => "Not checked",
+    _ => "Note",
+  };
+
+  // One line per check, named by its code like the conversion result card. A pass needs no message.
+  public static string Line(ExistingFileCheck check)
+    => check.Status == ExistingCheckStatus.Passed ? $"Passed: {check.Code}" : $"{Label(check.Status)}: {check.Code}. {check.Message}";
+}

@@ -65,7 +65,7 @@ public sealed class CheckFileTests
     Assert.True(item.HasCheckResult);
     Assert.False(item.HasConversionResult);
     Assert.Equal("Check passed", item.Result!.Title);
-    Assert.Equal(["Passed: The file opens.", "Not checked: Audio was not decoded.", "Note: No cover found.", "Chapter timing was not verified.", "Odd tag"], item.Result.CheckLines);
+    Assert.Equal(["Passed: container.read", "Not checked: audio.decode. Audio was not decoded.", "Note: tags.read. No cover found.", "Chapter timing was not verified.", "Odd tag"], item.Result.CheckLines);
     Assert.Equal(BookPath, checker.Paths.Single());
     var record = Assert.Single(log.Records);
     Assert.Equal("check", record.Kind);
@@ -89,7 +89,7 @@ public sealed class CheckFileTests
 
     Assert.Equal("Check failed", item.Status);
     Assert.Equal("Check failed", item.QueueStatus);
-    Assert.Equal(["Failed: The audio is not AAC.", "Failed: Tags are odd."], item.Result!.CheckLines);
+    Assert.Equal(["Failed: audio.codec. The audio is not AAC.", "Failed: tags.read. Tags are odd."], item.Result!.CheckLines);
     var record = Assert.Single(log.Records);
     Assert.Equal(ConversionTerminalStatus.ValidationFailed, record.TerminalStatus);
     Assert.Equal([ServiceDiagnosticSeverity.Error, ServiceDiagnosticSeverity.Information], record.Diagnostics.Select(value => value.Severity));

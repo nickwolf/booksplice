@@ -65,7 +65,7 @@ public sealed class ConversionResultDisplay
   public static ConversionResultDisplay CreateCheck(ExistingFileCheckReport report, TimeSpan elapsed)
   {
     ArgumentNullException.ThrowIfNull(report);
-    var lines = report.Checks.Select(check => $"{CheckLabel(check.Status)}: {check.Message}").Concat(report.NotEstablished).Concat(report.Warnings).ToArray();
+    var lines = report.Checks.Select(ExistingCheckText.Line).Concat(report.NotEstablished).Concat(report.Warnings).ToArray();
     return new ConversionResultDisplay
     {
       Title = report.IsValid ? "Check passed" : "Check failed",
@@ -76,13 +76,6 @@ public sealed class ConversionResultDisplay
     };
   }
 
-  internal static string CheckLabel(ExistingCheckStatus status) => status switch
-  {
-    ExistingCheckStatus.Passed => "Passed",
-    ExistingCheckStatus.Failed => "Failed",
-    ExistingCheckStatus.NotChecked => "Not checked",
-    _ => "Note",
-  };
 
   internal static string DescribeStatus(ConversionTerminalStatus status) => status switch
   {
