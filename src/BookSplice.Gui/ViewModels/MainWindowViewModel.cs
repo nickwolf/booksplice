@@ -396,6 +396,8 @@ public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConvers
       if (registeredJob is { } job) ActiveJobRegistry.Shared.Remove(job);
       timer.Stop(); elapsed.Stop(); if (acquired) _scheduler.Release(); item.Cancellation = null; item.ConversionStarted = false; item.IsBusy = false;
     }
+    // Release on conversion start took playback away. Give it back once the selected book is idle, unless the user already started another preview.
+    if (SelectedItem is { IsBusy: false } selected && !Preview.CanPlay) Preview.SetBook(selected);
     var outcome = Finished(item);
     item.Outcome = outcome.Outcome;
     return outcome;

@@ -10,6 +10,7 @@ public interface IAudioPlayer : IDisposable
   /// <summary>Releases the open file so it can be deleted.</summary>
   void Close();
   TimeSpan Position { get; set; }
+  event EventHandler? Opened;
   event EventHandler? Ended;
   event EventHandler<string>? Failed;
 }

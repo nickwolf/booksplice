@@ -33,6 +33,13 @@ public sealed class PreviewViewModelTests : IDisposable
   // Two tracks of 300 s each.
   private static BookQueueItemViewModel Book(BookAnalysisStatus status = BookAnalysisStatus.Ready, params long[] seconds)
   {
+    var item = new BookQueueItemViewModel(Root, AppSettings.Defaults);
+    item.SetAnalysis(Analysis(status, seconds));
+    return item;
+  }
+
+  private static BookAnalysis Analysis(BookAnalysisStatus status, long[] seconds)
+  {
     if (seconds.Length == 0) seconds = [300, 300];
     var names = seconds.Select((_, index) => $"{index + 1}.mp3").ToArray();
     long start = 0;
@@ -44,9 +51,7 @@ public sealed class PreviewViewModelTests : IDisposable
     var files = names.Select((name, index) => new SourceFile(Path.Combine(Root, name), name,
       new MediaProbeResult([new AudioTrack(0, "mp3", "audio", 1, 44100, 1m, new Rational(1, 44100), new Dictionary<string, string>())], [], [], new TagCollection([]), new Dictionary<string, string>(), [], seconds[index]),
       new SourceIdentity(Path.Combine(Root, name), 100, DateTime.UnixEpoch, name)));
-    var item = new BookQueueItemViewModel(Root, AppSettings.Defaults);
-    item.SetAnalysis(new BookAnalysis(status, Root, "book", files, null, metadata, new CoverDiscoveryResult([], [], null), ChapterPlan.Valid(entries, start), [], [], names));
-    return item;
+    return new BookAnalysis(status, Root, "book", files, null, metadata, new CoverDiscoveryResult([], [], null), ChapterPlan.Valid(entries, start), [], [], names);
   }
 
   [Fact]
@@ -391,6 +396,75 @@ public sealed class PreviewViewModelTests : IDisposable
   }
 
   [Fact]
+  public async Task AFinishedConversionBringsPlaybackBackForTheSelectedBook()
+  {
+    var preview = Create();
+    var model = new MainWindowViewModel(new PlayableAnalyzer(), new FinishedConverter(), AppSettings.Defaults, preview: preview);
+    await model.AddAsync(Root);
+    model.SelectedItem = model.Items[0];
+    Assert.True(preview.CanPlay);
+
+    await model.ConvertAsync(model.Items[0]);
+
+    Assert.True(preview.CanPlay);
+  }
+
+  [Fact]
+  public async Task AFinishedConversionDoesNotInterruptAPreviewThatStartedMeanwhile()
+  {
+    var preview = Create();
+    var gate = new GatedConverter();
+    var model = new MainWindowViewModel(new PlayableAnalyzer(), gate, AppSettings.Defaults, preview: preview);
+    await model.AddAsync(Root);
+    model.SelectedItem = model.Items[0];
+    var conversion = model.ConvertAsync(model.Items[0]);
+    await gate.Started.Task;
+    Assert.False(preview.CanPlay);
+    preview.SetBook(Book());
+    _decoder.AutoComplete = true;
+    await preview.PlayTrackAsync(0);
+    var player = Assert.Single(_players);
+
+    gate.Release.SetResult();
+    await conversion;
+
+    Assert.False(player.IsDisposed);
+    Assert.True(preview.IsPlaying);
+  }
+
+  [Fact]
+  public async Task TheRangeIsTheTrackForATrackAndTheRegionForABoundary()
+  {
+    var preview = Create();
+    preview.SetBook(Book());
+    _decoder.AutoComplete = true;
+    Assert.Equal(0, preview.RangeLengthMicroseconds);
+    Assert.False(preview.CanStop);
+
+    await preview.PlayTrackAsync(1, 30 * Second);
+    _players[0].Position = TimeSpan.FromSeconds(12);
+    preview.Tick();
+
+    Assert.True(preview.CanStop);
+    Assert.Equal(300 * Second, preview.RangeStartMicroseconds);
+    Assert.Equal(300 * Second, preview.RangeLengthMicroseconds);
+    Assert.Equal(42 * Second, preview.RangePositionMicroseconds);
+
+    await preview.PlayBoundaryAsync(300 * Second);
+    _players[^1].Position = TimeSpan.FromSeconds(7);
+    preview.Tick();
+
+    Assert.Equal(295 * Second, preview.RangeStartMicroseconds);
+    Assert.Equal(10 * Second, preview.RangeLengthMicroseconds);
+    Assert.Equal(7 * Second, preview.RangePositionMicroseconds);
+    Assert.Equal(302 * Second, preview.CurrentBookMicroseconds);
+
+    preview.Stop();
+    Assert.False(preview.CanStop);
+    Assert.Equal(0, preview.RangeLengthMicroseconds);
+  }
+
+  [Fact]
   public async Task ClosingTheWindowModelReleasesThePreview()
   {
     var preview = Create();
@@ -419,103 +493,30 @@ public sealed class PreviewViewModelTests : IDisposable
     PreviewViewModel.Sweep(Path.Combine(_previewRoot, "missing"));
   }
 
+  private sealed class PlayableAnalyzer : IBookAnalyzer
+  {
+    public Task<BookAnalysis> AnalyzeAsync(SourceSelection selection, bool chaptersEnabled, BookAnalysisOptions? options = null, CancellationToken cancellationToken = default) => AnalyzeAsync(selection.RootPath, chaptersEnabled, options, cancellationToken);
+
+    public Task<BookAnalysis> AnalyzeAsync(string inputPath, bool chaptersEnabled, BookAnalysisOptions? options = null, CancellationToken cancellationToken = default)
+      => Task.FromResult(Analysis(BookAnalysisStatus.Ready, []));
+  }
+
+  private sealed class GatedConverter : IConversionService
+  {
+    public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public async Task<ConversionServiceResult> ConvertAsync(ConversionRequest request, CancellationToken cancellationToken, IProgress<ConversionProgress>? progress = null)
+    {
+      Started.SetResult();
+      await Release.Task;
+      return new ConversionServiceResult(Guid.NewGuid(), ConversionTerminalStatus.Succeeded, ConversionStage.Completed, null, null, null, null, null, [], [], "finished.m4b");
+    }
+  }
+
   private sealed class FinishedConverter : IConversionService
   {
     public Task<ConversionServiceResult> ConvertAsync(ConversionRequest request, CancellationToken cancellationToken, IProgress<ConversionProgress>? progress = null)
       => Task.FromResult(new ConversionServiceResult(Guid.NewGuid(), ConversionTerminalStatus.Succeeded, ConversionStage.Completed, null, null, null, null, null, [], [], "finished.m4b"));
-  }
-
-  private sealed class FakeDecoder : IPreviewDecoder
-  {
-    private readonly Queue<Call> _expected = new();
-    public List<Call> Calls { get; } = [];
-    public bool AutoComplete { get; set; }
-    /// <summary>When false the decode finishes even if cancelled, like a decoder that was already done.</summary>
-    public bool HonorCancel { get; set; } = true;
-    public Exception? Failure { get; set; }
-
-    public Call Expect()
-    {
-      var call = new Call();
-      _expected.Enqueue(call);
-      return call;
-    }
-
-    public Task DecodeAsync(PreviewRegion region, string outputWavPath, CancellationToken ct)
-    {
-      if (Failure is { } failure) return Task.FromException(failure);
-      var call = _expected.Count > 0 ? _expected.Dequeue() : new Call();
-      call.Region = region;
-      call.Path = outputWavPath;
-      call.Token = ct;
-      call.HonorCancel = HonorCancel;
-      Calls.Add(call);
-      if (AutoComplete && !call.IsCompleted) call.Complete();
-      return call.Task(ct);
-    }
-  }
-
-  private sealed class Call
-  {
-    private readonly TaskCompletionSource _source = new();
-    public PreviewRegion Region { get; set; } = null!;
-    public string Path { get; set; } = "";
-    public CancellationToken Token { get; set; }
-    public bool HonorCancel { get; set; } = true;
-    public bool IsCompleted => _source.Task.IsCompleted;
-
-    public void Complete()
-    {
-      Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path)!);
-      File.WriteAllBytes(Path, [1, 2, 3]);
-      _source.TrySetResult();
-    }
-
-    public Task Task(CancellationToken ct)
-    {
-      if (HonorCancel) ct.Register(() => _source.TrySetCanceled(ct));
-      return _source.Task;
-    }
-  }
-
-  // Holds the opened file like MediaPlayer does, so deleting it before Close fails.
-  private sealed class FakePlayer : IAudioPlayer
-  {
-    private FileStream? _held;
-    public List<string> Calls { get; } = [];
-    public string? OpenedPath { get; private set; }
-    public bool IsDisposed { get; private set; }
-    public TimeSpan Position { get; set; }
-    public event EventHandler? Ended;
-    public event EventHandler<string>? Failed;
-
-    public void Open(string path)
-    {
-      Calls.Add("Open");
-      OpenedPath = path;
-      _held?.Dispose();
-      _held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-      Position = TimeSpan.Zero;
-    }
-
-    public void Play() => Calls.Add("Play");
-    public void Stop() => Calls.Add("Stop");
-
-    public void Close()
-    {
-      Calls.Add("Close");
-      _held?.Dispose();
-      _held = null;
-    }
-
-    public void Dispose()
-    {
-      IsDisposed = true;
-      _held?.Dispose();
-      _held = null;
-    }
-
-    public void RaiseEnded() => Ended?.Invoke(this, EventArgs.Empty);
-    public void RaiseFailed(string message) => Failed?.Invoke(this, message);
   }
 }

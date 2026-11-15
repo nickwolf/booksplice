@@ -40,7 +40,7 @@ public partial class MainWindow : Window
     _gate = new GuiOperationGate(Dispatcher);
     if (services is not null) DataContext = _model = new MainWindowViewModel(services.Analyzer, services.Conversion, settings, services.Planner, _gate, services.Profiles,
       new WindowsToastNotifier(Environment.ProcessPath, key => Dispatcher.BeginInvoke(() => ShowResult(key))), coverPayloads: services.CoverPayloads,
-      preview: services.PreviewDecoder is { } decoder && services.PreviewRoot is { } previewRoot ? new PreviewViewModel(decoder, () => new MediaPlayerAudioPlayer(), previewRoot) : null);
+      preview: services.PreviewDecoder is { } decoder && services.PreviewRoot is { } previewRoot ? new PreviewViewModel(decoder, services.PreviewPlayerFactory ?? (() => new MediaPlayerAudioPlayer()), previewRoot) : null);
     WindowsToastNotifier.Sync(settings.NotificationsEnabled, Environment.ProcessPath);
     Destination.Text = $"Output folder: {settings.OutputDirectory}";
     _presets = new PresetsViewModel(new Core.Presets.PresetStore(Path.Combine(Path.GetDirectoryName(store.SettingsPath)!, Core.Presets.PresetStore.FileName)), services?.Profiles);
@@ -48,6 +48,7 @@ public partial class MainWindow : Window
     _presets.Reload();
     SelectedBookPanel.DataContextChanged += SelectedBook_DataContextChanged;
     UpdateTrackButtons();
+    InitializePlayerBar();
   }
 
   internal UpdatesViewModel? Updates => _updates;
@@ -248,7 +249,11 @@ public partial class MainWindow : Window
 
   private void SelectedBook_PropertyChanged(object? sender, PropertyChangedEventArgs e)
   {
-    if (e.PropertyName == nameof(BookQueueItemViewModel.Analysis) && sender is BookQueueItemViewModel item) ShowOrderChoice(item);
+    if (e.PropertyName != nameof(BookQueueItemViewModel.Analysis) || sender is not BookQueueItemViewModel item) return;
+    ShowOrderChoice(item);
+    // A new analysis can reorder, drop or add tracks, so what the preview holds is stale. Analysis never runs during a conversion.
+    _model?.Preview.SetBook(item);
+    UpdatePlayerBar();
   }
 
   private void TrackLists_Changed(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) => UpdateTrackButtons();
@@ -296,6 +301,7 @@ public partial class MainWindow : Window
     TrackDownButton.IsEnabled = index >= 0 && index < IncludedList.Items.Count - 1;
     TrackExcludeButton.IsEnabled = index >= 0;
     TrackIncludeButton.IsEnabled = ExcludedList.SelectedIndex >= 0;
+    UpdatePlayerBar();
   }
 
   private const string BadTimeMessage = "Type a time like 1:02:03.500.";
@@ -315,6 +321,7 @@ public partial class MainWindow : Window
     ChapterSplitButton.IsEnabled = index >= 0;
     ChapterMergeButton.IsEnabled = index >= 0 && index < ChapterGrid.Items.Count - 1;
     if (index < 0) SplitPanel.Visibility = Visibility.Collapsed;
+    UpdatePlayerBar();
   }
 
   private void ChapterGrid_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e) => UpdateChapterButtons();
@@ -595,7 +602,7 @@ public partial class MainWindow : Window
     catch (Win32Exception exception) { MessageBox.Show(this, exception.Message, "Unable to open output folder"); }
   }
 
-  protected override void OnClosed(EventArgs e) { _model?.FlushQueue(); _updates?.Dispose(); _model?.Dispose(); base.OnClosed(e); }
+  protected override void OnClosed(EventArgs e) { _playerTimer.Stop(); _model?.FlushQueue(); _updates?.Dispose(); _model?.Dispose(); base.OnClosed(e); }
 
   protected override void OnClosing(CancelEventArgs e)
   {

@@ -58,4 +58,4 @@ public sealed class AppHost(string localAppDataRoot)
   }
 }
 
-public sealed record GuiServices(IBookAnalyzer Analyzer, IConversionPlanner Planner, IConversionService Conversion, ICoverPayloadOpener CoverPayloads, MetadataProfileCatalog? Profiles = null, IPreviewDecoder? PreviewDecoder = null, string? PreviewRoot = null);
+public sealed record GuiServices(IBookAnalyzer Analyzer, IConversionPlanner Planner, IConversionService Conversion, ICoverPayloadOpener CoverPayloads, MetadataProfileCatalog? Profiles = null, IPreviewDecoder? PreviewDecoder = null, string? PreviewRoot = null, Func<IAudioPlayer>? PreviewPlayerFactory = null);

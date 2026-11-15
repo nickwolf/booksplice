@@ -36,17 +36,25 @@ public sealed class PreviewViewModel(IPreviewDecoder decoder, Func<IAudioPlayer>
   private Task _ahead = Task.CompletedTask;
 
   public bool CanPlay { get => _canPlay; private set { if (_canPlay == value) return; _canPlay = value; Changed(); } }
-  public bool IsPlaying { get => _isPlaying; private set { if (_isPlaying == value) return; _isPlaying = value; Changed(); } }
-  public bool IsDecoding { get => _isDecoding; private set { if (_isDecoding == value) return; _isDecoding = value; Changed(); } }
+  public bool IsPlaying { get => _isPlaying; private set { if (_isPlaying == value) return; _isPlaying = value; Changed(); Changed(nameof(CanStop)); } }
+  public bool IsDecoding { get => _isDecoding; private set { if (_isDecoding == value) return; _isDecoding = value; Changed(); Changed(nameof(CanStop)); } }
+  public bool CanStop => IsPlaying || IsDecoding;
   public bool IsBoundary { get => _isBoundary; private set { if (_isBoundary == value) return; _isBoundary = value; Changed(); } }
   public string Message { get => _message; private set { if (_message == value) return; _message = value; Changed(); } }
   public long CurrentBookMicroseconds => _current is null ? 0 : _current.Region.BookStartMicroseconds + _positionMicroseconds;
-  public string PositionText => _current is null ? "" : $"{Format(TrackOffset + _positionMicroseconds)} / {Format(IsBoundary ? _current.Region.LengthMicroseconds : _tracks[_current.TrackIndex].DurationMicroseconds)}";
+  public string PositionText => _current is null ? "" : $"{Format(RangePositionMicroseconds)} / {Format(RangeLengthMicroseconds)}";
+
+  /// <summary>Book time where the position bar starts: the start of the playing track, or of the boundary region.</summary>
+  public long RangeStartMicroseconds => _current is null ? 0 : IsBoundary ? _current.Region.BookStartMicroseconds : PreviewPlanner.TrackStart(_tracks, _current.TrackIndex);
+
+  /// <summary>Length the position bar covers: the whole playing track, or the boundary region.</summary>
+  public long RangeLengthMicroseconds => _current is null ? 0 : IsBoundary ? _current.Region.LengthMicroseconds : _tracks[_current.TrackIndex].DurationMicroseconds;
+
+  /// <summary>Where playback is on the position bar, so <see cref="RangeStartMicroseconds"/> plus this is <see cref="CurrentBookMicroseconds"/>.</summary>
+  public long RangePositionMicroseconds => _current is null ? 0 : CurrentBookMicroseconds - RangeStartMicroseconds;
 
   /// <summary>The decode-ahead in flight, for tests.</summary>
   internal Task AheadTask => _ahead;
-
-  private long TrackOffset => _current is null || IsBoundary ? 0 : _current.Region.BookStartMicroseconds - PreviewPlanner.TrackStart(_tracks, _current.TrackIndex);
 
   /// <summary>Deletes what an earlier run left in the preview folder. Files that cannot be deleted are skipped.</summary>
   public static void Sweep(string previewRoot)
@@ -334,6 +342,9 @@ public sealed class PreviewViewModel(IPreviewDecoder decoder, Func<IAudioPlayer>
   {
     Changed(nameof(CurrentBookMicroseconds));
     Changed(nameof(PositionText));
+    Changed(nameof(RangeStartMicroseconds));
+    Changed(nameof(RangeLengthMicroseconds));
+    Changed(nameof(RangePositionMicroseconds));
   }
 
   private void TryRemoveSessionDirectory()
