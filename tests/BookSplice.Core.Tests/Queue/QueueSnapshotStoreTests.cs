@@ -106,6 +106,31 @@ public sealed class QueueSnapshotStoreTests : IDisposable
   }
 
   [Fact]
+  public void ChapterMarksRoundTripWithTheTracksTheyWereMadeOn()
+  {
+    var marks = new[] { new SavedChapterMark(0, "One"), new SavedChapterMark(12_345_678, "Two") };
+    var item = new QueueItemRecord(Path.GetFullPath("books/marks"), Settings(), ChapterMarks: marks, ChapterMarksTotalMicroseconds: 99_000_000, ChapterMarksSources: ["a.mp3", "b.mp3"]);
+    Store().Save(Snapshot(item));
+
+    var loaded = Store().Load().Snapshot!.Items[0];
+
+    Assert.Equal(marks, loaded.ChapterMarks);
+    Assert.Equal(99_000_000, loaded.ChapterMarksTotalMicroseconds);
+    Assert.Equal(["a.mp3", "b.mp3"], loaded.ChapterMarksSources);
+  }
+
+  [Fact]
+  public void AFileWithoutChapterMarksLoadsAsUneditedAndKeepsSchemaVersionOne()
+  {
+    Write(ValidJson(""));
+    var loaded = Store().Load();
+
+    Assert.Equal(QueueLoadCode.Loaded, loaded.Code);
+    Assert.Null(loaded.Snapshot!.Items[0].ChapterMarks);
+    Assert.Equal(1, loaded.Snapshot.SchemaVersion);
+  }
+
+  [Fact]
   public void QueueOrderIsKept()
   {
     var items = Enumerable.Range(0, 5).Select(i => new QueueItemRecord(Path.GetFullPath($"books/{i}"), Settings())).ToArray();
