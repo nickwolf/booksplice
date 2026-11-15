@@ -16,7 +16,8 @@ public sealed record CliOptions(
   Core.Planning.ChannelPolicy? ChannelPolicy = null,
   string? OutputTemplate = null,
   string? PresetName = null,
-  bool ListPresets = false);
+  bool ListPresets = false,
+  bool Check = false);
 
 public sealed record CliDiagnostic(string Code, string Message);
 

@@ -13,6 +13,7 @@ public enum CliExitCode
   ValidationFailure = 6,
   PublicationFailure = 7,
   Cancelled = 8,
+  CheckFailed = 9,
 }
 
 public static class CliExitCodes

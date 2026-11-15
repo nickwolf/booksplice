@@ -8,6 +8,7 @@ using BookSplice.Core.Metadata;
 using BookSplice.Core.Ordering;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Settings;
+using BookSplice.Core.Validation;
 
 namespace BookSplice.Cli.Tests;
 
@@ -357,6 +358,200 @@ public sealed class CliApplicationTests
     Assert.Contains("output note text", errorText, StringComparison.Ordinal);
     Assert.Contains("warning text", errorText, StringComparison.Ordinal);
     Assert.Contains("cancelled text", errorText, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task CheckTextPrintsEveryCheckAndPasses()
+  {
+    var checker = new FakeChecker(CheckReport(
+      new ExistingFileCheck("file.exists", ExistingCheckStatus.Passed, "Passed."),
+      new ExistingFileCheck("tags.title", ExistingCheckStatus.Note, "No title tag.", false),
+      new ExistingFileCheck("full.decode", ExistingCheckStatus.NotChecked, "Decode all audio was not selected.", false)));
+    var output = new StringWriter();
+    var application = new CliApplication(new SettingsStore(Settings()), new NeverCalledService(), checker: checker);
+
+    var exitCode = await application.RunAsync(["C:\\Books\\Book.m4b", "--check"], output, TextWriter.Null, CancellationToken.None);
+
+    Assert.Equal(CliExitCode.Success, exitCode);
+    string[] expected =
+    [
+      "Checking Book.m4b",
+      "Passed: Passed.",
+      "Note: No title tag.",
+      "Not checked: Decode all audio was not selected.",
+      NotEstablishedLine,
+      "A warning.",
+      "Check passed",
+    ];
+    Assert.Equal(expected, Lines(output));
+  }
+
+  [Fact]
+  public async Task CheckExitsCheckFailedWhenARequiredCheckFails()
+  {
+    var checker = new FakeChecker(CheckReport(new ExistingFileCheck("audio.codec", ExistingCheckStatus.Failed, "Audio is not AAC-LC.")));
+    var output = new StringWriter();
+    var application = new CliApplication(new SettingsStore(Settings()), new NeverCalledService(), checker: checker);
+
+    var exitCode = await application.RunAsync(["Book.m4b", "--check"], output, TextWriter.Null, CancellationToken.None);
+
+    Assert.Equal(CliExitCode.CheckFailed, exitCode);
+    Assert.Equal(9, (int)exitCode);
+    var lines = Lines(output);
+    Assert.Contains("Failed: Audio is not AAC-LC.", lines);
+    Assert.Equal("Check failed", lines[^1]);
+  }
+
+  [Fact]
+  public async Task CheckNonRequiredFailureStillPasses()
+  {
+    var checker = new FakeChecker(CheckReport(new ExistingFileCheck("cover.found", ExistingCheckStatus.Failed, "Cover is odd.", false)));
+    var output = new StringWriter();
+    var application = new CliApplication(new SettingsStore(Settings()), new NeverCalledService(), checker: checker);
+
+    var exitCode = await application.RunAsync(["Book.m4b", "--check"], output, TextWriter.Null, CancellationToken.None);
+
+    Assert.Equal(CliExitCode.Success, exitCode);
+    Assert.Equal("Check passed", Lines(output)[^1]);
+  }
+
+  [Fact]
+  public async Task CheckJsonEmitsStartedCheckEventsAndFinal()
+  {
+    var checker = new FakeChecker(CheckReport(
+      new ExistingFileCheck("file.exists", ExistingCheckStatus.Passed, "Passed."),
+      new ExistingFileCheck("tags.title", ExistingCheckStatus.Note, "No title tag.", false)));
+    var output = new StringWriter();
+    var application = new CliApplication(new SettingsStore(Settings()), new NeverCalledService(), checker: checker);
+
+    var exitCode = await application.RunAsync(["C:\\Books\\Book.m4b", "--check", "--json"], output, TextWriter.Null, CancellationToken.None);
+
+    Assert.Equal(CliExitCode.Success, exitCode);
+    var events = Lines(output).Select(line => JsonDocument.Parse(line).RootElement.Clone()).ToArray();
+    Assert.Equal(["started", "check", "check", "final"], events.Select(item => item.GetProperty("event").GetString()));
+    Assert.All(events, item => Assert.Equal(1, item.GetProperty("schemaVersion").GetInt32()));
+    Assert.Equal("file.exists", events[1].GetProperty("code").GetString());
+    Assert.Equal("Passed", events[1].GetProperty("status").GetString());
+    Assert.True(events[1].GetProperty("required").GetBoolean());
+    Assert.Equal("Note", events[2].GetProperty("status").GetString());
+    Assert.False(events[2].GetProperty("required").GetBoolean());
+    var final = events[^1];
+    Assert.Equal("Passed", final.GetProperty("status").GetString());
+    Assert.Equal(0, final.GetProperty("exitCode").GetInt32());
+    Assert.Single(final.GetProperty("notEstablished").EnumerateArray());
+    Assert.Single(final.GetProperty("warnings").EnumerateArray());
+    Assert.DoesNotContain("C:\\Books", output.ToString(), StringComparison.OrdinalIgnoreCase);
+  }
+
+  [Theory]
+  [InlineData(new string[0], false)]
+  [InlineData(new[] { "--validation", "lightweight" }, false)]
+  [InlineData(new[] { "--validation", "full" }, true)]
+  public async Task CheckDecodesAllAudioOnlyForValidationFull(string[] extra, bool expected)
+  {
+    var checker = new FakeChecker(CheckReport());
+    var application = new CliApplication(new SettingsStore(Settings()), new NeverCalledService(), checker: checker);
+
+    var exitCode = await application.RunAsync(["Book.m4b", "--check", .. extra], TextWriter.Null, TextWriter.Null, CancellationToken.None);
+
+    Assert.Equal(CliExitCode.Success, exitCode);
+    Assert.Equal(expected, checker.FullDecode);
+  }
+
+  [Fact]
+  public async Task CheckCancellationReturnsCancelledWithFinalJson()
+  {
+    var checker = new FakeChecker(CheckReport());
+    var output = new StringWriter();
+    var error = new StringWriter();
+    using var cancellation = new CancellationTokenSource();
+    cancellation.Cancel();
+    var application = new CliApplication(new SettingsStore(Settings()), new NeverCalledService(), checker: checker);
+
+    var exitCode = await application.RunAsync(["Book.m4b", "--check", "--json"], output, error, cancellation.Token);
+
+    Assert.Equal(CliExitCode.Cancelled, exitCode);
+    Assert.Equal(8, (int)exitCode);
+    Assert.Contains("The check was cancelled.", error.ToString(), StringComparison.Ordinal);
+    using var final = JsonDocument.Parse(Lines(output)[^1]);
+    Assert.Equal("Cancelled", final.RootElement.GetProperty("status").GetString());
+  }
+
+  [Fact]
+  public async Task CheckUnexpectedFailureReturnsUnexpectedFailureWithFinalJson()
+  {
+    var output = new StringWriter();
+    var error = new StringWriter();
+    var application = new CliApplication(new SettingsStore(Settings()), new NeverCalledService(), checker: new ThrowingChecker());
+
+    var exitCode = await application.RunAsync(["Book.m4b", "--check", "--json"], output, error, CancellationToken.None);
+
+    Assert.Equal(CliExitCode.UnexpectedFailure, exitCode);
+    Assert.Equal(1, (int)exitCode);
+    Assert.Contains("The check failed unexpectedly.", error.ToString(), StringComparison.Ordinal);
+    using var final = JsonDocument.Parse(Lines(output)[^1]);
+    Assert.Equal("UnexpectedFailure", final.RootElement.GetProperty("status").GetString());
+  }
+
+  [Fact]
+  public async Task CheckWithoutToolsReturnsExecutionFailure()
+  {
+    var error = new StringWriter();
+    var application = new CliApplication(new SettingsStore(Settings()), new NeverCalledService());
+
+    var exitCode = await application.RunAsync(["Book.m4b", "--check"], TextWriter.Null, error, CancellationToken.None);
+
+    Assert.Equal(CliExitCode.ExecutionFailure, exitCode);
+    Assert.Contains("The required media tools are unavailable.", error.ToString(), StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task CheckNeverStartsConversionOrWritesAuditRecords()
+  {
+    var logs = new RecordingLogs();
+    var checker = new FakeChecker(CheckReport());
+    var failing = new FakeChecker(CheckReport(new ExistingFileCheck("audio.codec", ExistingCheckStatus.Failed, "Audio is not AAC-LC.")));
+    var passingApplication = new CliApplication(new SettingsStore(Settings()), new NeverCalledService(), logs, checker: checker);
+    var failingApplication = new CliApplication(new SettingsStore(Settings()), new NeverCalledService(), logs, checker: failing);
+
+    Assert.Equal(CliExitCode.Success, await passingApplication.RunAsync(["Book.m4b", "--check"], TextWriter.Null, TextWriter.Null, CancellationToken.None));
+    Assert.Equal(CliExitCode.CheckFailed, await failingApplication.RunAsync(["Book.m4b", "--check"], TextWriter.Null, TextWriter.Null, CancellationToken.None));
+
+    Assert.Equal(1, checker.Calls);
+    Assert.Equal(1, failing.Calls);
+    Assert.Empty(logs.Records);
+  }
+
+  private static string NotEstablishedLine => "Matches the original tracks: not established, the originals aren't available.";
+
+  private static string[] Lines(StringWriter writer) => writer.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+
+  private static ExistingFileCheckReport CheckReport(params ExistingFileCheck[] checks) => new(
+    "C:\\Books\\Book.m4b", checks, [NotEstablishedLine], warnings: ["A warning."]);
+
+  private sealed class FakeChecker(ExistingFileCheckReport report) : IExistingFileChecker
+  {
+    public int Calls { get; private set; }
+    public bool? FullDecode { get; private set; }
+    public Task<ExistingFileCheckReport> CheckAsync(string path, bool fullDecode, CancellationToken cancellationToken, IProgress<ConversionProgress>? progress = null)
+    {
+      Calls++;
+      FullDecode = fullDecode;
+      cancellationToken.ThrowIfCancellationRequested();
+      return Task.FromResult(report);
+    }
+  }
+
+  private sealed class ThrowingChecker : IExistingFileChecker
+  {
+    public Task<ExistingFileCheckReport> CheckAsync(string path, bool fullDecode, CancellationToken cancellationToken, IProgress<ConversionProgress>? progress = null)
+      => Task.FromException<ExistingFileCheckReport>(new IOException("injected"));
+  }
+
+  private sealed class NeverCalledService : IConversionService
+  {
+    public Task<ConversionServiceResult> ConvertAsync(ConversionRequest request, CancellationToken cancellationToken, IProgress<ConversionProgress>? progress = null)
+      => throw new InvalidOperationException("The conversion service must not be called by --check.");
   }
 
   private static ConversionServiceResult Result(ConversionTerminalStatus status) => new(

@@ -6,6 +6,7 @@ using BookSplice.Core.Naming;
 using BookSplice.Core.Planning;
 using BookSplice.Core.Presets;
 using BookSplice.Core.Settings;
+using BookSplice.Core.Validation;
 
 namespace BookSplice.Cli;
 
@@ -16,13 +17,14 @@ public sealed class CliApplication
   private readonly IConversionService _service;
   private readonly IJobLogWriter? _logs;
   private readonly TimeProvider _timeProvider;
+  private readonly IExistingFileChecker? _checker;
 
   private readonly MetadataProfileCatalog? _profiles;
 
   private readonly PresetStore? _presets;
 
-  public CliApplication(ISettingsStore settings, IConversionService service, IJobLogWriter? logs = null, MetadataProfileCatalog? profiles = null, TimeProvider? timeProvider = null, PresetStore? presets = null)
-    => (_settings, _service, _logs, _profiles, _timeProvider, _presets) = (settings, service, logs, profiles, timeProvider ?? TimeProvider.System, presets);
+  public CliApplication(ISettingsStore settings, IConversionService service, IJobLogWriter? logs = null, MetadataProfileCatalog? profiles = null, TimeProvider? timeProvider = null, PresetStore? presets = null, IExistingFileChecker? checker = null)
+    => (_settings, _service, _logs, _profiles, _timeProvider, _presets, _checker) = (settings, service, logs, profiles, timeProvider ?? TimeProvider.System, presets, checker);
 
   public async Task<CliExitCode> RunAsync(IReadOnlyList<string> arguments, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken, TextReader? standardInput = null)
   {
@@ -42,6 +44,7 @@ public sealed class CliApplication
     }
 
     if (parsed.Options!.ListPresets) return ListPresets(parsed.Options.Json, standardOutput, standardError);
+    if (parsed.Options.Check) return await RunCheckAsync(parsed.Options, standardOutput, standardError, cancellationToken).ConfigureAwait(false);
 
     SettingsLoadResult loaded;
     try { loaded = await _settings.LoadAsync(cancellationToken).ConfigureAwait(false); }
@@ -177,6 +180,73 @@ public sealed class CliApplication
     }
     return exitCode;
   }
+
+  private async Task<CliExitCode> RunCheckAsync(CliOptions options, TextWriter standardOutput, TextWriter standardError, CancellationToken cancellationToken)
+  {
+    var sync = new object();
+    if (_checker is null)
+    {
+      standardError.WriteLine("The required media tools are unavailable.");
+      if (options.Json) WriteJson(standardOutput, new { SchemaVersion = 1, Event = "final", Status = "ExecutionFailed", ExitCode = (int)CliExitCode.ExecutionFailure }, sync);
+      return CliExitCode.ExecutionFailure;
+    }
+
+    if (options.Json) WriteJson(standardOutput, new { SchemaVersion = 1, Event = "started" }, sync);
+    else standardOutput.WriteLine(PublicTextRedactor.Sanitize($"Checking {Path.GetFileName(options.Source)}", [options.Source]));
+
+    ExistingFileCheckReport report;
+    try
+    {
+      report = await RunCheckAttemptAsync(_checker, options, standardOutput, cancellationToken).ConfigureAwait(false);
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+      standardError.WriteLine("The check was cancelled.");
+      if (options.Json) WriteJson(standardOutput, new { SchemaVersion = 1, Event = "final", Status = "Cancelled", ExitCode = (int)CliExitCode.Cancelled }, sync);
+      return CliExitCode.Cancelled;
+    }
+    catch (Exception)
+    {
+      standardError.WriteLine("The check failed unexpectedly.");
+      if (options.Json) WriteJson(standardOutput, new { SchemaVersion = 1, Event = "final", Status = "UnexpectedFailure", ExitCode = (int)CliExitCode.UnexpectedFailure }, sync);
+      return CliExitCode.UnexpectedFailure;
+    }
+
+    var exitCode = report.IsValid ? CliExitCode.Success : CliExitCode.CheckFailed;
+    var notEstablished = report.NotEstablished.Select(value => PublicTextRedactor.Sanitize(value, [options.Source])).ToArray();
+    var warnings = report.Warnings.Select(value => PublicTextRedactor.Sanitize(value, [options.Source])).ToArray();
+    if (options.Json)
+    {
+      foreach (var check in report.Checks)
+        WriteJson(standardOutput, new { SchemaVersion = 1, Event = "check", Code = check.Code, Status = check.Status.ToString(), Required = check.Required, Message = PublicTextRedactor.Sanitize(check.Message, [options.Source]) }, sync);
+      WriteJson(standardOutput, new { SchemaVersion = 1, Event = "final", Status = report.IsValid ? "Passed" : "Failed", ExitCode = (int)exitCode, NotEstablished = notEstablished, Warnings = warnings }, sync);
+    }
+    else
+    {
+      foreach (var check in report.Checks)
+        standardOutput.WriteLine(PublicTextRedactor.Sanitize($"{CheckLabel(check.Status)}: {check.Message}", [options.Source]));
+      foreach (var line in notEstablished) standardOutput.WriteLine(line);
+      foreach (var line in warnings) standardOutput.WriteLine(line);
+      standardOutput.WriteLine(report.IsValid ? "Check passed" : "Check failed");
+    }
+    return exitCode;
+  }
+
+  private async Task<ExistingFileCheckReport> RunCheckAttemptAsync(IExistingFileChecker checker, CliOptions options, TextWriter output, CancellationToken cancellationToken)
+  {
+    await using var progress = new CliProgressDisplay(output, options.Json, _timeProvider);
+    progress.StartAttempt();
+    try { return await checker.CheckAsync(options.Source, options.Validation == ValidationLevel.Full, cancellationToken, progress).ConfigureAwait(false); }
+    finally { await progress.StopAttemptAsync().ConfigureAwait(false); }
+  }
+
+  private static string CheckLabel(ExistingCheckStatus status) => status switch
+  {
+    ExistingCheckStatus.Passed => "Passed",
+    ExistingCheckStatus.Failed => "Failed",
+    ExistingCheckStatus.NotChecked => "Not checked",
+    _ => "Note",
+  };
 
   private CliExitCode ListPresets(bool json, TextWriter standardOutput, TextWriter standardError)
   {

@@ -203,6 +203,25 @@ public sealed class CliEndToEndTests
   }
 
   [PinnedCliMediaFact]
+  public async Task CheckReportsAnExistingM4bWithoutChangingIt()
+  {
+    var tools = ResolveTools();
+    using var root = new TemporaryDirectory();
+    var source = Directory.CreateDirectory(Path.Combine(root.Path, "Existing")).FullName;
+    var input = await GenerateAudioAsync(tools, Path.Combine(source, "01.m4b"), "aac", "440", "1");
+    var before = Hashes(input);
+    var stdout = new StringWriter();
+
+    var exitCode = await CliComposition.Create(Path.Combine(root.Path, "local"), ToolDirectory()).RunAsync(
+      [input, "--check"], stdout, TextWriter.Null, CancellationToken.None);
+
+    Assert.Equal(CliExitCode.Success, exitCode);
+    Assert.Contains("Check passed", stdout.ToString(), StringComparison.Ordinal);
+    Assert.Equal(before, Hashes(input));
+    Assert.False(Directory.Exists(Path.Combine(root.Path, "local", "BookSplice", "logs")));
+  }
+
+  [PinnedCliMediaFact]
   public async Task PreCancelledCommandReturnsCancellationWithoutFinalOutput()
   {
     var tools = ResolveTools();

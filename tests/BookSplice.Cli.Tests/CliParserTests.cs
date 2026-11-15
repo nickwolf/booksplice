@@ -172,4 +172,61 @@ public sealed class CliParserTests
     Assert.False(result.IsSuccess);
     Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "usage.unsafe-character");
   }
+
+
+  [Fact]
+  public void ParseAcceptsCheckWithFullValidation()
+  {
+    var result = CliParser.Parse(["Book.m4b", "--check", "--validation", "full"]);
+
+    var options = Assert.IsType<CliOptions>(result.Options);
+    Assert.True(result.IsSuccess);
+    Assert.True(options.Check);
+    Assert.Equal(BookSplice.Core.Settings.ValidationLevel.Full, options.Validation);
+  }
+
+  [Fact]
+  public void ParseAcceptsCheckWithJsonAndAnM4bInAnyCase()
+  {
+    var result = CliParser.Parse(["Book.M4B", "--check", "--json"]);
+
+    var options = Assert.IsType<CliOptions>(result.Options);
+    Assert.True(result.IsSuccess);
+    Assert.True(options.Check);
+    Assert.True(options.Json);
+  }
+
+  [Theory]
+  [InlineData("Book.mp3")]
+  [InlineData("Book")]
+  public void ParseRejectsCheckSourcesThatAreNotM4b(string source)
+  {
+    var result = CliParser.Parse([source, "--check"]);
+
+    Assert.False(result.IsSuccess);
+    Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "usage.check-source");
+  }
+
+  [Theory]
+  [InlineData("--overwrite")]
+  [InlineData("--dry-run")]
+  [InlineData("--no-chapters")]
+  [InlineData("--output", "C:\\Output")]
+  [InlineData("--quality", "balanced")]
+  public void ParseRejectsCheckWithOptionsOtherThanValidationAndJson(params string[] options)
+  {
+    var result = CliParser.Parse(["Book.m4b", .. options, "--check"]);
+
+    Assert.False(result.IsSuccess);
+    Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "usage.check-options");
+  }
+
+  [Fact]
+  public void ParseRejectsCheckWithoutASource()
+  {
+    var result = CliParser.Parse(["--check"]);
+
+    Assert.False(result.IsSuccess);
+    Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "usage.source-count");
+  }
 }

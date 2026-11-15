@@ -8,7 +8,7 @@ using BookSplice.FFmpeg.Tools;
 
 namespace BookSplice.FFmpeg.Validation;
 
-public sealed class ExistingM4bChecker
+public sealed class ExistingM4bChecker : IExistingFileChecker
 {
   public const string ChaptersWithinAudio = "chapters.within-audio";
   public const string ChaptersPresent = "chapters.present";
