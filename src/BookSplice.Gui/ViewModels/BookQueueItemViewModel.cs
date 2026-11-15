@@ -85,7 +85,7 @@ public sealed partial class BookQueueItemViewModel(string source, AppSettings se
   public bool CanCancel => IsBusy || IsWaiting;
   public bool CanRemove => !IsBusy;
   public bool CanEdit => !IsBusy && Status != "Complete";
-  public bool CanConvert => !IsBusy && Analysis?.Status == BookAnalysisStatus.Ready && Status != "Complete" && BlockReason is null && ReviewReason is null;
+  public bool CanConvert => !IsBusy && Analysis?.Status == BookAnalysisStatus.Ready && Status != "Complete" && BlockReason is null && ReviewReason is null && ChapterProblem is null;
   internal CancellationTokenSource? Cancellation { get; set; }
   // The last conversion's outcome, so a batch retry can pick only the books that failed.
   public BookOutcome? Outcome { get => _outcome; internal set { _outcome = value; Changed(); } }
@@ -108,7 +108,7 @@ public sealed partial class BookQueueItemViewModel(string source, AppSettings se
       ?? throw new InvalidOperationException("The selected quality profile is unavailable."), edits,
       selectedCoverHash: SelectedCover?.ContentHash,
       chapterTitles: Chapters.ToDictionary(chapter => chapter.Source, chapter => chapter.Title), omitCover: OmitCover,
-      queuedOutputPaths: queuedOutputPaths);
+      queuedOutputPaths: queuedOutputPaths, chapterMarks: _marks);
   }
 
   private void UpdateSettings(AppSettings value)
@@ -197,6 +197,7 @@ public sealed partial class BookQueueItemViewModel(string source, AppSettings se
 
   internal void SetAnalysis(BookAnalysis analysis)
   {
+    var clearedNote = ClearMarksIfTracksChanged(analysis);
     Analysis = analysis;
     PendingOrder = null;
     string? trackListNote = null;
@@ -220,8 +221,9 @@ public sealed partial class BookQueueItemViewModel(string source, AppSettings se
       BookAnalysisStatus.InspectOnly => "M4B inspection only",
       _ => "Invalid input"
     };
-    Details = string.Join(Environment.NewLine, analysis.Diagnostics.Select(diagnostic => diagnostic.Message).Concat(trackListNote is null ? [] : [trackListNote]).Concat(restoreNotes));
+    Details = string.Join(Environment.NewLine, analysis.Diagnostics.Select(diagnostic => diagnostic.Message).Concat(trackListNote is null ? [] : [trackListNote]).Concat(restoreNotes).Concat(clearedNote is null ? [] : [clearedNote]));
     WatchReviewedChoices();
     foreach (var property in new[] { nameof(Analysis), nameof(OrderCandidates), nameof(Covers), nameof(SelectedCover), nameof(OrderedFiles), nameof(Summary), nameof(CanConvert) }) Changed(property);
+    RaiseChapterEditsChanged();
   }
 }

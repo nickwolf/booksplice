@@ -1,4 +1,5 @@
 using BookSplice.Core.Analysis;
+using BookSplice.Core.Chapters;
 using BookSplice.Core.Metadata;
 using BookSplice.Core.Naming;
 
@@ -50,7 +51,15 @@ public sealed class ConversionPlanner : IConversionPlanner
     }
     var cover = string.IsNullOrWhiteSpace(options.SelectedCoverHash) ? analysis.Cover.Selected : analysis.Cover.Candidates.SingleOrDefault(c => string.Equals(c.ContentHash, options.SelectedCoverHash, StringComparison.OrdinalIgnoreCase));
     if (options.OmitCover) cover = null;
-    var chapters = analysis.Chapters.Entries.Select(chapter => options.ChapterTitles.TryGetValue(chapter.SourceRelativePath, out var title)
+    IReadOnlyList<ChapterEntry> chapters;
+    if (options.ChapterMarks is { } marks)
+    {
+      var validation = ChapterMarks.Validate(marks, analysis.Chapters.TotalDurationMicroseconds);
+      if (!validation.IsValid || analysis.Chapters.Entries.Count == 0)
+        return Task.FromResult(new ConversionPlanningResult(BookAnalysisStatus.Invalid, null, [new("planning.chapter-marks-invalid", AnalysisDiagnosticSeverity.Error, validation.IsValid ? "Chapter marks need chapters to be enabled." : $"The chapter edits are not valid: {validation.Problems[0].Message}.")], space, strategy, reasons));
+      chapters = ChapterMarks.ToEntries(marks, analysis.Chapters);
+    }
+    else chapters = analysis.Chapters.Entries.Select(chapter => options.ChapterTitles.TryGetValue(chapter.SourceRelativePath, out var title)
       ? chapter with { Title = string.IsNullOrWhiteSpace(title) ? chapter.Title : title.Trim() } : chapter).ToArray();
     var jobs = options.Settings.ConversionJobs ?? AutomaticConversionJobs;
     var metadataProfile = _profiles.Find(options.Settings.MetadataProfileId);

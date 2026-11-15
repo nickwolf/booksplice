@@ -164,6 +164,66 @@ public sealed class ConversionPlannerTests
   }
 
   [Fact]
+  public async Task CreateAsync_without_chapter_marks_keeps_the_track_chapters_and_applies_titles()
+  {
+    var analysis = Analysis(BookAnalysisStatus.Ready);
+    var settings = AppSettings.Defaults with { OutputDirectory = Path.GetTempPath() };
+    var titles = new Dictionary<string, string> { ["01.mp3"] = " Renamed " };
+    var result = await Planner().CreateAsync(analysis, new ConversionOptions(settings, QualityProfileCatalog.Version1[0], chapterTitles: titles), CancellationToken.None);
+    Assert.Null(new ConversionOptions(settings, QualityProfileCatalog.Version1[0]).ChapterMarks);
+    Assert.Equal([new ChapterEntry(0, 1_000_000, "Renamed", "One", "01.mp3")], result.Plan!.Chapters);
+    var plain = await Planner().CreateAsync(analysis, Options(), CancellationToken.None);
+    Assert.Equal(analysis.Chapters.Entries, plain.Plan!.Chapters);
+  }
+
+  [Fact]
+  public async Task CreateAsync_builds_chapters_from_marks_and_ignores_chapter_titles()
+  {
+    var files = new[] { File("01.mp3", false), File("02.mp3", false) };
+    var baseAnalysis = Analysis(BookAnalysisStatus.Ready);
+    var tracks = ChapterPlan.Valid([new ChapterEntry(0, 1_000_000, "One", "Orig One", "01.mp3"), new ChapterEntry(1_000_000, 3_000_000, "Two", "Orig Two", "02.mp3")], 3_000_000);
+    var analysis = new BookAnalysis(BookAnalysisStatus.Ready, "book", files, null, baseAnalysis.BookMetadata, baseAnalysis.Cover, tracks, []);
+    var settings = AppSettings.Defaults with { OutputDirectory = Path.GetTempPath() };
+    var marks = new ChapterMark[] { new(0, "Start"), new(1_000_000, "Second"), new(2_000_000, "Third") };
+    var titles = new Dictionary<string, string> { ["01.mp3"] = "Ignored" };
+    var result = await Planner().CreateAsync(analysis, new ConversionOptions(settings, QualityProfileCatalog.Version1[0], chapterTitles: titles, chapterMarks: marks), CancellationToken.None);
+    Assert.Equal([
+      new ChapterEntry(0, 1_000_000, "Start", "Orig One", "01.mp3"),
+      new ChapterEntry(1_000_000, 2_000_000, "Second", "Orig Two", "02.mp3"),
+      new ChapterEntry(2_000_000, 3_000_000, "Third", "Orig Two", "02.mp3")], result.Plan!.Chapters);
+  }
+
+  [Fact]
+  public async Task CreateAsync_fails_planning_when_the_chapter_marks_are_invalid()
+  {
+    var settings = AppSettings.Defaults with { OutputDirectory = Path.GetTempPath() };
+    foreach (var marks in new[] { new ChapterMark[] { new(5, "Late") }, new ChapterMark[] { new(0, "A"), new(1_000_000, "B") }, [] })
+    {
+      var result = await Planner().CreateAsync(Analysis(BookAnalysisStatus.Ready), new ConversionOptions(settings, QualityProfileCatalog.Version1[0], chapterMarks: marks), CancellationToken.None);
+      Assert.Null(result.Plan);
+      Assert.Equal(BookAnalysisStatus.Invalid, result.Status);
+      Assert.Contains(result.Diagnostics, d => d.Code == "planning.chapter-marks-invalid" && d.Severity == AnalysisDiagnosticSeverity.Error);
+    }
+  }
+
+  [Fact]
+  public async Task CreateAsync_fails_planning_when_marks_are_set_but_chapters_are_disabled()
+  {
+    var settings = AppSettings.Defaults with { OutputDirectory = Path.GetTempPath() };
+    var result = await Planner().CreateAsync(AnalysisWithDurations(3m), new ConversionOptions(settings, QualityProfileCatalog.Version1[0], chapterMarks: [new(0, "A")]), CancellationToken.None);
+    Assert.Null(result.Plan);
+    Assert.Contains(result.Diagnostics, d => d.Code == "planning.chapter-marks-invalid");
+  }
+
+  [Fact]
+  public void WithQueuedOutputPaths_keeps_the_chapter_marks()
+  {
+    var settings = AppSettings.Defaults with { OutputDirectory = Path.GetTempPath() };
+    var options = new ConversionOptions(settings, QualityProfileCatalog.Version1[0], chapterMarks: [new(0, "A")]).WithQueuedOutputPaths(["x.m4b"]);
+    Assert.Equal([new ChapterMark(0, "A")], options.ChapterMarks);
+  }
+
+  [Fact]
   public async Task PlanCopiesDurationEvidence()
   {
     var template = (await Planner().CreateAsync(Analysis(BookAnalysisStatus.Ready), Options(), CancellationToken.None)).Plan!;

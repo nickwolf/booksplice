@@ -50,7 +50,7 @@ public sealed partial class BookQueueItemViewModel
     }
   }
 
-  private string? AttentionStatus => IsBusy || Status == "Complete" ? null : BlockReason is not null ? "Choose a profile" : ReviewReason is not null ? "Needs review" : null;
+  private string? AttentionStatus => IsBusy || Status == "Complete" ? null : BlockReason is not null ? "Choose a profile" : ChapterProblem is not null ? "Fix chapters" : ReviewReason is not null ? "Needs review" : null;
 
   private void ClearBlockNote()
   {
@@ -119,6 +119,7 @@ public sealed partial class BookQueueItemViewModel
       if (Chapters.FirstOrDefault(chapter => chapter.Source == source) is { } chapter) chapter.Title = title;
       else yield return $"The saved chapter title for {source} no longer applies.";
     }
+    foreach (var note in RestoreMarks(saved)) yield return note;
     if (saved.Cover is { } cover)
     {
       var match = analysis.Cover.Candidates.FirstOrDefault(candidate => candidate.Origin == cover.Origin
