@@ -141,6 +141,9 @@ public sealed partial class JsonJobLogWriter : IJobLogWriter
       record.Timings,
       Diagnostics = record.Diagnostics.Select(value => new { value.Code, Severity = value.Severity.ToString(), Message = Sanitize(value.Message, record.OrderedSources) }),
       record.PublishedPath,
+      record.Kind,
+      record.CheckedPath,
+      record.CheckLevel,
     };
   }
 

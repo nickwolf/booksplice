@@ -204,6 +204,8 @@ public sealed class MetadataEditorTests
     }
     foreach (var element in elements)
     {
+      // Check file shares C with Validation checks; TracksAndChaptersTests and CheckFileTests cover why that is safe.
+      if (element is FrameworkElement { Name: "CheckSelectedButton" }) continue;
       var text = element switch
       {
         ContentControl { Content: string content } => content,

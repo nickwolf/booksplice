@@ -23,6 +23,7 @@ public static class CliHelp
         --list-presets                     List saved presets and whether each is usable
         --overwrite                       Replace an existing output after validation
         --dry-run                         Plan without writing output or audit files
+        --check                           Check an existing .m4b without converting (with --validation full to decode all audio)
         --json                            Newline-delimited JSON; never prompts
       Terminal runs prompt when track order needs a decision. Redirected input never prompts.
       Use the BookSplice GUI Settings window to save defaults.

@@ -15,8 +15,11 @@ public sealed class ConversionResultDisplay
   public string Title { get; private init; } = "";
   public string Summary { get; private init; } = "";
   public string? PublishedPath { get; private init; }
+  public bool IsCheck { get; private init; }
+  public string? CheckedPath { get; private init; }
+  public IReadOnlyList<string> CheckLines { get; private init; } = [];
   public bool CanOpenOutput => PublishedPath is not null;
-  public string OutputText => PublishedPath is { } path ? $"Saved to: {path}" : "No output was published.";
+  public string OutputText => CheckedPath is { } checkedPath ? $"Checked: {checkedPath}" : PublishedPath is { } path ? $"Saved to: {path}" : "No output was published.";
   public string ElapsedText { get; private init; } = "";
   public string ValidationText { get; private init; } = "";
   public string DecodeText { get; private init; } = "";
@@ -24,7 +27,7 @@ public sealed class ConversionResultDisplay
   public bool HasWarnings => Warnings.Count > 0;
   public IReadOnlyList<string> Checks { get; private init; } = [];
   public string DiagnosticsText { get; private init; } = "";
-  public string Details => string.Join(Environment.NewLine, new[] { Title, Summary, OutputText, ElapsedText, ValidationText, DecodeText }.Where(value => value.Length > 0));
+  public string Details => string.Join(Environment.NewLine, new[] { Title, Summary, OutputText, ElapsedText, ValidationText, DecodeText, string.Join(Environment.NewLine, CheckLines) }.Where(value => value.Length > 0));
 
   public static ConversionResultDisplay Create(ConversionServiceResult result, TimeSpan elapsed, ValidationLevel requestedLevel)
   {
@@ -58,6 +61,21 @@ public sealed class ConversionResultDisplay
     };
     return display;
   }
+
+  public static ConversionResultDisplay CreateCheck(ExistingFileCheckReport report, TimeSpan elapsed)
+  {
+    ArgumentNullException.ThrowIfNull(report);
+    var lines = report.Checks.Select(ExistingCheckText.Line).Concat(report.NotEstablished).Concat(report.Warnings).ToArray();
+    return new ConversionResultDisplay
+    {
+      Title = report.IsValid ? "Check passed" : "Check failed",
+      IsCheck = true,
+      CheckedPath = report.Path,
+      ElapsedText = ConversionProgressDisplay.ElapsedText(elapsed),
+      CheckLines = Array.AsReadOnly(lines),
+    };
+  }
+
 
   internal static string DescribeStatus(ConversionTerminalStatus status) => status switch
   {

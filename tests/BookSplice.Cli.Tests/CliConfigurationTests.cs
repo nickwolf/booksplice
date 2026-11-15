@@ -116,5 +116,5 @@ public sealed class CliExitCodeTests
 
   [Fact]
   public void NumericValuesAreStable()
-    => Assert.Equal([0, 1, 2, 3, 4, 5, 6, 7, 8], Enum.GetValues<CliExitCode>().Select(value => (int)value));
+    => Assert.Equal([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], Enum.GetValues<CliExitCode>().Select(value => (int)value));
 }

@@ -44,7 +44,7 @@ public static class CliParser
         continue;
       }
 
-      if (argument is "--chapters" or "--no-chapters" or "--overwrite" or "--dry-run" or "--json" or "--list-presets")
+      if (argument is "--chapters" or "--no-chapters" or "--overwrite" or "--dry-run" or "--json" or "--list-presets" or "--check")
       {
         switches.Add(argument);
         continue;
@@ -61,6 +61,13 @@ public static class CliParser
     }
     else if (sources.Count != 1) diagnostics.Add(new("usage.source-count", "Exactly one source path is required."));
     if (switches.Contains("--chapters") && switches.Contains("--no-chapters")) diagnostics.Add(new("usage.chapter-conflict", "Specify either --chapters or --no-chapters."));
+    var checkRequested = switches.Contains("--check");
+    if (checkRequested)
+    {
+      if (sources.Count == 1 && !sources[0].EndsWith(".m4b", StringComparison.OrdinalIgnoreCase)) diagnostics.Add(new("usage.check-source", "Option '--check' needs a single .m4b file."));
+      if (switches.Any(value => value is not ("--check" or "--json")) || values.Keys.Any(key => key != "--validation"))
+        diagnostics.Add(new("usage.check-options", "Option '--check' may be combined only with --validation and --json."));
+    }
 
     var bitrate = ParseRange(values, "--bitrate", 32, 320, "usage.bitrate-range", diagnostics);
     var jobs = ParseRange(values, "--jobs", 1, 32, "usage.jobs-range", diagnostics);
@@ -89,7 +96,7 @@ public static class CliParser
     bool? chapters = switches.Contains("--chapters") ? true : switches.Contains("--no-chapters") ? false : null;
     return new(new CliOptions(
       sources[0], output, quality, bitrate, jobs, chapters,
-      switches.Contains("--overwrite"), switches.Contains("--dry-run"), switches.Contains("--json"), order, metadataProfile, validation, channelPolicy, outputTemplate, presetName), []);
+      switches.Contains("--overwrite"), switches.Contains("--dry-run"), switches.Contains("--json"), order, metadataProfile, validation, channelPolicy, outputTemplate, presetName, Check: checkRequested), []);
   }
 
   private static int? ParseRange(Dictionary<string, string> values, string option, int minimum, int maximum, string code, List<CliDiagnostic> diagnostics)

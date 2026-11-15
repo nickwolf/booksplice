@@ -120,8 +120,12 @@ public sealed class ConversionHistoryReader(string directory, int maxRecords = C
       .Concat(Strings(validation, "warnings")).Where(value => !string.IsNullOrEmpty(value)).Distinct(StringComparer.Ordinal).Select(value => value!).ToArray();
     var published = Text(root, "publishedPath") ?? (Text(Prop(root, "publication"), "status") == "Published" ? Text(Prop(root, "publication"), "finalPath") : null);
     var plan = Prop(root, "plan");
+    var isCheck = Text(root, "kind") == "check";
+    if (isCheck) published = Text(root, "checkedPath");
     var outcome = status switch
     {
+      ConversionTerminalStatus.Succeeded when isCheck => HistoryOutcome.Checked,
+      ConversionTerminalStatus.ValidationFailed when isCheck => HistoryOutcome.CheckFailed,
       ConversionTerminalStatus.Succeeded => HistoryOutcome.Completed,
       ConversionTerminalStatus.Cancelled => HistoryOutcome.Cancelled,
       ConversionTerminalStatus.DryRun => HistoryOutcome.Preview,
@@ -131,15 +135,16 @@ public sealed class ConversionHistoryReader(string directory, int maxRecords = C
       ?? Strings(validation, "errors").FirstOrDefault() ?? ConversionResultDisplay.DescribeStatus(status);
     var summary = outcome switch
     {
-      HistoryOutcome.Completed => "",
+      HistoryOutcome.Completed or HistoryOutcome.Checked => "",
+      HistoryOutcome.Cancelled when isCheck => "The check stopped before completion.",
       HistoryOutcome.Cancelled => "The job stopped before completion.",
       HistoryOutcome.Preview => "Nothing was converted.",
       _ => reason,
     };
     var exists = published is not null && _fileExists(published);
     var elapsed = finished >= started ? finished - started : TimeSpan.Zero;
-    var strategy = Text(plan, "strategy") ?? "Not recorded";
-    var level = Text(plan, "validationLevel") ?? "Not recorded";
+    var strategy = isCheck ? ConversionHistoryEntry.CheckStrategyText : Text(plan, "strategy") ?? "Not recorded";
+    var level = isCheck ? Text(root, "checkLevel") ?? "Not recorded" : Text(plan, "validationLevel") ?? "Not recorded";
     return new(jobId, fileName, started, elapsed, outcome, warnings.Length > 0, summary, strategy, level, Array.AsReadOnly(warnings), published, exists);
   }
 
