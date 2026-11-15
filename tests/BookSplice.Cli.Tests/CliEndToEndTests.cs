@@ -197,7 +197,7 @@ public sealed class CliEndToEndTests
       var exitCode = await application.RunAsync(arguments, TextWriter.Null, error, CancellationToken.None);
 
       Assert.Equal(CliExitCode.InvalidInput, exitCode);
-      Assert.Contains("This is already a single M4B. Editing existing M4B files isn't supported yet.", error.ToString(), StringComparison.Ordinal);
+      Assert.Contains("This is already a single M4B, so there is nothing to convert. Use Check file in the app, or --check on the command line, to check it.", error.ToString(), StringComparison.Ordinal);
     }
     Assert.Empty(Directory.GetFiles(outputDirectory));
   }
