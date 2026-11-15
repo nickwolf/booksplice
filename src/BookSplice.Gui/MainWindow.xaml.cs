@@ -355,8 +355,10 @@ public partial class MainWindow : Window
 
   internal void CommitChapterCell(ChapterRow row, bool isStart, string text)
   {
+    // Leaving a cell without changing it is not an edit: it must not put the book on its own marks or add an undo step.
     if (!isStart)
     {
+      if (text == row.Title) return;
       ApplyChapterEdit(row.Index, item => item.Rename(row.Index, text));
       return;
     }
@@ -366,6 +368,7 @@ public partial class MainWindow : Window
       SelectChapter(row.Index);
       return;
     }
+    if (start == row.StartMicroseconds) return;
     ApplyChapterEdit(row.Index, item => item.MoveStart(row.Index, start));
   }
 

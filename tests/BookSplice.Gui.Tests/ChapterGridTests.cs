@@ -186,6 +186,23 @@ public sealed class ChapterGridTests
   });
 
   [Fact]
+  public void CommittingUnchangedCellsIsNotAnEdit() => RunWindow(async (window, model) =>
+  {
+    var book = await AddAsync(window, model);
+    var grid = Grid(window);
+
+    EditCell(window, grid, 1, 0, book.ChapterRows[1].Start);
+    EditCell(window, grid, 1, 0, "0:00:50");
+    EditCell(window, grid, 1, 3, book.ChapterRows[1].Title);
+
+    Assert.False(book.HasChapterEdits);
+    Assert.False(book.CanUndoChapters);
+    Assert.Equal("", Message(window));
+    // Split and merge act on the selected position, so the rows must stay in chapter order.
+    Assert.False(grid.CanUserSortColumns);
+  });
+
+  [Fact]
   public void EditingATitleOnAnUneditedBookStillUpdatesTheChapterTitle() => RunWindow(async (window, model) =>
   {
     var book = await AddAsync(window, model);

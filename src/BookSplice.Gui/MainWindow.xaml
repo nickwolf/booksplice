@@ -371,14 +371,14 @@
                   <ctl:IconButton x:Name="SplitCancelButton" Style="{StaticResource RowIconButton}" Glyph="&#xE711;" Click="SplitCancel_Click" ToolTip="Cancel" AutomationProperties.Name="Cancel split"/>
                 </StackPanel>
               </StackPanel>
-              <DataGrid x:Name="ChapterGrid" Grid.Row="3" ItemsSource="{Binding ChapterRows}" AutoGenerateColumns="False" SelectionMode="Single"
+              <DataGrid x:Name="ChapterGrid" Grid.Row="3" ItemsSource="{Binding ChapterRows}" AutoGenerateColumns="False" SelectionMode="Single" CanUserSortColumns="False"
                         CanUserAddRows="False" CanUserDeleteRows="False" AutomationProperties.Name="Chapters"
                         SelectionChanged="ChapterGrid_SelectionChanged" CellEditEnding="ChapterGrid_CellEditEnding">
                 <DataGrid.CommandBindings>
                   <CommandBinding Command="Undo" CanExecute="ChapterUndo_CanExecute" Executed="ChapterUndo_Executed"/>
                 </DataGrid.CommandBindings>
                 <DataGrid.Columns>
-                  <DataGridTemplateColumn Header="Start" SortMemberPath="Start">
+                  <DataGridTemplateColumn Header="Start">
                     <DataGridTemplateColumn.CellTemplate>
                       <DataTemplate><TextBlock Text="{Binding Start, Mode=OneWay}" Margin="4,2"/></DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
@@ -388,7 +388,7 @@
                   </DataGridTemplateColumn>
                   <DataGridTextColumn Header="End" Binding="{Binding End, Mode=OneWay}" IsReadOnly="True"/>
                   <DataGridTextColumn Header="Length" Binding="{Binding Length, Mode=OneWay}" IsReadOnly="True"/>
-                  <DataGridTemplateColumn Header="Title" Width="*" SortMemberPath="Title">
+                  <DataGridTemplateColumn Header="Title" Width="*">
                     <DataGridTemplateColumn.CellTemplate>
                       <DataTemplate><TextBlock Text="{Binding Title, Mode=OneWay}" Margin="4,2"/></DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
