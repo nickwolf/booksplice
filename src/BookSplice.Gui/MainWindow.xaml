@@ -178,7 +178,7 @@
           </WrapPanel>
           <WrapPanel Margin="0,8">
             <Button x:Name="ConvertSelectedButton" Content="Conve_rt selected" Visibility="{Binding CanConvert, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}" Click="Convert_Click" Padding="12,6" Margin="0,0,8,0"/>
-            <Button x:Name="CheckSelectedButton" Content="Check file (_x)" Visibility="{Binding CanCheck, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}" Click="Check_Click" Padding="12,6" Margin="0,0,8,0"/>
+            <Button x:Name="CheckSelectedButton" Content="_Check file" Visibility="{Binding CanCheck, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}" Click="Check_Click" Padding="12,6" Margin="0,0,8,0"/>
             <CheckBox x:Name="DecodeAllAudioBox" Content="Decode all audio" IsChecked="{Binding DecodeAllAudio}" IsEnabled="{Binding CanCheck}" VerticalAlignment="Center" Margin="0,0,12,0"
                       Visibility="{Binding IsInspectOnly, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}"
                       AutomationProperties.HelpText="Reads every audio frame, so it takes longer but catches damage the quick checks cannot"/>

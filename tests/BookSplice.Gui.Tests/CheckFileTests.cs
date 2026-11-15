@@ -166,7 +166,7 @@ public sealed class CheckFileTests
         var decode = (CheckBox)window.FindName("DecodeAllAudioBox");
         var convert = (Button)window.FindName("ConvertSelectedButton");
         Assert.Equal(Visibility.Visible, check.Visibility);
-        Assert.Equal("Check file (_x)", check.Content);
+        Assert.Equal("_Check file", check.Content);
         Assert.Equal(Visibility.Visible, decode.Visibility);
         Assert.True(decode.IsEnabled);
         Assert.False(decode.IsChecked);
@@ -178,6 +178,7 @@ public sealed class CheckFileTests
         await model.CheckAsync(item);
         Settle(window);
         Assert.Equal(Visibility.Visible, ((Border)window.FindName("CheckResultCard")).Visibility);
+        // Check file shares its access key with Validation checks, which lives in this card, so the two must never show together.
         Assert.Equal(Visibility.Collapsed, ((Border)window.FindName("ConversionResultCard")).Visibility);
         Assert.Equal("Check passed", ((TextBlock)window.FindName("CheckResultTitle")).Text);
         Assert.Equal(Visibility.Visible, check.Visibility);
