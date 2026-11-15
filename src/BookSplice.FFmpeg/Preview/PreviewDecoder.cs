@@ -6,7 +6,7 @@ using BookSplice.FFmpeg.Tools;
 namespace BookSplice.FFmpeg.Preview;
 
 /// <summary>Decodes a bounded preview region to a temporary WAV. Sources are only read.</summary>
-public sealed class PreviewDecoder(IProcessRunner runner, MediaToolSet tools)
+public sealed class PreviewDecoder(IProcessRunner runner, MediaToolSet tools) : IPreviewDecoder
 {
   public async Task DecodeAsync(PreviewRegion region, string outputWavPath, CancellationToken cancellationToken)
   {

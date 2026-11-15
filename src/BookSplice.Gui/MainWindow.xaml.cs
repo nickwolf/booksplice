@@ -39,7 +39,8 @@ public partial class MainWindow : Window
     _settings = settings;
     _gate = new GuiOperationGate(Dispatcher);
     if (services is not null) DataContext = _model = new MainWindowViewModel(services.Analyzer, services.Conversion, settings, services.Planner, _gate, services.Profiles,
-      new WindowsToastNotifier(Environment.ProcessPath, key => Dispatcher.BeginInvoke(() => ShowResult(key))), coverPayloads: services.CoverPayloads);
+      new WindowsToastNotifier(Environment.ProcessPath, key => Dispatcher.BeginInvoke(() => ShowResult(key))), coverPayloads: services.CoverPayloads,
+      preview: services.PreviewDecoder is { } decoder && services.PreviewRoot is { } previewRoot ? new PreviewViewModel(decoder, () => new MediaPlayerAudioPlayer(), previewRoot) : null);
     WindowsToastNotifier.Sync(settings.NotificationsEnabled, Environment.ProcessPath);
     Destination.Text = $"Output folder: {settings.OutputDirectory}";
     _presets = new PresetsViewModel(new Core.Presets.PresetStore(Path.Combine(Path.GetDirectoryName(store.SettingsPath)!, Core.Presets.PresetStore.FileName)), services?.Profiles);
