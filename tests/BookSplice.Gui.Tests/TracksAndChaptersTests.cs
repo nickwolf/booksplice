@@ -31,7 +31,7 @@ public sealed class TracksAndChaptersTests
     Assert.Contains(Descendants<TextBlock>(content), text => text.Text == "Track order");
     Assert.Same(window.FindName("OrderChoice"), Assert.Single(Descendants<ComboBox>(content)));
     Assert.Equal(2, Descendants<ListBox>(content).Count());
-    Assert.Equal(["Move track up", "Move track down", "Exclude track", "Put track back", "Split chapter", "Undo chapter edit", "Split", "Cancel split"],
+    Assert.Equal(["Move track up", "Move track down", "Exclude track", "Put track back", "Split chapter", "Undo chapter edit", "Split", "Cancel split", "Play", "Stop", "Play boundary", "Split here"],
       Descendants<IconButton>(content).Select(button => AutomationProperties.GetName(button)));
     Assert.All(Descendants<IconButton>(content), button => Assert.False(string.IsNullOrWhiteSpace(button.ToolTip as string)));
     Assert.Equal(["Start", "End", "Length", "Title", "Source", "Problem"], Assert.Single(Descendants<DataGrid>(content)).Columns.Select(column => column.Header));

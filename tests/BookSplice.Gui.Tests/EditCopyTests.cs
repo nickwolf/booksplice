@@ -604,7 +604,7 @@ public sealed class EditCopyTests
       Directory.CreateDirectory(Path.GetDirectoryName(copy)!);
       await File.WriteAllTextAsync(copy, "audio");
       var service = new FakeEditCopy(new EditCopyResult(EditCopyStatus.Published, copy, null, [new("edit.audio-packets", true, "The audio is unchanged.")])) { ChapterFailure = chapterFailure };
-      var services = new GuiServices(new EditAnalyzer(), new BookHeaderTests.FakePlanner(), new Idle(), new NoCovers(), null, null, new FakeLog(), service);
+      var services = new GuiServices(new EditAnalyzer(), new BookHeaderTests.FakePlanner(), new Idle(), new NoCovers(), null, null, new FakeLog(), EditCopy: service);
       var window = new MainWindow(new JsonSettingsStore(root), AppSettings.Defaults with { OutputDirectory = Path.Combine(root, "out") }, services)
       { ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = -10000, Top = -10000, Width = 1120, Height = 760 };
       window.Show();

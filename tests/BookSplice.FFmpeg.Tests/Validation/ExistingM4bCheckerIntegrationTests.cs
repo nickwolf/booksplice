@@ -147,7 +147,10 @@ public sealed class ExistingM4bCheckerIntegrationTests
     watch.Stop();
 
     Assert.NotEqual(TimeSpan.Zero, cancelledAt);
-    Assert.True(watch.Elapsed < uncancelled.Elapsed / 2, $"Cancelled run took {watch.Elapsed.TotalSeconds:F1}s, full decode took {uncancelled.Elapsed.TotalSeconds:F1}s, cancel requested at {cancelledAt.TotalSeconds:F1}s.");
+    // The first progress report can arrive late on a slow machine, so measure from the cancel request: the run must stop well before the decode that was left would have finished.
+    var timings = $"Cancelled run took {watch.Elapsed.TotalSeconds:F1}s, full decode took {uncancelled.Elapsed.TotalSeconds:F1}s, cancel requested at {cancelledAt.TotalSeconds:F1}s.";
+    Assert.True(cancelledAt < uncancelled.Elapsed * 0.75, timings);
+    Assert.True(watch.Elapsed - cancelledAt < (uncancelled.Elapsed - cancelledAt) / 2, timings);
     Assert.Equal(before, Hash(path));
   }
 

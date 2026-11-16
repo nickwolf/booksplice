@@ -324,9 +324,10 @@
             <Grid Margin="8" IsEnabled="{Binding CanEdit}">
               <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
-                <RowDefinition Height="3*" MinHeight="70"/>
+                <RowDefinition Height="*" MinHeight="70"/>
                 <RowDefinition Height="Auto"/>
-                <RowDefinition Height="2*" MinHeight="50"/>
+                <RowDefinition Height="*" MinHeight="50"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
               </Grid.RowDefinitions>
               <Grid Margin="0,0,0,8">
@@ -429,6 +430,28 @@
                 <TextBlock x:Name="ChapterEditMessage" TextWrapping="Wrap" Foreground="Firebrick" Margin="0,4,0,0" AutomationProperties.LiveSetting="Polite" Style="{StaticResource HiddenWhenEmpty}"/>
                 <TextBlock x:Name="ChapterProblemText" Text="{Binding ChapterProblem}" TextWrapping="Wrap" Foreground="Firebrick" Margin="0,4,0,0" AutomationProperties.LiveSetting="Polite" Style="{StaticResource HiddenWhenEmpty}"/>
               </StackPanel>
+              <Grid x:Name="PlayerBar" Grid.Row="5" Margin="0,6,0,0">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="*" MinWidth="80"/>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <ctl:IconButton x:Name="PlayButton" Style="{StaticResource RowIconButton}" Glyph="&#xE768;" IsEnabled="False" Click="Play_Click" ToolTip="Play the selected track" AutomationProperties.Name="Play"/>
+                <ctl:IconButton x:Name="StopButton" Grid.Column="1" Style="{StaticResource RowIconButton}" Glyph="&#xE71A;" IsEnabled="False" Click="Stop_Click" ToolTip="Stop" AutomationProperties.Name="Stop"/>
+                <ctl:IconButton x:Name="PlayBoundaryButton" Grid.Column="2" Style="{StaticResource RowIconButton}" Glyph="&#xE121;" IsEnabled="False" Click="PlayBoundary_Click"
+                                ToolTip="Play 5 seconds either side of the selected chapter's start" AutomationProperties.Name="Play boundary"/>
+                <Slider x:Name="PlayerSlider" Grid.Column="3" Minimum="0" Maximum="1" Value="0" SmallChange="5" LargeChange="30" IsMoveToPointEnabled="True" IsEnabled="False" VerticalAlignment="Center" Margin="8,0" AutomationProperties.Name="Playback position"
+                        ValueChanged="PlayerSlider_ValueChanged" Thumb.DragStarted="PlayerSlider_DragStarted" Thumb.DragCompleted="PlayerSlider_DragCompleted"/>
+                <TextBlock x:Name="PlayerPosition" Grid.Column="4" VerticalAlignment="Center" Margin="0,0,8,0" AutomationProperties.Name="Playback time"/>
+                <ctl:IconButton x:Name="SplitHereButton" Grid.Column="5" Style="{StaticResource RowIconButton}" Glyph="&#xE8C6;" Visibility="Collapsed" Click="SplitHere_Click"
+                                ToolTip="Split the chapter at the playback position" AutomationProperties.Name="Split here"/>
+                <TextBlock x:Name="PlayerMessage" Grid.Column="6" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="260" Foreground="Firebrick" Margin="8,0,0,0" AutomationProperties.LiveSetting="Polite"
+                           Style="{StaticResource HiddenWhenEmpty}"/>
+              </Grid>
             </Grid>
           </TabItem>
         </TabControl>
