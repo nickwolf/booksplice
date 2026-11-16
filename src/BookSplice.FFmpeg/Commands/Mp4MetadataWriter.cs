@@ -24,7 +24,82 @@ public sealed class Mp4MetadataWriter : IMp4MetadataWriter
     RestoreNeroChapterPayload(path, chapterPayload);
   }
 
+  // Edits an existing file in place. An empty value removes the tag. Keys a player reads from a native atom go to that atom,
+  // and a com.apple.iTunes freeform box with the same name (a converted file can carry both) gets the same value.
+  public static void Edit(string path, IReadOnlyDictionary<string, string> tags)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(path);
+    ArgumentNullException.ThrowIfNull(tags);
+    var freeformNames = Mp4MetadataBoxes.ReadItems(path).Where(item => item.IsFreeform && item.Mean == FreeformMean && item.Name is not null).Select(item => item.Name!).ToArray();
+    var chapterPayload = ReadNeroChapterPayload(path);
+    PadAfterFinalChapterBox(path);
+    using (var file = TagLib.File.Create(path))
+    {
+      var tag = (AppleTag)file.GetTag(TagLib.TagTypes.Apple, true);
+      foreach (var (key, value) in tags)
+      {
+        var atom = EditAtom(key);
+        if (atom == MediaTypeAtom)
+        {
+          if (value.Length == 0) tag.ClearData(AtomId(atom));
+          else tag.SetData(AtomId(atom), new TagLib.ByteVector(ParseMediaType(value)), (uint)AppleDataBox.FlagType.ForTempo);
+        }
+        else if (atom is not null) tag.SetText(AtomId(atom), value);
+        var names = freeformNames.Where(name => string.Equals(name, key, StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (atom is null && names.Length == 0) names = [key];
+        foreach (var name in names) tag.SetDashBox(FreeformMean, name, value);
+      }
+      file.Save();
+    }
+    RestoreNeroChapterPayload(path, chapterPayload);
+  }
+
+  public const string MediaTypeAtom = "stik";
+
+  // The atoms ffmpeg's MP4 muxer writes for these keys, so an edit lands where players and ffprobe read the value.
+  private static readonly Dictionary<string, string> EditAtoms = new(StringComparer.OrdinalIgnoreCase)
+  {
+    ["title"] = "\u00A9nam",
+    ["album"] = "\u00A9alb",
+    ["artist"] = "\u00A9ART",
+    ["album_artist"] = "aART",
+    ["albumartist"] = "aART",
+    ["composer"] = "\u00A9wrt",
+    ["genre"] = "\u00A9gen",
+    ["date"] = "\u00A9day",
+    ["comment"] = "\u00A9cmt",
+    ["description"] = "desc",
+    ["synopsis"] = "ldes",
+    ["copyright"] = "cprt",
+    ["grouping"] = "\u00A9grp",
+    ["lyrics"] = "\u00A9lyr",
+    ["media_type"] = MediaTypeAtom,
+  };
+
+  public static string? EditAtom(string key) => EditAtoms.GetValueOrDefault(key);
+
+  public static bool IsValidMediaType(string value) => value.Length == 0 || byte.TryParse(value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out _);
+
+  private static byte ParseMediaType(string value) => byte.Parse(value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture);
+
+  private static TagLib.ByteVector AtomId(string atom) => TagLib.ByteVector.FromString(atom, TagLib.StringType.Latin1);
+
   private const int MaximumChapterPayloadBytes = 64 * 1024 * 1024;
+
+  // When chpl is the last box in the file (moov at the end, as ffmpeg writes it without faststart), TagLib writes it back
+  // shorter (a 37-byte box came back as 13 bytes), which RestoreNeroChapterPayload can't undo. With a free box after it,
+  // the box keeps its size and the restore puts the original bytes back.
+  private static void PadAfterFinalChapterBox(string path)
+  {
+    using var stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+    var chapter = FindNestedBox(stream, "moov", "udta", "chpl");
+    if (chapter is null || chapter.Value.EndOffset != stream.Length) return;
+    var padding = new byte[checked((int)chapter.Value.PayloadLength + 16)];
+    System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(padding, (uint)padding.Length);
+    "free"u8.CopyTo(padding.AsSpan(4));
+    stream.Position = stream.Length;
+    stream.Write(padding);
+  }
 
   private static byte[]? ReadNeroChapterPayload(string path)
   {
