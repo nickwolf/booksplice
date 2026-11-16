@@ -7,13 +7,16 @@ using BookSplice.Core.Metadata;
 using BookSplice.Core.Naming;
 using BookSplice.Core.Ordering;
 using BookSplice.Core.Planning;
+using BookSplice.Core.Preview;
 using BookSplice.Core.Settings;
 using BookSplice.Core.Validation;
 using BookSplice.FFmpeg.Commands;
 using BookSplice.FFmpeg.Execution;
+using BookSplice.FFmpeg.Preview;
 using BookSplice.FFmpeg.Probing;
 using BookSplice.FFmpeg.Tools;
 using BookSplice.FFmpeg.Validation;
+using BookSplice.Gui.ViewModels;
 
 namespace BookSplice.Gui.Bootstrap;
 
@@ -38,7 +41,9 @@ public sealed class AppHost(string localAppDataRoot)
       new FFmpegOutputValidator(probe, runner, tools, new CoverPayloadValidator()),
       new AtomicPublisher(), new TemporaryArtifactCleaner(temporaryRoot),
       jobLog);
-    return new(analyzer, planner, service, new BookSplice.FFmpeg.Covers.MediaCoverPayloadOpener(tools), Profiles, new ExistingM4bChecker(probe, runner, tools), jobLog);
+    var previewRoot = Path.Combine(temporaryRoot, "preview");
+    PreviewViewModel.Sweep(previewRoot);
+    return new(analyzer, planner, service, new BookSplice.FFmpeg.Covers.MediaCoverPayloadOpener(tools), Profiles, new ExistingM4bChecker(probe, runner, tools), jobLog, new PreviewDecoder(runner, tools), previewRoot);
   }
 
   private sealed class StorageSpaceProvider : IStorageSpaceProvider
@@ -55,4 +60,4 @@ public sealed class AppHost(string localAppDataRoot)
   }
 }
 
-public sealed record GuiServices(IBookAnalyzer Analyzer, IConversionPlanner Planner, IConversionService Conversion, ICoverPayloadOpener CoverPayloads, MetadataProfileCatalog? Profiles = null, IExistingFileChecker? Checker = null, IJobLogWriter? JobLog = null);
+public sealed record GuiServices(IBookAnalyzer Analyzer, IConversionPlanner Planner, IConversionService Conversion, ICoverPayloadOpener CoverPayloads, MetadataProfileCatalog? Profiles = null, IExistingFileChecker? Checker = null, IJobLogWriter? JobLog = null, IPreviewDecoder? PreviewDecoder = null, string? PreviewRoot = null, Func<IAudioPlayer>? PreviewPlayerFactory = null);

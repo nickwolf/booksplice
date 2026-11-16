@@ -19,6 +19,7 @@ public sealed partial class MainWindowViewModel
     {
       if (ReferenceEquals(_selectedItem, value)) return;
       _selectedItem = value;
+      Preview.SetBook(value);
       Changed();
       RequestHeader();
     }

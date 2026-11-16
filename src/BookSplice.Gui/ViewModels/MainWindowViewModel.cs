@@ -20,9 +20,10 @@ namespace BookSplice.Gui.ViewModels;
 
 public enum FileImportChoice { OneBook, SeparateBooks, Cancel }
 
-public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConversionService conversion, AppSettings settings, IConversionPlanner? planner = null, GuiOperationGate? gate = null, MetadataProfileCatalog? profiles = null, IConversionNotifier? notifier = null, BookGroupPlanner? groupPlanner = null, ICoverPayloadOpener? coverPayloads = null, IExistingFileChecker? checker = null, IJobLogWriter? checkLog = null) : ObservableModel, IDisposable
+public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConversionService conversion, AppSettings settings, IConversionPlanner? planner = null, GuiOperationGate? gate = null, MetadataProfileCatalog? profiles = null, IConversionNotifier? notifier = null, BookGroupPlanner? groupPlanner = null, ICoverPayloadOpener? coverPayloads = null, IExistingFileChecker? checker = null, IJobLogWriter? checkLog = null, PreviewViewModel? preview = null) : ObservableModel, IDisposable
 {
   private readonly QueueScheduler _scheduler = new(settings.BooksAtOnce ?? 1);
+  public PreviewViewModel Preview { get; } = preview ?? PreviewViewModel.CreateUnavailable();
   private string _message = "";
   private string _batchProgress = "";
   private ObservableCollection<BookQueueItemViewModel>? _items;
@@ -328,6 +329,7 @@ public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConvers
     if (!item.CanConvert) return null;
     using var operation = Enter("conversion");
     if (operation is null) return null;
+    Preview.Release();
     item.IsBusy = true;
     item.IsInterrupted = false;
     item.Status = "Converting";
@@ -395,6 +397,8 @@ public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConvers
       if (registeredJob is { } job) ActiveJobRegistry.Shared.Remove(job);
       timer.Stop(); elapsed.Stop(); if (acquired) _scheduler.Release(); item.Cancellation = null; item.ConversionStarted = false; item.IsBusy = false;
     }
+    // Release on conversion start took playback away. Give it back once the selected book is idle, unless the user already started another preview.
+    if (SelectedItem is { IsBusy: false } selected && !Preview.CanPlay) Preview.SetBook(selected);
     var outcome = Finished(item);
     item.Outcome = outcome.Outcome;
     return outcome;
@@ -473,7 +477,7 @@ public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConvers
     => book.Analysis?.Status == BookAnalysisStatus.Ready && book.Status is not ("Complete" or "Cancelled")
       && (book.IsBusy || book.Outcome is not (BookOutcome.Failure or BookOutcome.Cancelled));
 
-  public void Dispose() { }
+  public void Dispose() => Preview.Release();
 
   public Task ConvertAllAsync() => ConvertBatchAsync(Items.Where(item => item.CanConvert && !item.IsInterrupted).ToArray());
 
