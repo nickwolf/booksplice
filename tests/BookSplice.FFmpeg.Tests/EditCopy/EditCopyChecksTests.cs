@@ -1,5 +1,6 @@
 using BookSplice.Core.Analysis;
 using BookSplice.Core.Validation;
+using BookSplice.FFmpeg.Commands;
 using BookSplice.FFmpeg.EditCopy;
 using BookSplice.FFmpeg.Validation;
 
@@ -43,6 +44,35 @@ public sealed class EditCopyChecksTests
 
     Assert.DoesNotContain(EditCopyService.EditChecks(report), check => check.Code is ValidationCodes.FullDecode or ExistingM4bChecker.CoverFound);
   }
+
+  [Fact]
+  public void UserDataMatchesWhenOnlyTheChapterAndTagBoxesDiffer()
+  {
+    var original = new Mp4UserData([Raw("meta", 1), Raw("chpl", 2), Raw("Xtra", 3)], Raw("meta", 4).Raw);
+    var copy = new Mp4UserData([Raw("meta", 5), Raw("chpl", 6), Raw("Xtra", 3)], Raw("meta", 4).Raw);
+
+    Assert.True(EditCopyService.SameUserData(copy, original));
+  }
+
+  [Fact]
+  public void UserDataDiffersWhenABoxIsMissingFromTheCopy()
+  {
+    var original = new Mp4UserData([Raw("meta", 1), Raw("Xtra", 3), Raw("cprt", 7)], Raw("meta", 4).Raw);
+
+    Assert.False(EditCopyService.SameUserData(new Mp4UserData([Raw("meta", 1), Raw("Xtra", 3)], original.MoovMeta), original));
+    Assert.False(EditCopyService.SameUserData(new Mp4UserData(original.UdtaChildren, null), original));
+  }
+
+  [Fact]
+  public void UserDataDiffersWhenABoxChangesOrMoves()
+  {
+    var original = new Mp4UserData([Raw("Xtra", 3), Raw("cprt", 7)], null);
+
+    Assert.False(EditCopyService.SameUserData(new Mp4UserData([Raw("Xtra", 8), Raw("cprt", 7)], null), original));
+    Assert.False(EditCopyService.SameUserData(new Mp4UserData([Raw("cprt", 7), Raw("Xtra", 3)], null), original));
+  }
+
+  private static Mp4RawBox Raw(string type, byte value) => new(type, [0, 0, 0, 9, .. System.Text.Encoding.Latin1.GetBytes(type), value]);
 
   private static ExistingFileCheckReport Report(params ExistingFileCheck[] extra)
     => new(@"C:\Books\Original.m4b", [new(ValidationCodes.FileExists, ExistingCheckStatus.Passed, "Passed."), new(ValidationCodes.ContainerParse, ExistingCheckStatus.Passed, "Passed."), .. extra], []);

@@ -100,20 +100,43 @@ public sealed class Mp4MetadataEditTests
   }
 
   [PinnedMediaFact]
-  public async Task ReplaceMetaBoxPutsTheGivenBoxInPlaceOfTheMuxersOne()
+  public async Task AnEditLeavesOtherUserDataAndTheMoovLevelMetaBoxAlone()
+  {
+    using var root = new TemporaryFolder();
+    var path = await EditCopyMedia.GenerateWithUserDataAsync(root.Path, EditCopyMedia.Tools());
+    var before = Mp4MetadataBoxes.ReadUserData(path);
+
+    Mp4MetadataWriter.Edit(path, new Dictionary<string, string> { ["title"] = "New title" });
+
+    var after = Mp4MetadataBoxes.ReadUserData(path);
+    Assert.Equal(before.UdtaChildren.Select(box => box.Type), after.UdtaChildren.Select(box => box.Type));
+    Assert.Equal(before.Preserved.Select(Convert.ToHexString), after.Preserved.Select(Convert.ToHexString));
+  }
+
+  [PinnedMediaFact]
+  public async Task RestoreUserDataPutsTheOriginalsBoxesInPlaceOfTheMuxersAndKeepsItsChapterBox()
   {
     using var root = new TemporaryFolder();
     var tools = EditCopyMedia.Tools();
-    var original = await EditCopyMedia.GenerateAsync(root.Path, tools, EditCopyMedia.Titles(3));
+    var original = await EditCopyMedia.GenerateWithUserDataAsync(root.Path, tools);
     var copy = root.GetPath("copy.m4b");
     var remux = await new ProcessRunner().RunAsync(new ProcessSpec(tools.FFmpegPath, ["-hide_banner", "-v", "error", "-i", original, "-map", "0:a:0", "-c", "copy", "-f", "mp4", copy]), null, CancellationToken.None);
     Assert.Equal(0, remux.ExitCode);
+    EditCopyMedia.InjectUserData(copy, EditCopyMedia.Box("Xtra", [1, 2, 3]), EditCopyMedia.MdtaMetaBox("com.apple.quicktime.title", "Muxer"));
+    var originalData = Mp4MetadataBoxes.ReadUserData(original);
     var meta = Mp4MetadataBoxes.ReadMetaBox(original)!;
+    var chapters = Assert.Single(Mp4MetadataBoxes.ReadUserData(copy).UdtaChildren, box => box.Type == "chpl").Raw;
     Assert.NotEqual(Convert.ToHexString(meta), Convert.ToHexString(Mp4MetadataBoxes.ReadMetaBox(copy) ?? []));
+    Assert.False(EditCopyService.SameUserData(Mp4MetadataBoxes.ReadUserData(copy), originalData));
 
-    Mp4MetadataBoxes.ReplaceMetaBox(copy, meta);
+    Mp4MetadataBoxes.RestoreUserData(copy, originalData);
 
+    var restored = Mp4MetadataBoxes.ReadUserData(copy);
     Assert.Equal(Convert.ToHexString(meta), Convert.ToHexString(Mp4MetadataBoxes.ReadMetaBox(copy)!));
+    Assert.Equal(originalData.Preserved.Select(Convert.ToHexString), restored.Preserved.Select(Convert.ToHexString));
+    Assert.Equal(Convert.ToHexString(originalData.MoovMeta!), Convert.ToHexString(restored.MoovMeta!));
+    Assert.Equal(Convert.ToHexString(chapters), Convert.ToHexString(Assert.Single(restored.UdtaChildren, box => box.Type == "chpl").Raw));
+    Assert.Equal(originalData.UdtaChildren.Select(box => box.Type), restored.UdtaChildren.Select(box => box.Type));
     var probe = await new ProcessRunner().RunAsync(new ProcessSpec(tools.FFprobePath, ["-v", "error", "-show_entries", "format_tags=title", "-of", "csv=p=0", copy]), null, CancellationToken.None);
     Assert.Equal(0, probe.ExitCode);
     Assert.Equal("Test Book", probe.StandardOutput.Trim());

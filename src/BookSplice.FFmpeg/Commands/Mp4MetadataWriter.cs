@@ -31,8 +31,8 @@ public sealed class Mp4MetadataWriter : IMp4MetadataWriter
     ArgumentException.ThrowIfNullOrWhiteSpace(path);
     ArgumentNullException.ThrowIfNull(tags);
     var freeformNames = Mp4MetadataBoxes.ReadItems(path).Where(item => item.IsFreeform && item.Mean == FreeformMean && item.Name is not null).Select(item => item.Name!).ToArray();
-    var chapterPayload = ReadNeroChapterPayload(path);
-    PadAfterFinalChapterBox(path);
+    var userData = Mp4MetadataBoxes.ReadUserData(path).UdtaChildren;
+    Mp4MetadataBoxes.PadAfterFinalUserData(path);
     using (var file = TagLib.File.Create(path))
     {
       var tag = (AppleTag)file.GetTag(TagLib.TagTypes.Apple, true);
@@ -51,7 +51,7 @@ public sealed class Mp4MetadataWriter : IMp4MetadataWriter
       }
       file.Save();
     }
-    RestoreNeroChapterPayload(path, chapterPayload);
+    Mp4MetadataBoxes.RestoreUserDataChildren(path, userData);
   }
 
   public const string MediaTypeAtom = "stik";
@@ -85,21 +85,6 @@ public sealed class Mp4MetadataWriter : IMp4MetadataWriter
   private static TagLib.ByteVector AtomId(string atom) => TagLib.ByteVector.FromString(atom, TagLib.StringType.Latin1);
 
   private const int MaximumChapterPayloadBytes = 64 * 1024 * 1024;
-
-  // When chpl is the last box in the file (moov at the end, as ffmpeg writes it without faststart), TagLib writes it back
-  // shorter (a 37-byte box came back as 13 bytes), which RestoreNeroChapterPayload can't undo. With a free box after it,
-  // the box keeps its size and the restore puts the original bytes back.
-  private static void PadAfterFinalChapterBox(string path)
-  {
-    using var stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
-    var chapter = FindNestedBox(stream, "moov", "udta", "chpl");
-    if (chapter is null || chapter.Value.EndOffset != stream.Length) return;
-    var padding = new byte[checked((int)chapter.Value.PayloadLength + 16)];
-    System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(padding, (uint)padding.Length);
-    "free"u8.CopyTo(padding.AsSpan(4));
-    stream.Position = stream.Length;
-    stream.Write(padding);
-  }
 
   private static byte[]? ReadNeroChapterPayload(string path)
   {

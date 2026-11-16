@@ -15,6 +15,16 @@ internal sealed record Mp4MetadataData(uint TypeCode, byte[] Payload)
   public string Text => Encoding.UTF8.GetString(Payload);
 }
 
+internal sealed record Mp4RawBox(string Type, byte[] Raw);
+
+// The children of moov/udta and the moov-level meta box (QuickTime mdta keys), raw.
+internal sealed record Mp4UserData(IReadOnlyList<Mp4RawBox> UdtaChildren, byte[]? MoovMeta)
+{
+  // What an edit has to leave alone byte for byte: every udta child except chpl (written again from the chapter titles) and
+  // meta (whose tags are checked one by one), then the moov-level meta box.
+  public IReadOnlyList<byte[]> Preserved => [.. UdtaChildren.Where(box => box.Type is not ("chpl" or "meta")).Select(box => box.Raw), .. MoovMeta is null ? Array.Empty<byte[]>() : [MoovMeta]];
+}
+
 // Raw access to the iTunes metadata box, used where the bytes must survive exactly.
 internal static class Mp4MetadataBoxes
 {
@@ -53,37 +63,82 @@ internal static class Mp4MetadataBoxes
     return Children(stream, ilst.Value).Select(item => ReadItem(meta, stream, item)).ToArray();
   }
 
-  // Replaces moov/udta/meta with the given box (or removes it when null). The file must end with moov, so no media offsets move.
-  public static void ReplaceMetaBox(string path, byte[]? metaBox)
+  public static Mp4UserData ReadUserData(string path)
   {
+    using var stream = OpenRead(path);
+    var moov = FindBox(stream, 0, stream.Length, "moov") ?? throw new InvalidDataException("The MP4 file has no moov box.");
+    var moovChildren = Children(stream, moov).ToArray();
+    var udta = moovChildren.Where(box => box.Type == "udta").Cast<Box?>().FirstOrDefault();
+    var udtaChildren = udta is null ? [] : Children(stream, udta.Value).ToArray().Select(box => new Mp4RawBox(box.Type, ReadRaw(stream, box))).ToArray();
+    var meta = moovChildren.Where(box => box.Type == "meta").Cast<Box?>().FirstOrDefault();
+    return new Mp4UserData(udtaChildren, meta is null ? null : ReadRaw(stream, meta.Value));
+  }
+
+  // TagLib writes back the udta children it doesn't parse (chpl, Xtra, ...) with their sizes kept but their bytes taken from
+  // further into the file (24 bytes on, in the files tested), so the caller keeps them from before the save and this puts
+  // them back. Every child but meta must still be there with the same type and size.
+  public static void RestoreUserDataChildren(string path, IReadOnlyList<Mp4RawBox> before)
+  {
+    ArgumentNullException.ThrowIfNull(before);
+    var kept = before.Where(box => box.Type != "meta").ToArray();
+    using var stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+    var udta = FindNested(stream, "moov", "udta");
+    var current = udta is null ? [] : Children(stream, udta.Value).Where(box => box.Type != "meta").ToArray();
+    if (current.Length != kept.Length) throw new InvalidDataException("The MP4 user data boxes changed while writing metadata.");
+    for (var index = 0; index < kept.Length; index++)
+    {
+      if (current[index].Type != kept[index].Type || current[index].EndOffset - current[index].Offset != kept[index].Raw.Length)
+        throw new InvalidDataException("The MP4 user data boxes changed while writing metadata.");
+    }
+    for (var index = 0; index < kept.Length; index++)
+    {
+      stream.Position = current[index].Offset;
+      stream.Write(kept[index].Raw);
+    }
+    stream.Flush(flushToDisk: true);
+  }
+
+  // When udta ends the file (moov at the end, as ffmpeg writes it without faststart), TagLib's read of its last child runs off
+  // the end and the box comes back shorter (a 37-byte chpl came back as 13 bytes). A free box after it keeps that read inside
+  // the file, so the box keeps its size and RestoreUserDataChildren can put the bytes back.
+  public static void PadAfterFinalUserData(string path)
+  {
+    using var stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+    var udta = FindNested(stream, "moov", "udta");
+    if (udta is null || udta.Value.EndOffset != stream.Length) return;
+    var largest = Children(stream, udta.Value).Select(box => box.EndOffset - box.Offset).DefaultIfEmpty(0).Max();
+    var padding = new byte[checked((int)largest + 16)];
+    BinaryPrimitives.WriteUInt32BigEndian(padding, (uint)padding.Length);
+    "free"u8.CopyTo(padding.AsSpan(4));
+    stream.Position = stream.Length;
+    stream.Write(padding);
+  }
+
+  // Rebuilds moov so its udta holds the original's children in the original's order, with the file's own chpl in place of the
+  // original's, and its moov-level meta box is the original's (or none). The file must end with moov, so no media offsets move.
+  public static void RestoreUserData(string path, Mp4UserData original)
+  {
+    ArgumentNullException.ThrowIfNull(original);
     using var stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
     var moov = FindBox(stream, 0, stream.Length, "moov") ?? throw new InvalidDataException("The MP4 file has no moov box.");
     if (moov.EndOffset != stream.Length) throw new InvalidDataException("The MP4 moov box is not at the end of the file.");
     if (moov.EndOffset - moov.Offset > MaximumMoovBytes) throw new InvalidDataException("The MP4 moov box is too large.");
     var moovChildren = Children(stream, moov).ToArray();
+    var udta = moovChildren.Where(box => box.Type == "udta").Cast<Box?>().FirstOrDefault();
+    var chapters = udta is null ? null : Children(stream, udta.Value).ToArray().Where(box => box.Type == "chpl").Select(box => ReadRaw(stream, box)).FirstOrDefault();
+    var udtaPayload = new MemoryStream();
+    var wroteChapters = false;
+    foreach (var box in original.UdtaChildren)
+    {
+      if (box.Type != "chpl") { udtaPayload.Write(box.Raw); continue; }
+      if (chapters is not null && !wroteChapters) udtaPayload.Write(chapters);
+      wroteChapters = true;
+    }
+    if (chapters is not null && !wroteChapters) udtaPayload.Write(chapters);
     var rebuilt = new MemoryStream();
-    var wroteUdta = false;
-    foreach (var child in moovChildren)
-    {
-      if (child.Type != "udta") { rebuilt.Write(ReadRaw(stream, child)); continue; }
-      wroteUdta = true;
-      var udtaChildren = new MemoryStream();
-      var wroteMeta = false;
-      foreach (var inner in Children(stream, child))
-      {
-        if (inner.Type != "meta") { udtaChildren.Write(ReadRaw(stream, inner)); continue; }
-        if (!wroteMeta && metaBox is not null) udtaChildren.Write(metaBox);
-        wroteMeta = true;
-      }
-      if (!wroteMeta && metaBox is not null) udtaChildren.Write(metaBox);
-      WriteBox(rebuilt, "udta", udtaChildren.ToArray());
-    }
-    if (!wroteUdta && metaBox is not null)
-    {
-      var udta = new MemoryStream();
-      WriteBox(udta, "udta", metaBox);
-      rebuilt.Write(udta.ToArray());
-    }
+    foreach (var child in moovChildren.Where(box => box.Type is not ("udta" or "meta"))) rebuilt.Write(ReadRaw(stream, child));
+    if (udtaPayload.Length > 0) WriteBox(rebuilt, "udta", udtaPayload.ToArray());
+    if (original.MoovMeta is not null) rebuilt.Write(original.MoovMeta);
     stream.SetLength(moov.Offset);
     stream.Position = moov.Offset;
     WriteBox(stream, "moov", rebuilt.ToArray());

@@ -75,6 +75,57 @@ public sealed class EditCopyServiceIntegrationTests
   }
 
   [PinnedMediaFact]
+  public async Task OtherUserDataAndAMoovLevelMetaBoxSurviveBothRoutesByteForByte()
+  {
+    using var root = new TemporaryFolder();
+    var tools = EditCopyMedia.Tools();
+    var source = await EditCopyMedia.GenerateWithUserDataAsync(root.CreateFolder("books"), tools);
+    var before = EditCopyMedia.Hash(source);
+    var original = Mp4MetadataBoxes.ReadUserData(source);
+    Assert.Contains(original.UdtaChildren, box => box.Type == "Xtra");
+    Assert.NotNull(original.MoovMeta);
+    var service = Service(tools, root);
+
+    var tagsOnly = await service.CreateAsync(Request(source, root.GetPath("output", "Tags.m4b"), tags: new() { [SemanticField.BookTitle] = "New title" }), CancellationToken.None);
+    var remuxed = await service.CreateAsync(Request(source, root.GetPath("output", "Chapters.m4b"), chapters: new() { [1] = "Renamed" }), CancellationToken.None);
+
+    foreach (var result in new[] { tagsOnly, remuxed })
+    {
+      Assert.True(result.Status == EditCopyStatus.Published, Describe(result));
+      Assert.Contains(result.Checks, check => check.Code == EditCopyCodes.CheckMetadataBoxes && check.Passed && check.Required);
+      var copy = Mp4MetadataBoxes.ReadUserData(result.PublishedPath!);
+      Assert.Equal(Convert.ToHexString(Assert.Single(original.UdtaChildren, box => box.Type == "Xtra").Raw), Convert.ToHexString(Assert.Single(copy.UdtaChildren, box => box.Type == "Xtra").Raw));
+      Assert.Equal(Convert.ToHexString(original.MoovMeta!), Convert.ToHexString(copy.MoovMeta!));
+    }
+    Assert.Equal("Renamed", (await service.ReadChaptersAsync(remuxed.PublishedPath!, CancellationToken.None))[1].Title);
+    Assert.Equal(before, EditCopyMedia.Hash(source));
+  }
+
+  [PinnedMediaFact]
+  public async Task ADroppedUserDataBoxFailsValidationAndPublishesNothing()
+  {
+    using var root = new TemporaryFolder();
+    var tools = EditCopyMedia.Tools();
+    var source = await EditCopyMedia.GenerateWithUserDataAsync(root.CreateFolder("books"), tools);
+    var before = EditCopyMedia.Hash(source);
+    var service = Service(tools, root);
+    service.BeforeValidation = (copy, _) =>
+    {
+      var data = Mp4MetadataBoxes.ReadUserData(copy);
+      Mp4MetadataBoxes.RestoreUserData(copy, data with { UdtaChildren = data.UdtaChildren.Where(box => box.Type != "Xtra").ToArray() });
+      return Task.CompletedTask;
+    };
+
+    var result = await service.CreateAsync(Request(source, root.GetPath("output", "Edited.m4b"), chapters: new() { [1] = "Renamed" }), CancellationToken.None);
+
+    Assert.Equal(EditCopyStatus.ValidationFailed, result.Status);
+    Assert.Contains(result.Checks, check => check.Code == EditCopyCodes.CheckMetadataBoxes && !check.Passed);
+    Assert.Empty(EditCopyMedia.Files(root.GetPath("output")));
+    Assert.Empty(EditCopyMedia.Files(root.GetPath("temp")));
+    Assert.Equal(before, EditCopyMedia.Hash(source));
+  }
+
+  [PinnedMediaFact]
   public async Task FiveHundredChaptersAndALongNonAsciiTitleSurviveARemux()
   {
     using var root = new TemporaryFolder();

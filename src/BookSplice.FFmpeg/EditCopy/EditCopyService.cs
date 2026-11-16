@@ -92,7 +92,7 @@ public sealed class EditCopyService : IEditCopyService
         }
         using (ConversionPhaseScope.Start(progress, ConversionPhase.MetadataWriting))
         {
-          Mp4MetadataBoxes.ReplaceMetaBox(copy, original.MetaBox);
+          Mp4MetadataBoxes.RestoreUserData(copy, original.UserData);
           Mp4MetadataWriter.Edit(copy, tags);
         }
       }
@@ -133,7 +133,7 @@ public sealed class EditCopyService : IEditCopyService
   private sealed record OriginalFacts(
     IReadOnlyList<RawChapter> Chapters,
     PacketDigest Packets,
-    byte[]? MetaBox,
+    Mp4UserData UserData,
     IReadOnlyList<Mp4MetadataItem> Items,
     int? CoverStreamIndex,
     string? MajorBrand);
@@ -146,7 +146,7 @@ public sealed class EditCopyService : IEditCopyService
   {
     var chapters = await ReadChaptersAsync(source, cancellationToken).ConfigureAwait(false);
     var packets = await ReadPacketDigestAsync(source, cancellationToken).ConfigureAwait(false) ?? throw new InvalidDataException("The original audio packets could not be read.");
-    return new OriginalFacts(chapters, packets, Mp4MetadataBoxes.ReadMetaBox(source), Mp4MetadataBoxes.ReadItems(source),
+    return new OriginalFacts(chapters, packets, Mp4MetadataBoxes.ReadUserData(source), Mp4MetadataBoxes.ReadItems(source),
       probe.AttachedPictures.Count > 0 ? probe.AttachedPictures[0].Index : null, Mp4MetadataBoxes.ReadMajorBrand(source));
   }
 
@@ -190,6 +190,7 @@ public sealed class EditCopyService : IEditCopyService
 
     var items = Mp4MetadataBoxes.ReadItems(copy);
     checks.Add(Check(EditCopyCodes.CheckCover, CoverPayloads(items).SequenceEqual(CoverPayloads(original.Items), ByteArrayComparer.Instance), "The cover differs from the original."));
+    checks.Add(Check(EditCopyCodes.CheckMetadataBoxes, SameUserData(Mp4MetadataBoxes.ReadUserData(copy), original.UserData), "Metadata stored outside the tag list differs from the original."));
 
     var chapters = await ReadChaptersAsync(copy, cancellationToken).ConfigureAwait(false);
     checks.Add(Check(EditCopyCodes.CheckChapterCount, chapters.Count == original.Chapters.Count, "The chapter count differs from the original."));
@@ -254,6 +255,9 @@ public sealed class EditCopyService : IEditCopyService
     => string.Join(' ', [Hex(item.Type), Hex(item.Mean ?? ""), Hex(item.Name ?? ""), .. item.Data.Select(data => $"{data.TypeCode.ToString(CultureInfo.InvariantCulture)}:{Convert.ToHexString(data.Payload)}")]);
 
   private static string Hex(string value) => Convert.ToHexString(Encoding.UTF8.GetBytes(value));
+
+  internal static bool SameUserData(Mp4UserData copy, Mp4UserData original)
+    => copy.Preserved.SequenceEqual(original.Preserved, ByteArrayComparer.Instance);
 
   private static IEnumerable<byte[]> CoverPayloads(IReadOnlyList<Mp4MetadataItem> items)
     => items.Where(item => item.Type == "covr").SelectMany(item => item.Data).Select(data => data.Payload);

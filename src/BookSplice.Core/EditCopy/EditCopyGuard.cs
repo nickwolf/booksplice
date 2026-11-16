@@ -45,6 +45,7 @@ public static class EditCopyCodes
   public const string CheckChapterTitles = "edit.chapters-titles";
   public const string CheckEditedTags = "edit.tags-edited";
   public const string CheckUntouchedTags = "edit.tags-untouched";
+  public const string CheckMetadataBoxes = "edit.metadata-boxes";
 }
 
 // Checks that need no media parsing. Nothing is written anywhere when this returns a diagnostic.
