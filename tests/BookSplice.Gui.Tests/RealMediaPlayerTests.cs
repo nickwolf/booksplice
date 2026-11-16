@@ -6,13 +6,25 @@ using BookSplice.FFmpeg.Tools;
 
 namespace BookSplice.Gui.Tests;
 
-public sealed class PinnedMediaFactAttribute : FactAttribute
+public class PinnedMediaFactAttribute : FactAttribute
 {
   public PinnedMediaFactAttribute()
   {
     if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("BOOKSPLICE_FFMPEG_DIR")))
       Skip = "Pinned FFmpeg tools are not available; set BOOKSPLICE_FFMPEG_DIR to run real-media tests.";
   }
+}
+
+// MediaPlayer fails with 0xC00D11BA when there is no audio output device, as on GitHub's Windows runners.
+public sealed class AudioDeviceFactAttribute : PinnedMediaFactAttribute
+{
+  public AudioDeviceFactAttribute()
+  {
+    if (Skip is null && WaveOutGetNumDevs() == 0) Skip = "This machine has no audio output device.";
+  }
+
+  [System.Runtime.InteropServices.DllImport("winmm.dll", EntryPoint = "waveOutGetNumDevs")]
+  private static extern uint WaveOutGetNumDevs();
 }
 
 // Proves that the WPF MediaPlayer opens the WAV the preview decoder writes, and lets go of it on Close.
@@ -22,7 +34,7 @@ public sealed class RealMediaPlayerTests : IDisposable
 
   public void Dispose() => Directory.Delete(_root, true);
 
-  [PinnedMediaFact]
+  [AudioDeviceFact]
   public void TheRealPlayerOpensTheWavTheRealDecoderWritesAndReleasesItOnClose() => DispatcherTestHost.Run(async _ =>
   {
     var directory = Environment.GetEnvironmentVariable("BOOKSPLICE_FFMPEG_DIR");
@@ -43,9 +55,6 @@ public sealed class RealMediaPlayerTests : IDisposable
     player.Open(wav);
 
     var first = await Task.WhenAny(opened.Task, failed.Task, Task.Delay(TimeSpan.FromSeconds(5)));
-    // 0xC00D11BA is Media Foundation's "no audio device". CI runners have none, so there is nothing to play to.
-    if (ReferenceEquals(first, failed.Task) && failed.Task.Result.Contains("C00D11BA", StringComparison.OrdinalIgnoreCase))
-      throw Xunit.Sdk.SkipException.ForSkip("This machine has no audio device.");
     Assert.True(ReferenceEquals(first, opened.Task), failed.Task.IsCompleted ? $"The player failed: {failed.Task.Result}" : "The player neither opened the file nor failed within 5 seconds.");
 
     player.Close();
