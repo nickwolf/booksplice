@@ -6,9 +6,11 @@ namespace BookSplice.Core.EditCopy;
 
 public static class EditCopyPreview
 {
-  public static IReadOnlyList<string> Describe(MediaProbeResult original, EditCopyRequest request)
+  // Tags come from the probe; chapter titles from the edit's own chapter list, which keeps titles the probe's chpl read cuts short.
+  public static IReadOnlyList<string> Describe(MediaProbeResult original, IReadOnlyList<EditCopyChapter> chapters, EditCopyRequest request)
   {
     ArgumentNullException.ThrowIfNull(original);
+    ArgumentNullException.ThrowIfNull(chapters);
     ArgumentNullException.ThrowIfNull(request);
     var lines = new List<string>();
     foreach (var (field, value) in request.TagEdits.OrderBy(edit => edit.Key))
@@ -18,7 +20,7 @@ public static class EditCopyPreview
     }
     foreach (var (index, title) in request.ChapterTitleEdits.OrderBy(edit => edit.Key))
     {
-      var before = index >= 0 && index < original.Chapters.Count ? original.Chapters[index].RawTags.GetValueOrDefault("title") : null;
+      var before = index >= 0 && index < chapters.Count ? chapters[index].Title : null;
       lines.Add($"Chapter {index + 1}: {Quote(before)} -> {Quote(title)}");
     }
     return lines;

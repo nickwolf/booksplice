@@ -95,6 +95,8 @@ public sealed partial class BookQueueItemViewModel(string source, AppSettings se
   public bool CanEditCopy => !IsBusy && !IsWaiting && IsInspectOnly;
   // What the file says now, for the Edit a copy window. Null until the analysis kept the one M4B's probe.
   internal MediaProbeResult? EditProbe => IsInspectOnly && Analysis!.OrderedFiles.Count == 1 ? Analysis.OrderedFiles[0].ProbeResult : null;
+  // The one .m4b an inspect-only book stands for. Source is the folder when the book was added as a folder holding it.
+  internal string? InspectedFile => IsInspectOnly && Analysis!.OrderedFiles.Count == 1 ? Analysis.OrderedFiles[0].FullPath : null;
   // The profile a conversion of this book would use. Null when a restored book names one that is gone.
   internal MetadataProfile? EditProfile => _profiles.Find(Settings.MetadataProfileId);
   // Whether the check also decodes every audio frame. Per book and not saved with the queue.

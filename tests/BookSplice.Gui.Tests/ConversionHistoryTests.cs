@@ -138,6 +138,29 @@ public sealed class ConversionHistoryTests : IDisposable
   }
 
   [Fact]
+  public async Task AnEditThatSavedNothingNamesItsBookAndASavedOneDoesNot()
+  {
+    var original = Path.Combine(_root, "Some Book.m4b");
+    var copy = Path.Combine(_root, "edited.m4b");
+    await File.WriteAllTextAsync(copy, "audio");
+    var now = DateTimeOffset.UtcNow;
+    var cancelled = Guid.NewGuid();
+    var failed = Guid.NewGuid();
+    var done = Guid.NewGuid();
+    var writer = new JsonJobLogWriter(_root);
+    await writer.WriteAsync(Record(done, ConversionTerminalStatus.Succeeded, now.AddMinutes(-3), TimeSpan.FromSeconds(9), copy) with { Kind = "edit", CheckedPath = original }, CancellationToken.None);
+    await writer.WriteAsync(Record(failed, ConversionTerminalStatus.ValidationFailed, now.AddMinutes(-2), TimeSpan.FromSeconds(9), null, new ServiceDiagnostic("edit.streams", ServiceDiagnosticSeverity.Error, "The copy's streams differ.")) with { Kind = "edit", CheckedPath = original }, CancellationToken.None);
+    await writer.WriteAsync(Record(cancelled, ConversionTerminalStatus.Cancelled, now.AddMinutes(-1), TimeSpan.FromSeconds(9), null) with { Kind = "edit", CheckedPath = original }, CancellationToken.None);
+
+    var entries = new ConversionHistoryReader(_root).Read().Entries;
+
+    Assert.Equal("Some Book.m4b: The edit stopped before completion.", entries.Single(entry => entry.JobId == cancelled).Summary);
+    Assert.Equal("Some Book.m4b: The copy's streams differ.", entries.Single(entry => entry.JobId == failed).Summary);
+    Assert.Equal("", entries.Single(entry => entry.JobId == done).Summary);
+    Assert.Equal(copy, entries.Single(entry => entry.JobId == done).OutputPath);
+  }
+
+  [Fact]
   public async Task ARecordWithoutAKindStillReadsAsAConversion()
   {
     var output = Path.Combine(_root, "book.m4b");

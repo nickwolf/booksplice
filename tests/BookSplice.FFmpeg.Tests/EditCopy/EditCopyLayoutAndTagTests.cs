@@ -82,7 +82,7 @@ public sealed class EditCopyLayoutAndTagTests
     var written = new Dictionary<string, string> { ["show"] = "Old show", ["episode_id"] = "Old episode", ["network"] = "Old network", ["keywords"] = "Old keywords", ["encoding_tool"] = "Old tool", ["disc_subtitle"] = "Old subtitle" };
     var path = await EditCopyMedia.GenerateAsync(root.Path, EditCopyMedia.Tools(), EditCopyMedia.Titles(3), extraTags: written);
     var before = Mp4MetadataBoxes.ReadItems(path);
-    foreach (var (atom, value) in new[] { ("tvsh", "Old show"), ("tven", "Old episode"), ("tvnn", "Old network"), ("keyw", "Old keywords"), ("©too", "Old tool") })
+    foreach (var (atom, value) in new[] { ("tvsh", "Old show"), ("tven", "Old episode"), ("tvnn", "Old network"), ("keyw", "Old keywords"), ("\u00A9too", "Old tool") })
       Assert.Equal(value, Text(before, atom));
     Assert.Equal("Old subtitle", Assert.Single(Assert.Single(before, item => item.IsFreeform && item.Name == "DISCSUBTITLE").Data).Text);
     var atoms = new Dictionary<string, string>
@@ -91,7 +91,7 @@ public sealed class EditCopyLayoutAndTagTests
       ["episode_id"] = "tven",
       ["network"] = "tvnn",
       ["keywords"] = "keyw",
-      ["encoding_tool"] = "©too",
+      ["encoding_tool"] = "\u00A9too",
       ["sort_name"] = "sonm",
       ["sort_artist"] = "soar",
       ["sort_album_artist"] = "soaa",
@@ -114,7 +114,7 @@ public sealed class EditCopyLayoutAndTagTests
 
     Mp4MetadataWriter.Edit(path, new Dictionary<string, string> { ["encoder"] = "Newer tool" });
 
-    Assert.Equal("Newer tool", Text(Mp4MetadataBoxes.ReadItems(path), "©too"));
+    Assert.Equal("Newer tool", Text(Mp4MetadataBoxes.ReadItems(path), "\u00A9too"));
   }
 
   [Fact]

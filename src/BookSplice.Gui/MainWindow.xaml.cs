@@ -523,7 +523,7 @@ public partial class MainWindow : Window
   private async void EditCopy_Click(object sender, RoutedEventArgs e)
   {
     if (_model is null || Queue.SelectedItem is not BookQueueItemViewModel { CanEditCopy: true } item) return;
-    if (_model.PrepareEditCopy(item) is not { } edits) return;
+    if (await _model.PrepareEditCopyAsync(item) is not { } edits) return;
     var dialog = new EditCopyWindow(item.Name, edits) { Owner = this };
     if (ShowEditCopy(dialog) == true) await _model.EditCopyAsync(item, edits);
   }

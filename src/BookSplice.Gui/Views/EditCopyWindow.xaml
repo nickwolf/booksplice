@@ -4,6 +4,9 @@
         Title="Edit a copy" Width="720" Height="680" MinWidth="480" MinHeight="420"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False" ResizeMode="CanResizeWithGrip"
         AutomationProperties.AutomationId="EditCopyWindow">
+  <Window.Resources>
+    <BooleanToVisibilityConverter x:Key="BooleanVisibility"/>
+  </Window.Resources>
   <DockPanel Margin="16">
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
       <Button x:Name="CreateButton" Content="C_reate copy" IsDefault="True" IsEnabled="{Binding CanCreate}" Click="Create_Click" Padding="16,6" Margin="0,0,8,0"
@@ -31,12 +34,28 @@
     <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
       <StackPanel>
         <TextBlock Text="Tags" FontWeight="SemiBold" Margin="0,0,0,4"/>
+        <!-- An edit copy writes text tags only, so a field the profile stores as a number is shown but can't be changed. -->
+        <TextBlock x:Name="ReadOnlyNote" TextWrapping="Wrap" Foreground="DimGray" Margin="0,0,0,6"
+                   Visibility="{Binding HasReadOnlyFields, Converter={StaticResource BooleanVisibility}}"
+                   Text="Grayed-out fields are stored as numbers by this metadata profile. A copy can only change text tags, so they can't be edited here."/>
         <ItemsControl x:Name="Fields" ItemsSource="{Binding Fields}" KeyboardNavigation.TabNavigation="Continue" AutomationProperties.Name="Tags">
           <ItemsControl.ItemTemplate>
             <DataTemplate>
               <DockPanel Margin="0,0,8,6">
                 <TextBlock DockPanel.Dock="Left" Text="{Binding Label}" Width="160" VerticalAlignment="Center"/>
-                <TextBox x:Name="ValueBox" Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}" VerticalContentAlignment="Center" AutomationProperties.Name="{Binding Label}"/>
+                <TextBox x:Name="ValueBox" Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}" IsReadOnly="{Binding IsReadOnly}" VerticalContentAlignment="Center" AutomationProperties.Name="{Binding Label}">
+                  <TextBox.Style>
+                    <Style TargetType="TextBox">
+                      <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsReadOnly}" Value="True">
+                          <Setter Property="Foreground" Value="DimGray"/>
+                          <Setter Property="Background" Value="WhiteSmoke"/>
+                          <Setter Property="ToolTip" Value="Stored as a number, so a copy can't change it"/>
+                        </DataTrigger>
+                      </Style.Triggers>
+                    </Style>
+                  </TextBox.Style>
+                </TextBox>
               </DockPanel>
             </DataTemplate>
           </ItemsControl.ItemTemplate>

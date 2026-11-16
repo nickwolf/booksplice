@@ -66,6 +66,8 @@ public sealed class EditCopyService : IEditCopyService
           return new(EditCopyStatus.InvalidInput, null, [new(EditCopyCodes.SourceCheckFailed, "The file failed a required check, so it can't be edited.")], sourceChecks);
         original = await ReadOriginalAsync(source, sourceReport.Facts, cancellationToken).ConfigureAwait(false);
         var outOfRange = request.ChapterTitleEdits.Keys.Where(index => index >= original.Chapters.Count).Order().ToArray();
+        if (request.ExpectedChapterTitles is { } expected && !expected.SequenceEqual(original.Chapters.Select(chapter => chapter.Title), StringComparer.Ordinal))
+          return new(EditCopyStatus.InvalidInput, null, [new(EditCopyCodes.ChaptersChanged, "The file's chapters changed since the edit window opened.")]);
         if (outOfRange.Length > 0)
           return new(EditCopyStatus.InvalidInput, null, outOfRange.Select(index => new ExecutionDiagnostic(EditCopyCodes.ChapterIndexInvalid, $"Chapter {index + 1} does not exist.")));
         // A chapter title edit remuxes the audio, cover and chapters into a new file, so anything else in the file would be lost.
@@ -148,7 +150,7 @@ public sealed class EditCopyService : IEditCopyService
 
   private async Task<OriginalFacts> ReadOriginalAsync(string source, MediaProbeResult probe, CancellationToken cancellationToken)
   {
-    var chapters = await ReadChaptersAsync(source, cancellationToken).ConfigureAwait(false);
+    var chapters = await ReadRawChaptersAsync(source, cancellationToken).ConfigureAwait(false);
     var packets = await ReadPacketDigestAsync(source, cancellationToken).ConfigureAwait(false) ?? throw new InvalidDataException("The original audio packets could not be read.");
     return new OriginalFacts(chapters, packets, Mp4MetadataBoxes.ReadUserData(source), Mp4MetadataBoxes.ReadItems(source),
       probe.AttachedPictures.Count > 0 ? probe.AttachedPictures[0].Index : null, Mp4MetadataBoxes.ReadMajorBrand(source), probe);
@@ -199,7 +201,7 @@ public sealed class EditCopyService : IEditCopyService
     checks.Add(Check(EditCopyCodes.CheckCover, CoverPayloads(items).SequenceEqual(CoverPayloads(original.Items), ByteArrayComparer.Instance), "The cover differs from the original."));
     checks.Add(Check(EditCopyCodes.CheckMetadataBoxes, SameUserData(Mp4MetadataBoxes.ReadUserData(copy), original.UserData), "Metadata stored outside the tag list differs from the original."));
 
-    var chapters = await ReadChaptersAsync(copy, cancellationToken).ConfigureAwait(false);
+    var chapters = await ReadRawChaptersAsync(copy, cancellationToken).ConfigureAwait(false);
     checks.Add(Check(EditCopyCodes.CheckChapterCount, chapters.Count == original.Chapters.Count, "The chapter count differs from the original."));
     var paired = original.Chapters.Zip(chapters).ToArray();
     checks.Add(Check(EditCopyCodes.CheckChapterTiming, chapters.Count == original.Chapters.Count && paired.All(pair => SameTime(pair.First.Start, pair.First.TimeBase, pair.Second.Start, pair.Second.TimeBase) && SameTime(pair.First.End, pair.First.TimeBase, pair.Second.End, pair.Second.TimeBase)), "A chapter start or end moved."));
@@ -285,7 +287,15 @@ public sealed class EditCopyService : IEditCopyService
 
   // ffprobe reads chapter titles from the chapter text track, which keeps them whole. The Nero chpl box ffmpeg also writes
   // cuts titles at 255 bytes, the same as in a converted book, so it isn't what the titles are checked against.
-  internal async Task<IReadOnlyList<RawChapter>> ReadChaptersAsync(string path, CancellationToken cancellationToken)
+  public async Task<IReadOnlyList<EditCopyChapter>> ReadChaptersAsync(string sourcePath, CancellationToken cancellationToken)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
+    var chapters = await ReadRawChaptersAsync(Path.GetFullPath(sourcePath), cancellationToken).ConfigureAwait(false);
+    return chapters.Select(chapter => new EditCopyChapter(
+      (long)decimal.Round((decimal)chapter.Start * chapter.TimeBase.Numerator * 1_000_000m / chapter.TimeBase.Denominator, MidpointRounding.AwayFromZero), chapter.Title)).ToArray();
+  }
+
+  internal async Task<IReadOnlyList<RawChapter>> ReadRawChaptersAsync(string path, CancellationToken cancellationToken)
   {
     var result = await _runner.RunAsync(new ProcessSpec(_tools.FFprobePath, ["-v", "error", "-show_chapters", "-of", "json", path]), null, cancellationToken).ConfigureAwait(false);
     if (result.ExitCode != 0) throw new InvalidDataException("ffprobe could not read the chapters.");

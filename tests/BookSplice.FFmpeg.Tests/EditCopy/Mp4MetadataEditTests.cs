@@ -97,7 +97,7 @@ public sealed class Mp4MetadataEditTests
     var (_, after) = ChapterBox(await File.ReadAllBytesAsync(copy));
     Assert.Equal(Convert.ToHexString(before), Convert.ToHexString(after));
     Assert.Equal("moov", EditCopyMedia.LastTopLevelType(copy));
-    Assert.Equal("Horror", Assert.Single(Assert.Single(Mp4MetadataBoxes.ReadItems(copy), item => item.Type == "©gen").Data).Text);
+    Assert.Equal("Horror", Assert.Single(Assert.Single(Mp4MetadataBoxes.ReadItems(copy), item => item.Type == "\u00A9gen").Data).Text);
   }
 
   [PinnedMediaFact]

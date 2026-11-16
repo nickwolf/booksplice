@@ -12,12 +12,15 @@ public sealed partial class MainWindowViewModel
 {
   public bool CanEditCopies => editCopy is not null;
 
-  // The state for the Edit a copy window, or null with a message when the file's tags or profile are not available.
-  public EditCopyViewModel? PrepareEditCopy(BookQueueItemViewModel item)
+  private bool _preparingEditCopy;
+
+  // The state for the Edit a copy window, or null with a message when the file's tags, chapters or profile are not available.
+  // The chapters come from the edit service, which reads the same chapter track the edit will.
+  public async Task<EditCopyViewModel?> PrepareEditCopyAsync(BookQueueItemViewModel item)
   {
     ArgumentNullException.ThrowIfNull(item);
-    if (editCopy is null || !item.CanEditCopy) return null;
-    if (item.EditProbe is not { } probe)
+    if (editCopy is null || !item.CanEditCopy || _preparingEditCopy) return null;
+    if (item.EditProbe is not { } probe || item.InspectedFile is not { } source)
     {
       Message = "This file's tags could not be read, so it cannot be edited.";
       return null;
@@ -27,15 +30,27 @@ public sealed partial class MainWindowViewModel
       Message = "The metadata profile for this book is unavailable. Choose another profile before editing a copy.";
       return null;
     }
-    return new EditCopyViewModel(item.Source, probe, profile);
+    IReadOnlyList<EditCopyChapter> chapters;
+    _preparingEditCopy = true;
+    try { chapters = await editCopy.ReadChaptersAsync(source, CancellationToken.None); }
+    catch (Exception)
+    {
+      Message = "This file's chapters could not be read, so it cannot be edited.";
+      return null;
+    }
+    finally { _preparingEditCopy = false; }
+    // The book may have been removed or started something else while its chapters were read.
+    if (!item.CanEditCopy || !Items.Contains(item)) return null;
+    return new EditCopyViewModel(source, probe, chapters, profile);
   }
 
-  // The output folder from settings plus the original's file name. If that is the original itself, the copy is named "<name> (edited).m4b".
+  // The output folder from settings plus the original's file name. If that is the original itself (by path or, when it exists,
+  // by file id, which catches a junction or another path to the same folder), the copy is named "<name> (edited).m4b".
   internal static string EditCopyDestination(string source, string outputDirectory)
   {
     var original = Path.GetFullPath(source);
     var candidate = Path.GetFullPath(Path.Combine(outputDirectory, Path.GetFileName(original)));
-    return string.Equals(candidate, original, StringComparison.OrdinalIgnoreCase)
+    return EditCopyGuard.IsSameFile(original, candidate, new FileSystemEditCopyFileSystem())
       ? Path.GetFullPath(Path.Combine(outputDirectory, Path.GetFileNameWithoutExtension(original) + " (edited).m4b"))
       : candidate;
   }
@@ -47,7 +62,7 @@ public sealed partial class MainWindowViewModel
     if (editCopy is null || !item.CanEditCopy || !edits.CanCreate) return;
     using var operation = Enter("edit copy");
     if (operation is null) return;
-    var request = edits.CreateRequest(EditCopyDestination(item.Source, item.OutputDirectory));
+    var request = edits.CreateRequest(EditCopyDestination(edits.SourcePath, item.OutputDirectory));
     item.IsBusy = true;
     item.Status = "Editing";
     item.Result = null;
@@ -125,7 +140,7 @@ public sealed partial class MainWindowViewModel
     }
     // An unexpected failure is shown on the book but not logged, so History only holds edits that reached a verdict or were cancelled.
     if (status == ConversionTerminalStatus.UnexpectedFailure || checkLog is null) return;
-    try { await checkLog.WriteAsync(CreateEditRecord(status, result, started, DateTimeOffset.UtcNow), CancellationToken.None); }
+    try { await checkLog.WriteAsync(CreateEditRecord(request.SourcePath, status, result, started, DateTimeOffset.UtcNow), CancellationToken.None); }
     catch (Exception) { item.Details = string.Join(Environment.NewLine, new[] { item.Details, "The edit could not be recorded in History." }.Where(value => value.Length > 0)); }
 
     void ApplyProgress(ConversionProgress value)
@@ -145,7 +160,8 @@ public sealed partial class MainWindowViewModel
     }
   }
 
-  internal static ConversionAuditRecord CreateEditRecord(ConversionTerminalStatus status, EditCopyResult? result, DateTimeOffset started, DateTimeOffset finished)
+  // CheckedPath holds the original, so a failed or cancelled edit in History still says which book it was.
+  internal static ConversionAuditRecord CreateEditRecord(string source, ConversionTerminalStatus status, EditCopyResult? result, DateTimeOffset started, DateTimeOffset finished)
   {
     var failed = status != ConversionTerminalStatus.Succeeded;
     var diagnostics = (result?.Checks ?? []).Select(check => new ServiceDiagnostic(check.Code,
@@ -153,6 +169,6 @@ public sealed partial class MainWindowViewModel
       .Concat((result?.Diagnostics ?? []).Select(diagnostic => new ServiceDiagnostic(diagnostic.Code, failed ? ServiceDiagnosticSeverity.Error : ServiceDiagnosticSeverity.Information, diagnostic.Message)))
       .ToArray();
     return new(ConversionAuditRecord.CurrentSchemaVersion, Guid.NewGuid(), started, finished, status, null, null, null, null, null, [], null, null, null, null, [],
-      diagnostics, result is { Status: EditCopyStatus.Published } ? result.PublishedPath : null, Kind: "edit");
+      diagnostics, result is { Status: EditCopyStatus.Published } ? result.PublishedPath : null, Kind: "edit", CheckedPath: Path.GetFullPath(source));
   }
 }

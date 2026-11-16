@@ -17,7 +17,7 @@ public sealed class EditCopyPreviewTests
       @"C:\Output\Edited.m4b",
       MetadataProfiles.GenericMp4);
 
-    var lines = EditCopyPreview.Describe(original, request);
+    var lines = EditCopyPreview.Describe(original, Chapters("Opening", "Middle", "Ending"), request);
 
     Assert.Equal(
     [
@@ -34,7 +34,17 @@ public sealed class EditCopyPreviewTests
     var original = Original(new() { ["album_artist"] = "Old author" }, "Opening");
     var request = new EditCopyRequest(@"C:\Books\Original.m4b", new Dictionary<SemanticField, string> { [SemanticField.Author] = "New author" }, new Dictionary<int, string>(), @"C:\Output\Edited.m4b", MetadataProfiles.GenericMp4);
 
-    Assert.Equal(["Author: \"Old author\" -> \"New author\""], EditCopyPreview.Describe(original, request));
+    Assert.Equal(["Author: \"Old author\" -> \"New author\""], EditCopyPreview.Describe(original, Chapters("Opening"), request));
+  }
+
+  [Fact]
+  public void TheOldChapterTitleComesFromTheChapterListNotTheProbe()
+  {
+    var whole = new string('x', 300);
+    var original = Original(new(), whole[..255]);
+    var request = new EditCopyRequest(@"C:\Books\Original.m4b", new Dictionary<SemanticField, string>(), new Dictionary<int, string> { [0] = "Short" }, @"C:\Output\Edited.m4b", MetadataProfiles.GenericMp4);
+
+    Assert.Equal([$"Chapter 1: \"{whole}\" -> \"Short\""], EditCopyPreview.Describe(original, Chapters(whole), request));
   }
 
   [Theory]
@@ -44,11 +54,13 @@ public sealed class EditCopyPreviewTests
   public void FieldLabelsAreReadable(SemanticField field, string label)
     => Assert.Equal(label, EditCopyPreview.Label(field));
 
+  private static EditCopyChapter[] Chapters(params string[] titles) => titles.Select((title, index) => new EditCopyChapter(index * 10_000_000L, title)).ToArray();
+
   private static MediaProbeResult Original(Dictionary<string, string> tags, params string[] chapterTitles)
     => new(
       [new AudioTrack(0, "aac", "audio", 1, 44100, 60m, new Rational(1, 44100), new Dictionary<string, string>())],
       [],
-      chapterTitles.Select((title, index) => new MediaChapter(index, index * 10m, (index + 1) * 10m, new Rational(1, 1000), new Dictionary<string, string> { ["title"] = title })).ToArray(),
+      chapterTitles.Select((title, index) => new MediaChapter(index, index * 10m, (index + 1) * 10m, new Rational(1, 1000), new Dictionary<string, string> { ["title"] = $"probe {title}" })).ToArray(),
       new TagCollection(tags),
       tags,
       [],

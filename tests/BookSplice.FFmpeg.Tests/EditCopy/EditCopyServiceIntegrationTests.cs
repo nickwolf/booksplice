@@ -55,8 +55,8 @@ public sealed class EditCopyServiceIntegrationTests
     var result = await service.CreateAsync(Request(source, destination, tags: new() { [SemanticField.Genre] = "Horror" }, chapters: new() { [0] = "Prologue", [3] = "Épilogue" }), CancellationToken.None);
 
     Assert.True(result.Status == EditCopyStatus.Published, Describe(result));
-    var original = await service.ReadChaptersAsync(source, CancellationToken.None);
-    var copy = await service.ReadChaptersAsync(destination, CancellationToken.None);
+    var original = await service.ReadRawChaptersAsync(source, CancellationToken.None);
+    var copy = await service.ReadRawChaptersAsync(destination, CancellationToken.None);
     Assert.Equal(["Prologue", "Chapter 2", "Chapter 3", "Épilogue"], copy.Select(chapter => chapter.Title));
     Assert.Equal(Times(original), Times(copy));
     Assert.Equal(await service.ReadPacketDigestAsync(source, CancellationToken.None), await service.ReadPacketDigestAsync(destination, CancellationToken.None));
@@ -142,8 +142,8 @@ public sealed class EditCopyServiceIntegrationTests
     var result = await service.CreateAsync(Request(source, destination, chapters: new() { [499] = edited }), CancellationToken.None);
 
     Assert.True(result.Status == EditCopyStatus.Published, Describe(result));
-    var original = await service.ReadChaptersAsync(source, CancellationToken.None);
-    var copy = await service.ReadChaptersAsync(destination, CancellationToken.None);
+    var original = await service.ReadRawChaptersAsync(source, CancellationToken.None);
+    var copy = await service.ReadRawChaptersAsync(destination, CancellationToken.None);
     Assert.Equal(500, copy.Count);
     Assert.Equal(300, longTitle.Length);
     Assert.Equal(longTitle, copy[10].Title);

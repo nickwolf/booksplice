@@ -15,7 +15,7 @@ public sealed partial class MainWindowViewModel
     if (checker is null || !item.CanCheck) return;
     using var operation = Enter("check");
     if (operation is null) return;
-    var path = item.Source;
+    var path = item.InspectedFile ?? item.Source;
     var fullDecode = item.DecodeAllAudio;
     item.IsBusy = true;
     item.Status = "Checking";

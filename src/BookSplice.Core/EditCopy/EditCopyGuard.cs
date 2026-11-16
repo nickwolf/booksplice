@@ -31,6 +31,7 @@ public static class EditCopyCodes
   public const string TagValueInvalid = "edit.tag-value-invalid";
   public const string TagUnsupported = "edit.tag-unsupported";
   public const string ChaptersUnsupportedLayout = "edit.chapters-unsupported-layout";
+  public const string ChaptersChanged = "edit.chapters-changed";
   public const string ChapterIndexInvalid = "edit.chapter-index-invalid";
   public const string ChapterTitleInvalid = "edit.chapter-title-invalid";
   public const string SourceChanged = "edit.source-changed";

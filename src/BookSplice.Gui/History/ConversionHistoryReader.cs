@@ -145,6 +145,8 @@ public sealed class ConversionHistoryReader(string directory, int maxRecords = C
       HistoryOutcome.Preview => "Nothing was converted.",
       _ => reason,
     };
+    // An edit that saved nothing names the book it was made from, which its record keeps as checkedPath.
+    if (isEdit && outcome != HistoryOutcome.Edited && Text(root, "checkedPath") is { } edited) summary = $"{Path.GetFileName(edited)}: {summary}";
     var exists = published is not null && _fileExists(published);
     var elapsed = finished >= started ? finished - started : TimeSpan.Zero;
     var strategy = isCheck ? ConversionHistoryEntry.CheckStrategyText : isEdit ? ConversionHistoryEntry.EditStrategyText : Text(plan, "strategy") ?? "Not recorded";
