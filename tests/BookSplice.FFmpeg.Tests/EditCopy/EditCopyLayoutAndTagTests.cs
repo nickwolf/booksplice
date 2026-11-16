@@ -67,6 +67,17 @@ public sealed class EditCopyLayoutAndTagTests
   }
 
   [Fact]
+  public void ACopyMustKeepTheChapterTrackTheOriginalHas()
+  {
+    var withChapterTrack = Probe(new MediaStreamInfo(2, "data", "bin_data", null));
+    var withoutChapterTrack = Probe();
+
+    Assert.True(EditCopyService.SameStreams(withChapterTrack, withChapterTrack));
+    Assert.False(EditCopyService.SameStreams(withoutChapterTrack, withChapterTrack));
+    Assert.True(EditCopyService.SameStreams(withChapterTrack, withoutChapterTrack));
+  }
+
+  [Fact]
   public void TimingMustMatchExactly()
   {
     Assert.True(EditCopyService.SameTiming(Probe(), Probe()));

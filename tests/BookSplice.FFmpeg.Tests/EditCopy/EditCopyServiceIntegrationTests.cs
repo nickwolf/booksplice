@@ -76,6 +76,26 @@ public sealed class EditCopyServiceIntegrationTests
     Assert.Empty(EditCopyMedia.Files(root.GetPath("temp")));
   }
 
+  // With the cover mapped into the remux, ffmpeg 9.0.2 timed the chapter track at 1/4410000 and a chapter longer than about 487 s
+  // (2^31 ticks) came out wrong or the chapter track was dropped. The cover comes back with the original's ilst instead.
+  [PinnedMediaFact]
+  public async Task AChapterTitleEditKeepsTheTimesOfChaptersLongerThanEightMinutesInABookWithACover()
+  {
+    using var root = new TemporaryFolder();
+    var tools = EditCopyMedia.Tools();
+    var source = await EditCopyMedia.GenerateAsync(root.CreateFolder("books"), tools, EditCopyMedia.Titles(2), seconds: 1100);
+    var service = Service(tools, root);
+
+    var result = await service.CreateAsync(Request(source, root.GetPath("output", "Edited.m4b"), chapters: new() { [0] = "Prologue" }), CancellationToken.None);
+
+    Assert.True(result.Status == EditCopyStatus.Published, Describe(result));
+    var copy = await service.ReadRawChaptersAsync(result.PublishedPath!, CancellationToken.None);
+    Assert.Equal(["Prologue", "Chapter 2"], copy.Select(chapter => chapter.Title));
+    Assert.Equal(Times(await service.ReadRawChaptersAsync(source, CancellationToken.None)), Times(copy));
+    Assert.NotEmpty(Covers(source));
+    Assert.Equal(Covers(source), Covers(result.PublishedPath!));
+  }
+
   [PinnedMediaFact]
   public async Task OtherUserDataAndAMoovLevelMetaBoxSurviveBothRoutesByteForByte()
   {

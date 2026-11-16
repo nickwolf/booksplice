@@ -70,7 +70,7 @@ public sealed class EditCopyService : IEditCopyService
           return new(EditCopyStatus.InvalidInput, null, [new(EditCopyCodes.ChaptersChanged, "The file's chapters changed since the edit window opened.")]);
         if (outOfRange.Length > 0)
           return new(EditCopyStatus.InvalidInput, null, outOfRange.Select(index => new ExecutionDiagnostic(EditCopyCodes.ChapterIndexInvalid, $"Chapter {index + 1} does not exist.")));
-        // A chapter title edit remuxes the audio, cover and chapters into a new file, so anything else in the file would be lost.
+        // A chapter title edit rebuilds the file from the audio, the chapters and the original's metadata boxes, so anything else in it would be lost.
         if (request.ChapterTitleEdits.Count > 0 && !Mp4MetadataBoxes.CanRemuxChapters(source))
           return new(EditCopyStatus.InvalidInput, null, [new(EditCopyCodes.ChaptersUnsupportedLayout, "Chapter titles can't be edited in this file because it holds more than audio, a cover and chapters. Its tags can still be edited.")]);
         job = Path.GetFullPath(_workspace.CreateJobDirectory());
@@ -91,7 +91,7 @@ public sealed class EditCopyService : IEditCopyService
         {
           var metadata = Register(artifacts, job, "chapters.ffmeta");
           WriteChapterMetadata(metadata, original.Chapters, request.ChapterTitleEdits);
-          var result = await _runner.RunAsync(new ProcessSpec(_tools.FFmpegPath, RemuxArguments(source, metadata, copy, original)), null, cancellationToken).ConfigureAwait(false);
+          var result = await _runner.RunAsync(new ProcessSpec(_tools.FFmpegPath, RemuxArguments(source, metadata, copy, original.MajorBrand)), null, cancellationToken).ConfigureAwait(false);
           if (result.ExitCode != 0)
             return Fail(artifacts, job, EditCopyStatus.Failed, EditCopyCodes.ProcessFailed, $"FFmpeg exited with code {result.ExitCode.ToString(CultureInfo.InvariantCulture)}.");
         }
@@ -140,7 +140,6 @@ public sealed class EditCopyService : IEditCopyService
     PacketDigest Packets,
     Mp4UserData UserData,
     IReadOnlyList<Mp4MetadataItem> Items,
-    int? CoverStreamIndex,
     string? MajorBrand,
     MediaProbeResult Probe);
 
@@ -153,7 +152,7 @@ public sealed class EditCopyService : IEditCopyService
     var chapters = await ReadRawChaptersAsync(source, cancellationToken).ConfigureAwait(false);
     var packets = await ReadPacketDigestAsync(source, cancellationToken).ConfigureAwait(false) ?? throw new InvalidDataException("The original audio packets could not be read.");
     return new OriginalFacts(chapters, packets, Mp4MetadataBoxes.ReadUserData(source), Mp4MetadataBoxes.ReadItems(source),
-      probe.AttachedPictures.Count > 0 ? probe.AttachedPictures[0].Index : null, Mp4MetadataBoxes.ReadMajorBrand(source), probe);
+      Mp4MetadataBoxes.ReadMajorBrand(source), probe);
   }
 
   private static async Task CopyOriginalAsync(string source, string copy, CancellationToken cancellationToken)
@@ -163,12 +162,13 @@ public sealed class EditCopyService : IEditCopyService
     await input.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
   }
 
-  private static string[] RemuxArguments(string source, string metadata, string copy, OriginalFacts original)
+  // Only the audio and the chapters go through ffmpeg. The cover is in the original's ilst, which RestoreUserData puts back. With
+  // the cover mapped too, ffmpeg 9.0.2 timed the chapter track at 1/4410000, and a chapter longer than about 487 s came out wrong or lost the track.
+  internal static string[] RemuxArguments(string source, string metadata, string copy, string? majorBrand)
   {
     var args = new List<string> { "-hide_banner", "-nostdin", "-v", "error", "-i", source, "-f", "ffmetadata", "-i", metadata, "-map", "0:a:0" };
-    if (original.CoverStreamIndex is { } cover) args.AddRange(["-map", $"0:{cover.ToString(CultureInfo.InvariantCulture)}", "-disposition:v:0", "attached_pic"]);
     args.AddRange(["-map_chapters", "1", "-c", "copy"]);
-    if (original.MajorBrand is { } brand) args.AddRange(["-brand", brand]);
+    if (majorBrand is { } brand) args.AddRange(["-brand", brand]);
     args.AddRange(["-f", "mp4", "-y", copy]);
     return [.. args];
   }
@@ -191,7 +191,7 @@ public sealed class EditCopyService : IEditCopyService
     var checks = new List<ValidationCheck>();
     var report = await Checker().CheckAsync(copy, false, cancellationToken).ConfigureAwait(false);
     checks.AddRange(EditChecks(report));
-    checks.Add(Check(EditCopyCodes.CheckStreams, report.Facts is { } streams && StreamKinds(streams).SequenceEqual(StreamKinds(original.Probe), StringComparer.Ordinal), "The copy's streams differ from the original's."));
+    checks.Add(Check(EditCopyCodes.CheckStreams, report.Facts is { } streams && SameStreams(streams, original.Probe), "The copy's streams differ from the original's."));
     checks.Add(Check(EditCopyCodes.CheckDuration, report.Facts is { } timing && SameTiming(timing, original.Probe), "The copy's duration or start time differs from the original's."));
 
     var packets = await ReadPacketDigestAsync(copy, cancellationToken).ConfigureAwait(false);
@@ -218,6 +218,13 @@ public sealed class EditCopyService : IEditCopyService
       .Concat(facts.AttachedPictures.Select(picture => $"attached_pic/{picture.CodecName}"))
       .Concat((facts.OtherStreams ?? []).Where(stream => !IsChapterText(stream)).Select(stream => $"{stream.CodecType}/{stream.CodecName}"))
       .Order(StringComparer.Ordinal).ToArray();
+
+  // The chapter track itself is compared by the chapter checks, but those fall back to the Nero chpl box when the copy has no chapter
+  // track, so a copy of a file with one has to keep one. A file with only a chpl box gets a chapter track from the remux, which is fine.
+  internal static bool SameStreams(MediaProbeResult copy, MediaProbeResult original)
+    => StreamKinds(copy).SequenceEqual(StreamKinds(original), StringComparer.Ordinal) && (!HasChapterText(original) || HasChapterText(copy));
+
+  private static bool HasChapterText(MediaProbeResult facts) => (facts.OtherStreams ?? []).Any(IsChapterText);
 
   private static bool IsChapterText(MediaStreamInfo stream)
     => (stream.CodecType == "data" && stream.CodecName == "bin_data") || (stream.CodecType == "subtitle" && stream.CodecName == "mov_text");
