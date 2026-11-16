@@ -40,7 +40,8 @@ public partial class MainWindow : Window
     _gate = new GuiOperationGate(Dispatcher);
     if (services is not null) DataContext = _model = new MainWindowViewModel(services.Analyzer, services.Conversion, settings, services.Planner, _gate, services.Profiles,
       new WindowsToastNotifier(Environment.ProcessPath, key => Dispatcher.BeginInvoke(() => ShowResult(key))), coverPayloads: services.CoverPayloads, checker: services.Checker, checkLog: services.JobLog,
-      preview: services.PreviewDecoder is { } decoder && services.PreviewRoot is { } previewRoot ? new PreviewViewModel(decoder, services.PreviewPlayerFactory ?? (() => new MediaPlayerAudioPlayer()), previewRoot) : null);
+      preview: services.PreviewDecoder is { } decoder && services.PreviewRoot is { } previewRoot ? new PreviewViewModel(decoder, services.PreviewPlayerFactory ?? (() => new MediaPlayerAudioPlayer()), previewRoot) : null,
+      editCopy: services.EditCopy);
     WindowsToastNotifier.Sync(settings.NotificationsEnabled, Environment.ProcessPath);
     Destination.Text = $"Output folder: {settings.OutputDirectory}";
     _presets = new PresetsViewModel(new Core.Presets.PresetStore(Path.Combine(Path.GetDirectoryName(store.SettingsPath)!, Core.Presets.PresetStore.FileName)), services?.Profiles);
@@ -523,6 +524,17 @@ public partial class MainWindow : Window
   private async void Check_Click(object sender, RoutedEventArgs e)
   {
     if (_model is not null && Queue.SelectedItem is BookQueueItemViewModel item) await _model.CheckAsync(item);
+  }
+
+  // Replaced in tests so no modal dialog opens.
+  internal Func<EditCopyWindow, bool?> ShowEditCopy { get; set; } = window => window.ShowDialog();
+
+  private async void EditCopy_Click(object sender, RoutedEventArgs e)
+  {
+    if (_model is null || Queue.SelectedItem is not BookQueueItemViewModel { CanEditCopy: true } item) return;
+    if (await _model.PrepareEditCopyAsync(item) is not { } edits) return;
+    var dialog = new EditCopyWindow(item.Name, edits) { Owner = this };
+    if (ShowEditCopy(dialog) == true) await _model.EditCopyAsync(item, edits);
   }
 
   private async void ConvertAll_Click(object sender, RoutedEventArgs e)

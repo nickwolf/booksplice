@@ -18,7 +18,7 @@ public sealed class ProcessRunner : IProcessRunner
       cpuBefore = process.TotalProcessorTime;
       var stdout = new StringBuilder();
       var stderr = new StringBuilder();
-      var outputTask = DrainAsync(process.StandardOutput, stdout, progress);
+      var outputTask = spec.StandardOutputLine is { } onLine ? ForwardAsync(process.StandardOutput, onLine) : DrainAsync(process.StandardOutput, stdout, progress);
       var errorTask = DrainAsync(process.StandardError, stderr, progress);
       try
       {
@@ -68,6 +68,12 @@ public sealed class ProcessRunner : IProcessRunner
       retained.Append(line);
       progress?.Report(SanitizeForProgress(line));
     }
+  }
+
+  // Large outputs go line by line to the caller instead of being kept in memory.
+  private static async Task ForwardAsync(StreamReader reader, Action<string> onLine)
+  {
+    while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line) onLine(line);
   }
 
   internal static string SanitizeForProgress(string line)

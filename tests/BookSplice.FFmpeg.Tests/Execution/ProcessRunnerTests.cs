@@ -90,6 +90,26 @@ public sealed class ProcessRunnerTests
   }
 
   [Fact]
+  public async Task RunAsyncHandsEachStdoutLineToTheCallerWithoutKeepingItAndStillCapturesStderr()
+  {
+    var script = NewScript("1..5000 | ForEach-Object { [Console]::Out.WriteLine(\"line $_\") }; [Console]::Error.WriteLine('err 1'); [Console]::Error.WriteLine('err 2')");
+    var lines = new List<string>();
+    var progress = new List<string>();
+    try
+    {
+      var result = await new ProcessRunner().RunAsync(new ProcessSpec("pwsh", ["-NoProfile", "-File", script], StandardOutputLine: lines.Add), new SyncProgress(progress.Add), CancellationToken.None);
+
+      Assert.Equal(0, result.ExitCode);
+      Assert.Equal(Enumerable.Range(1, 5000).Select(index => $"line {index}"), lines);
+      Assert.Empty(result.StandardOutput);
+      Assert.Equal(["err 1", "err 2"], result.StandardError.Split(NewlineCharacters, StringSplitOptions.RemoveEmptyEntries));
+      Assert.DoesNotContain(progress, line => line.StartsWith("line ", StringComparison.Ordinal));
+      Assert.Contains("err 2", progress);
+    }
+    finally { File.Delete(script); }
+  }
+
+  [Fact]
   public async Task RunAsyncCapturesBothStreamsAndPreservesArguments()
   {
     var runner = new ProcessRunner();
@@ -114,5 +134,10 @@ public sealed class ProcessRunnerTests
 
     throw new TimeoutException($"PID file was not readable before the deadline: {Path.GetFileName(path)}");
   }
+  private sealed class SyncProgress(Action<string> report) : IProgress<string>
+  {
+    public void Report(string value) => report(value);
+  }
+
   private static bool IsRunning(int pid) { try { return !Process.GetProcessById(pid).HasExited; } catch (ArgumentException) { return false; } }
 }

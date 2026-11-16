@@ -121,13 +121,16 @@ public sealed class ConversionHistoryReader(string directory, int maxRecords = C
     var published = Text(root, "publishedPath") ?? (Text(Prop(root, "publication"), "status") == "Published" ? Text(Prop(root, "publication"), "finalPath") : null);
     var plan = Prop(root, "plan");
     var isCheck = Text(root, "kind") == "check";
+    var isEdit = Text(root, "kind") == "edit";
     if (isCheck) published = Text(root, "checkedPath");
     var outcome = status switch
     {
+      ConversionTerminalStatus.Succeeded when isEdit => HistoryOutcome.Edited,
+      ConversionTerminalStatus.Cancelled => HistoryOutcome.Cancelled,
+      _ when isEdit => HistoryOutcome.EditFailed,
       ConversionTerminalStatus.Succeeded when isCheck => HistoryOutcome.Checked,
       ConversionTerminalStatus.ValidationFailed when isCheck => HistoryOutcome.CheckFailed,
       ConversionTerminalStatus.Succeeded => HistoryOutcome.Completed,
-      ConversionTerminalStatus.Cancelled => HistoryOutcome.Cancelled,
       ConversionTerminalStatus.DryRun => HistoryOutcome.Preview,
       _ => HistoryOutcome.Failed,
     };
@@ -135,15 +138,18 @@ public sealed class ConversionHistoryReader(string directory, int maxRecords = C
       ?? Strings(validation, "errors").FirstOrDefault() ?? ConversionResultDisplay.DescribeStatus(status);
     var summary = outcome switch
     {
-      HistoryOutcome.Completed or HistoryOutcome.Checked => "",
+      HistoryOutcome.Completed or HistoryOutcome.Checked or HistoryOutcome.Edited => "",
       HistoryOutcome.Cancelled when isCheck => "The check stopped before completion.",
+      HistoryOutcome.Cancelled when isEdit => "The edit stopped before completion.",
       HistoryOutcome.Cancelled => "The job stopped before completion.",
       HistoryOutcome.Preview => "Nothing was converted.",
       _ => reason,
     };
+    // An edit that saved nothing names the book it was made from, which its record keeps as checkedPath.
+    if (isEdit && outcome != HistoryOutcome.Edited && Text(root, "checkedPath") is { } edited) summary = $"{Path.GetFileName(edited)}: {summary}";
     var exists = published is not null && _fileExists(published);
     var elapsed = finished >= started ? finished - started : TimeSpan.Zero;
-    var strategy = isCheck ? ConversionHistoryEntry.CheckStrategyText : Text(plan, "strategy") ?? "Not recorded";
+    var strategy = isCheck ? ConversionHistoryEntry.CheckStrategyText : isEdit ? ConversionHistoryEntry.EditStrategyText : Text(plan, "strategy") ?? "Not recorded";
     var level = isCheck ? Text(root, "checkLevel") ?? "Not recorded" : Text(plan, "validationLevel") ?? "Not recorded";
     return new(jobId, fileName, started, elapsed, outcome, warnings.Length > 0, summary, strategy, level, Array.AsReadOnly(warnings), published, exists);
   }

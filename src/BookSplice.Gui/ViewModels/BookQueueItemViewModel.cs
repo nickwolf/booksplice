@@ -70,20 +70,21 @@ public sealed partial class BookQueueItemViewModel(string source, AppSettings se
   public IReadOnlyList<CoverCandidate> Covers => Analysis?.Cover.Candidates ?? [];
   public IReadOnlyList<string> OrderedFiles => Analysis?.OrderedFiles.Select(file => file.RelativePath).ToArray() ?? [];
   public string Summary => Analysis is null ? "" : $"{Analysis.OrderedFiles.Count} files{(Analysis.ExcludedFiles.Count > 0 ? $" ({Analysis.ExcludedFiles.Count} excluded)" : "")} | {DurationText.Format(TimeSpan.FromMicroseconds(Analysis.Chapters.TotalDurationMicroseconds))} | {string.Join(", ", Analysis.OrderedFiles.SelectMany(file => file.ProbeResult.AudioStreams).Select(stream => stream.CodecName).Distinct())}";
-  public string Status { get => _status; internal set { _status = value; Changed(); Changed(nameof(QueueStatus)); Changed(nameof(CanConvert)); Changed(nameof(CanCheck)); } }
+  public string Status { get => _status; internal set { _status = value; Changed(); Changed(nameof(QueueStatus)); Changed(nameof(CanConvert)); Changed(nameof(CanCheck)); Changed(nameof(CanEditCopy)); } }
   public string QueueStatus => Result?.Title ?? (IsBusy && IsCancellationRequested ? $"{Status} · Cancellation requested" : AttentionStatus ?? Status);
   public ConversionResultDisplay? Result { get => _result; internal set { _result = value; Changed(); Changed(nameof(HasResult)); Changed(nameof(HasConversionResult)); Changed(nameof(HasCheckResult)); Changed(nameof(QueueStatus)); } }
   public bool HasResult => Result is not null;
-  public bool HasConversionResult => Result is { IsCheck: false };
-  public bool HasCheckResult => Result is { IsCheck: true };
+  public bool HasConversionResult => Result is { IsCheck: false, IsEdit: false };
+  // An edited copy reports like a check: it belongs to an inspect-only book, which never shows the conversion card.
+  public bool HasCheckResult => Result is { IsCheck: true } or { IsEdit: true };
   public string Details { get => _details; internal set { _details = value; Changed(); } }
   public double Percent { get => _percent; internal set { _percent = value; Changed(); } }
   public bool IsProgressIndeterminate { get => _progressIndeterminate; internal set { _progressIndeterminate = value; Changed(); } }
   public bool IsCancellationRequested { get => _cancellationRequested; internal set { _cancellationRequested = value; Changed(); Changed(nameof(QueueStatus)); } }
   public string? PublishedPath { get => _publishedPath; internal set { _publishedPath = value; Changed(); Changed(nameof(CanOpenOutput)); } }
   public bool CanOpenOutput => !IsBusy && PublishedPath is { } path && File.Exists(path);
-  public bool IsBusy { get => _busy; internal set { _busy = value; Changed(); Changed(nameof(QueueStatus)); Changed(nameof(CanEdit)); Changed(nameof(CanRemove)); Changed(nameof(CanConvert)); Changed(nameof(CanCheck)); Changed(nameof(CanOpenOutput)); Changed(nameof(CanCancel)); } }
-  public bool IsWaiting { get => _waiting; internal set { _waiting = value; Changed(); Changed(nameof(CanCancel)); Changed(nameof(CanCheck)); } }
+  public bool IsBusy { get => _busy; internal set { _busy = value; Changed(); Changed(nameof(QueueStatus)); Changed(nameof(CanEdit)); Changed(nameof(CanRemove)); Changed(nameof(CanConvert)); Changed(nameof(CanCheck)); Changed(nameof(CanEditCopy)); Changed(nameof(CanOpenOutput)); Changed(nameof(CanCancel)); } }
+  public bool IsWaiting { get => _waiting; internal set { _waiting = value; Changed(); Changed(nameof(CanCancel)); Changed(nameof(CanCheck)); Changed(nameof(CanEditCopy)); } }
   public bool CanCancel => IsBusy || IsWaiting;
   public bool CanRemove => !IsBusy;
   public bool CanEdit => !IsBusy && Status != "Complete";
@@ -91,6 +92,13 @@ public sealed partial class BookQueueItemViewModel(string source, AppSettings se
   // A single existing M4B can only be inspected, so it gets Check file where a convertible book gets Convert selected.
   public bool IsInspectOnly => Analysis?.Status == BookAnalysisStatus.InspectOnly;
   public bool CanCheck => !IsBusy && !IsWaiting && IsInspectOnly;
+  public bool CanEditCopy => !IsBusy && !IsWaiting && IsInspectOnly;
+  // What the file says now, for the Edit a copy window. Null until the analysis kept the one M4B's probe.
+  internal MediaProbeResult? EditProbe => IsInspectOnly && Analysis!.OrderedFiles.Count == 1 ? Analysis.OrderedFiles[0].ProbeResult : null;
+  // The one .m4b an inspect-only book stands for. Source is the folder when the book was added as a folder holding it.
+  internal string? InspectedFile => IsInspectOnly && Analysis!.OrderedFiles.Count == 1 ? Analysis.OrderedFiles[0].FullPath : null;
+  // The profile a conversion of this book would use. Null when a restored book names one that is gone.
+  internal MetadataProfile? EditProfile => _profiles.Find(Settings.MetadataProfileId);
   // Whether the check also decodes every audio frame. Per book and not saved with the queue.
   public bool DecodeAllAudio { get => _decodeAllAudio; set { _decodeAllAudio = value; Changed(); } }
   private bool _decodeAllAudio;
@@ -231,7 +239,7 @@ public sealed partial class BookQueueItemViewModel(string source, AppSettings se
     };
     Details = string.Join(Environment.NewLine, analysis.Diagnostics.Select(diagnostic => diagnostic.Message).Concat(trackListNote is null ? [] : [trackListNote]).Concat(restoreNotes).Concat(clearedNote is null ? [] : [clearedNote]));
     WatchReviewedChoices();
-    foreach (var property in new[] { nameof(Analysis), nameof(OrderCandidates), nameof(Covers), nameof(SelectedCover), nameof(OrderedFiles), nameof(Summary), nameof(CanConvert), nameof(IsInspectOnly), nameof(CanCheck) }) Changed(property);
+    foreach (var property in new[] { nameof(Analysis), nameof(OrderCandidates), nameof(Covers), nameof(SelectedCover), nameof(OrderedFiles), nameof(Summary), nameof(CanConvert), nameof(IsInspectOnly), nameof(CanCheck), nameof(CanEditCopy) }) Changed(property);
     RaiseChapterEditsChanged();
   }
 }

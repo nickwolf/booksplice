@@ -110,6 +110,52 @@ public sealed class AtomicPublisherTests
     Assert.False(File.Exists(final));
   }
 
+  [Fact]
+  public async Task PublishAsync_by_path_avoids_an_existing_file_and_leaves_it_untouched()
+  {
+    using var root = new TemporaryDirectory();
+    var temporary = root.CreateFile("job.m4b", "edited media");
+    var staging = Directory.CreateDirectory(root.GetPath("staging")).FullName;
+    var existing = Path.Combine(staging, "Book.m4b");
+    await File.WriteAllTextAsync(existing, "existing media");
+    var written = File.GetLastWriteTimeUtc(existing);
+
+    var result = await new AtomicPublisher().PublishAsync(temporary, existing, CollisionPolicy.AvoidCollision, CancellationToken.None);
+
+    Assert.Equal(PublicationStatus.Published, result.Status);
+    Assert.Equal(Path.Combine(staging, "Book (2).m4b"), result.FinalPath);
+    Assert.Equal("edited media", await File.ReadAllTextAsync(result.FinalPath!));
+    Assert.Equal("existing media", await File.ReadAllTextAsync(existing));
+    Assert.Equal(written, File.GetLastWriteTimeUtc(existing));
+    Assert.False(File.Exists(temporary));
+    Assert.Empty(Directory.EnumerateFiles(staging, "*.partial"));
+  }
+
+  [Fact]
+  public async Task PublishAsync_by_path_rejects_a_missing_temporary_file()
+  {
+    using var root = new TemporaryDirectory();
+
+    var result = await new AtomicPublisher().PublishAsync(root.GetPath("missing.m4b"), root.GetPath("staging", "Book.m4b"), CollisionPolicy.AvoidCollision, CancellationToken.None);
+
+    Assert.Equal(PublicationStatus.Rejected, result.Status);
+    Assert.False(Directory.Exists(root.GetPath("staging")));
+  }
+
+  [Fact]
+  public async Task PublishAsync_with_a_plan_still_rejects_a_report_for_another_plan()
+  {
+    using var root = new TemporaryDirectory();
+    var temporary = root.CreateFile("job.m4b", "validated media");
+    var final = root.GetPath("staging", "Book.m4b");
+
+    var result = await new AtomicPublisher().PublishAsync(Plan(final), ValidationReport.Passed(temporary, [], Guid.NewGuid()), CancellationToken.None);
+
+    Assert.Equal(PublicationStatus.Rejected, result.Status);
+    Assert.True(File.Exists(temporary));
+    Assert.False(Directory.Exists(Path.GetDirectoryName(final)!));
+  }
+
   private static BookSplice.Core.Planning.ConversionPlan Plan(string outputPath, CollisionPolicy policy = CollisionPolicy.AvoidCollision)
     => new([], new BookSplice.Core.Metadata.BookMetadata(new Dictionary<BookSplice.Core.Metadata.SemanticField, BookSplice.Core.Metadata.AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<BookSplice.Core.Metadata.SemanticField, IReadOnlyList<string>>()), null, [], BookSplice.Core.Planning.QualityProfileCatalog.Version1[0], BookSplice.Core.Settings.ValidationLevel.Lightweight, policy, outputPath, BookSplice.Core.Planning.AudioStrategy.DirectTranscode, [], new BookSplice.Core.Planning.SpaceEstimate(1, 1, 1, 1, 0), 1, "test", MetadataProfiles.GenericMp4, planId: TestPlanId);
 

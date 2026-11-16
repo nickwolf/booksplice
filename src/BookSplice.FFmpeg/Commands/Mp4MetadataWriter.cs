@@ -24,6 +24,87 @@ public sealed class Mp4MetadataWriter : IMp4MetadataWriter
     RestoreNeroChapterPayload(path, chapterPayload);
   }
 
+  // Edits an existing file in place. An empty value removes the tag. Keys a player reads from a native atom go to that atom,
+  // and a com.apple.iTunes freeform box with the same name (a converted file can carry both) gets the same value.
+  public static void Edit(string path, IReadOnlyDictionary<string, string> tags)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(path);
+    ArgumentNullException.ThrowIfNull(tags);
+    var freeformNames = Mp4MetadataBoxes.ReadItems(path).Where(item => item.IsFreeform && item.Mean == FreeformMean && item.Name is not null).Select(item => item.Name!).ToArray();
+    var userData = Mp4MetadataBoxes.ReadUserData(path).UdtaChildren;
+    var padding = Mp4MetadataBoxes.PadAfterFinalUserData(path);
+    using (var file = TagLib.File.Create(path))
+    {
+      var tag = (AppleTag)file.GetTag(TagLib.TagTypes.Apple, true);
+      foreach (var (key, value) in tags)
+      {
+        var atom = EditAtom(key);
+        if (atom == MediaTypeAtom)
+        {
+          if (value.Length == 0) tag.ClearData(AtomId(atom));
+          else tag.SetData(AtomId(atom), new TagLib.ByteVector(ParseMediaType(value)), (uint)AppleDataBox.FlagType.ForTempo);
+        }
+        else if (atom is not null) tag.SetText(AtomId(atom), value);
+        var names = freeformNames.Where(name => FreeformNames(key).Contains(name, StringComparer.OrdinalIgnoreCase)).ToArray();
+        if (atom is null && names.Length == 0) names = [key];
+        foreach (var name in names) tag.SetDashBox(FreeformMean, name, value);
+      }
+      file.Save();
+    }
+    Mp4MetadataBoxes.RestoreUserDataChildren(path, userData);
+    Mp4MetadataBoxes.RemoveFinalPadding(path, padding);
+  }
+
+  public const string MediaTypeAtom = "stik";
+
+  // The text atoms ffmpeg's MP4 muxer writes for these keys (movenc.c, mov_write_ilst_tag), so an edit lands where players and
+  // ffprobe read the value. The sort and category atoms aren't written by ffmpeg but other taggers write them, and ffprobe
+  // reads them under these names. Numeric atoms (track, disc, gapless_playback and the like) can't be edited; see
+  // EditCopyTagMapping.UnsupportedKeys.
+  private static readonly Dictionary<string, string> EditAtoms = new(StringComparer.OrdinalIgnoreCase)
+  {
+    ["title"] = "\u00A9nam",
+    ["album"] = "\u00A9alb",
+    ["artist"] = "\u00A9ART",
+    ["album_artist"] = "aART",
+    ["albumartist"] = "aART",
+    ["composer"] = "\u00A9wrt",
+    ["genre"] = "\u00A9gen",
+    ["date"] = "\u00A9day",
+    ["encoding_tool"] = "\u00A9too",
+    ["encoder"] = "\u00A9too",
+    ["comment"] = "\u00A9cmt",
+    ["description"] = "desc",
+    ["synopsis"] = "ldes",
+    ["copyright"] = "cprt",
+    ["grouping"] = "\u00A9grp",
+    ["lyrics"] = "\u00A9lyr",
+    ["show"] = "tvsh",
+    ["episode_id"] = "tven",
+    ["network"] = "tvnn",
+    ["keywords"] = "keyw",
+    ["sort_name"] = "sonm",
+    ["sort_artist"] = "soar",
+    ["sort_album_artist"] = "soaa",
+    ["sort_album"] = "soal",
+    ["sort_composer"] = "soco",
+    ["sort_show"] = "sosn",
+    ["category"] = "catg",
+    ["media_type"] = MediaTypeAtom,
+  };
+
+  public static string? EditAtom(string key) => EditAtoms.GetValueOrDefault(key);
+
+  // ffmpeg writes disc_subtitle as the freeform name DISCSUBTITLE, so an edit to it updates that box too.
+  public static IReadOnlyList<string> FreeformNames(string key)
+    => string.Equals(key, "disc_subtitle", StringComparison.OrdinalIgnoreCase) ? [key, "DISCSUBTITLE"] : [key];
+
+  public static bool IsValidMediaType(string value) => value.Length == 0 || byte.TryParse(value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out _);
+
+  private static byte ParseMediaType(string value) => byte.Parse(value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture);
+
+  private static TagLib.ByteVector AtomId(string atom) => TagLib.ByteVector.FromString(atom, TagLib.StringType.Latin1);
+
   private const int MaximumChapterPayloadBytes = 64 * 1024 * 1024;
 
   private static byte[]? ReadNeroChapterPayload(string path)

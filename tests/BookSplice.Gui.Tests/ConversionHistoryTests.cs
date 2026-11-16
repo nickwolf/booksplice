@@ -95,6 +95,72 @@ public sealed class ConversionHistoryTests : IDisposable
   }
 
   [Fact]
+  public async Task EditRecordsReadAsEditedCopyEditFailedAndCancelledWithTheSavedCopyAsOutput()
+  {
+    var copy = Path.Combine(_root, "edited.m4b");
+    await File.WriteAllTextAsync(copy, "audio");
+    var now = DateTimeOffset.UtcNow;
+    async Task<Guid> Edit(ConversionTerminalStatus status, DateTimeOffset started, string? published, params ServiceDiagnostic[] diagnostics)
+    {
+      var id = Guid.NewGuid();
+      await new JsonJobLogWriter(_root).WriteAsync(Record(id, status, started, TimeSpan.FromSeconds(9), published, diagnostics) with { Kind = "edit" }, CancellationToken.None);
+      return id;
+    }
+    var done = await Edit(ConversionTerminalStatus.Succeeded, now.AddMinutes(-4), copy, new ServiceDiagnostic("edit.audio-packets", ServiceDiagnosticSeverity.Information, "The audio is unchanged."));
+    var invalid = await Edit(ConversionTerminalStatus.ValidationFailed, now.AddMinutes(-3), null, new ServiceDiagnostic("edit.chapters-titles", ServiceDiagnosticSeverity.Error, "A chapter title was not saved."));
+    var broken = await Edit(ConversionTerminalStatus.ExecutionFailed, now.AddMinutes(-2), null, new ServiceDiagnostic("edit.process-failed", ServiceDiagnosticSeverity.Error, "ffmpeg exited with code 1"));
+    var cancelled = await Edit(ConversionTerminalStatus.Cancelled, now.AddMinutes(-1), null);
+
+    var load = new ConversionHistoryReader(_root).Read();
+
+    Assert.Empty(load.Skipped);
+    Assert.Equal(new[] { cancelled, broken, invalid, done }, load.Entries.Select(entry => entry.JobId).ToArray());
+    var entry = load.Entries[3];
+    Assert.Equal(HistoryOutcome.Edited, entry.Outcome);
+    Assert.Equal("Edited copy", entry.OutcomeText);
+    Assert.Equal(copy, entry.OutputPath);
+    Assert.True(entry.CanOpenOutput);
+    Assert.Equal("Edit a copy", entry.Strategy);
+    Assert.Equal("", entry.Summary);
+    entry = load.Entries[2];
+    Assert.Equal(HistoryOutcome.EditFailed, entry.Outcome);
+    Assert.Equal("Edit failed", entry.OutcomeText);
+    Assert.Equal("A chapter title was not saved.", entry.Summary);
+    Assert.False(entry.CanOpenOutput);
+    entry = load.Entries[1];
+    Assert.Equal(HistoryOutcome.EditFailed, entry.Outcome);
+    Assert.Equal("Edit failed", entry.OutcomeText);
+    Assert.Equal("ffmpeg exited with code 1", entry.Summary);
+    entry = load.Entries[0];
+    Assert.Equal(HistoryOutcome.Cancelled, entry.Outcome);
+    Assert.Equal("Cancelled", entry.OutcomeText);
+    Assert.Equal("The edit stopped before completion.", entry.Summary);
+  }
+
+  [Fact]
+  public async Task AnEditThatSavedNothingNamesItsBookAndASavedOneDoesNot()
+  {
+    var original = Path.Combine(_root, "Some Book.m4b");
+    var copy = Path.Combine(_root, "edited.m4b");
+    await File.WriteAllTextAsync(copy, "audio");
+    var now = DateTimeOffset.UtcNow;
+    var cancelled = Guid.NewGuid();
+    var failed = Guid.NewGuid();
+    var done = Guid.NewGuid();
+    var writer = new JsonJobLogWriter(_root);
+    await writer.WriteAsync(Record(done, ConversionTerminalStatus.Succeeded, now.AddMinutes(-3), TimeSpan.FromSeconds(9), copy) with { Kind = "edit", CheckedPath = original }, CancellationToken.None);
+    await writer.WriteAsync(Record(failed, ConversionTerminalStatus.ValidationFailed, now.AddMinutes(-2), TimeSpan.FromSeconds(9), null, new ServiceDiagnostic("edit.streams", ServiceDiagnosticSeverity.Error, "The copy's streams differ.")) with { Kind = "edit", CheckedPath = original }, CancellationToken.None);
+    await writer.WriteAsync(Record(cancelled, ConversionTerminalStatus.Cancelled, now.AddMinutes(-1), TimeSpan.FromSeconds(9), null) with { Kind = "edit", CheckedPath = original }, CancellationToken.None);
+
+    var entries = new ConversionHistoryReader(_root).Read().Entries;
+
+    Assert.Equal("Some Book.m4b: The edit stopped before completion.", entries.Single(entry => entry.JobId == cancelled).Summary);
+    Assert.Equal("Some Book.m4b: The copy's streams differ.", entries.Single(entry => entry.JobId == failed).Summary);
+    Assert.Equal("", entries.Single(entry => entry.JobId == done).Summary);
+    Assert.Equal(copy, entries.Single(entry => entry.JobId == done).OutputPath);
+  }
+
+  [Fact]
   public async Task ARecordWithoutAKindStillReadsAsAConversion()
   {
     var output = Path.Combine(_root, "book.m4b");

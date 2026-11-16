@@ -45,9 +45,19 @@ public sealed class AtomicPublisher : IAtomicPublisher
     var temporaryPath = Path.GetFullPath(report.TemporaryOutputPath);
     if (!report.IsValid) return Rejected("Publication requires a successful validation report.");
     if (report.PlanId != plan.PlanId) return Rejected("Publication requires validation for this exact conversion plan.");
+    return await PublishAsync(temporaryPath, plan.OutputPath, plan.CollisionPolicy, cancellationToken).ConfigureAwait(false);
+  }
+
+  // The caller has already validated the temporary file.
+  public async Task<PublicationResult> PublishAsync(string temporaryPath, string finalPath, CollisionPolicy collisionPolicy, CancellationToken cancellationToken)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(temporaryPath);
+    ArgumentException.ThrowIfNullOrWhiteSpace(finalPath);
+    cancellationToken.ThrowIfCancellationRequested();
+    temporaryPath = Path.GetFullPath(temporaryPath);
     if (!_operations.Exists(temporaryPath)) return Rejected("The validated temporary output is unavailable.");
 
-    var finalPath = Path.GetFullPath(plan.OutputPath);
+    finalPath = Path.GetFullPath(finalPath);
     var destination = Path.GetDirectoryName(finalPath);
     if (string.IsNullOrWhiteSpace(destination)) return Rejected("The output destination is invalid.");
     _operations.CreateDirectory(destination);
@@ -56,7 +66,7 @@ public sealed class AtomicPublisher : IAtomicPublisher
     {
       await _operations.CopyDurablyAsync(temporaryPath, partialPath, cancellationToken).ConfigureAwait(false);
       cancellationToken.ThrowIfCancellationRequested();
-      var published = plan.CollisionPolicy == CollisionPolicy.Overwrite
+      var published = collisionPolicy == CollisionPolicy.Overwrite
         ? PublishOverwrite(partialPath, finalPath)
         : PublishAvoidingCollisions(partialPath, finalPath, cancellationToken);
       _operations.Delete(temporaryPath);
