@@ -70,6 +70,8 @@ public sealed class EditCopyServiceIntegrationTests
     Assert.Equal("eng", Assert.Single(Assert.Single(items, item => item.IsITunesFreeform("language")).Data).Text);
     Assert.Equal(Mp4MetadataBoxes.ReadMajorBrand(source), Mp4MetadataBoxes.ReadMajorBrand(destination));
     Assert.Equal(await StreamsAsync(tools, source), await StreamsAsync(tools, destination));
+    // The pad added for TagLib's sake is taken off again.
+    Assert.Equal("moov", EditCopyMedia.LastTopLevelType(destination));
     Assert.Equal(before, EditCopyMedia.Hash(source));
     Assert.Empty(EditCopyMedia.Files(root.GetPath("temp")));
   }

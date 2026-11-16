@@ -6,6 +6,21 @@ namespace BookSplice.Core.EditCopy;
 // Turns semantic edits into the profile's tag keys, the same keys a conversion with that profile writes.
 public static class EditCopyTagMapping
 {
+  // Keys stored in numeric MP4 atoms (track and disc numbers, flags, counts). An edit copy only writes text, so a field
+  // that maps to one of these can't be edited.
+  public static IReadOnlySet<string> UnsupportedKeys { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+  {
+    "track", "disc", "gapless_playback", "compilation", "hd_video", "podcast", "episode_sort", "season_number", "tmpo",
+  };
+
+  // False when the profile has no tag for the field or any of its tags is one the edit can't write.
+  public static bool CanEdit(MetadataProfile profile, SemanticField field)
+  {
+    ArgumentNullException.ThrowIfNull(profile);
+    var keys = profile.Mappings.Where(mapping => mapping.Field == field).SelectMany(mapping => mapping.Keys).ToArray();
+    return keys.Length > 0 && !keys.Any(UnsupportedKeys.Contains);
+  }
+
   public static IReadOnlyDictionary<string, string> Map(MetadataProfile profile, IReadOnlyDictionary<SemanticField, string> edits, out IReadOnlyList<ExecutionDiagnostic> diagnostics)
   {
     ArgumentNullException.ThrowIfNull(profile);
@@ -19,6 +34,11 @@ public static class EditCopyTagMapping
       if (keys.Length == 0)
       {
         errors.Add(new(EditCopyCodes.TagNotInProfile, $"The {profile.Name} profile has no tag for {EditCopyPreview.Label(field)}."));
+        continue;
+      }
+      if (keys.FirstOrDefault(UnsupportedKeys.Contains) is { } unsupported)
+      {
+        errors.Add(new(EditCopyCodes.TagUnsupported, $"{EditCopyPreview.Label(field)} is stored as a number ({unsupported}) and can't be edited in a copy."));
         continue;
       }
       if (value.Contains('\0'))

@@ -68,6 +68,9 @@ public sealed class EditCopyService : IEditCopyService
         var outOfRange = request.ChapterTitleEdits.Keys.Where(index => index >= original.Chapters.Count).Order().ToArray();
         if (outOfRange.Length > 0)
           return new(EditCopyStatus.InvalidInput, null, outOfRange.Select(index => new ExecutionDiagnostic(EditCopyCodes.ChapterIndexInvalid, $"Chapter {index + 1} does not exist.")));
+        // A chapter title edit remuxes the audio, cover and chapters into a new file, so anything else in the file would be lost.
+        if (request.ChapterTitleEdits.Count > 0 && !Mp4MetadataBoxes.CanRemuxChapters(source))
+          return new(EditCopyStatus.InvalidInput, null, [new(EditCopyCodes.ChaptersUnsupportedLayout, "Chapter titles can't be edited in this file because it holds more than audio, a cover and chapters. Its tags can still be edited.")]);
         job = Path.GetFullPath(_workspace.CreateJobDirectory());
       }
 
@@ -123,7 +126,7 @@ public sealed class EditCopyService : IEditCopyService
       Cleanup(artifacts, job, progress);
       return new(EditCopyStatus.Cancelled, null, [new(EditCopyCodes.Cancelled, "The edit was cancelled. Nothing was saved.")]);
     }
-    catch (Exception exception) when (exception is not OperationCanceledException)
+    catch (Exception)
     {
       Cleanup(artifacts, job, progress);
       return new(EditCopyStatus.Failed, null, [new(EditCopyCodes.Failed, "The edited copy could not be made. Nothing was saved.")]);
@@ -136,7 +139,8 @@ public sealed class EditCopyService : IEditCopyService
     Mp4UserData UserData,
     IReadOnlyList<Mp4MetadataItem> Items,
     int? CoverStreamIndex,
-    string? MajorBrand);
+    string? MajorBrand,
+    MediaProbeResult Probe);
 
   internal sealed record RawChapter(long Start, long End, Rational TimeBase, string Title);
 
@@ -147,7 +151,7 @@ public sealed class EditCopyService : IEditCopyService
     var chapters = await ReadChaptersAsync(source, cancellationToken).ConfigureAwait(false);
     var packets = await ReadPacketDigestAsync(source, cancellationToken).ConfigureAwait(false) ?? throw new InvalidDataException("The original audio packets could not be read.");
     return new OriginalFacts(chapters, packets, Mp4MetadataBoxes.ReadUserData(source), Mp4MetadataBoxes.ReadItems(source),
-      probe.AttachedPictures.Count > 0 ? probe.AttachedPictures[0].Index : null, Mp4MetadataBoxes.ReadMajorBrand(source));
+      probe.AttachedPictures.Count > 0 ? probe.AttachedPictures[0].Index : null, Mp4MetadataBoxes.ReadMajorBrand(source), probe);
   }
 
   private static async Task CopyOriginalAsync(string source, string copy, CancellationToken cancellationToken)
@@ -183,7 +187,10 @@ public sealed class EditCopyService : IEditCopyService
   private async Task<List<ValidationCheck>> ValidateAsync(string copy, OriginalFacts original, EditCopyRequest request, IReadOnlyDictionary<string, string> tags, CancellationToken cancellationToken)
   {
     var checks = new List<ValidationCheck>();
-    checks.AddRange(EditChecks(await Checker().CheckAsync(copy, false, cancellationToken).ConfigureAwait(false)));
+    var report = await Checker().CheckAsync(copy, false, cancellationToken).ConfigureAwait(false);
+    checks.AddRange(EditChecks(report));
+    checks.Add(Check(EditCopyCodes.CheckStreams, report.Facts is { } streams && StreamKinds(streams).SequenceEqual(StreamKinds(original.Probe), StringComparer.Ordinal), "The copy's streams differ from the original's."));
+    checks.Add(Check(EditCopyCodes.CheckDuration, report.Facts is { } timing && SameTiming(timing, original.Probe), "The copy's duration or start time differs from the original's."));
 
     var packets = await ReadPacketDigestAsync(copy, cancellationToken).ConfigureAwait(false);
     checks.Add(Check(EditCopyCodes.CheckAudioPackets, packets == original.Packets, "The audio packets differ from the original."));
@@ -202,6 +209,20 @@ public sealed class EditCopyService : IEditCopyService
     checks.Add(Check(EditCopyCodes.CheckUntouchedTags, Untouched(items, tags.Keys).SequenceEqual(Untouched(original.Items, tags.Keys), StringComparer.Ordinal), "A tag that was not edited changed."));
     return checks;
   }
+
+  // Every stream by kind and codec, sorted, leaving out the chapter text track: a remux writes a new one, and the chapter checks cover it.
+  internal static IReadOnlyList<string> StreamKinds(MediaProbeResult facts)
+    => facts.AudioStreams.Select(stream => $"audio/{stream.CodecName}")
+      .Concat(facts.AttachedPictures.Select(picture => $"attached_pic/{picture.CodecName}"))
+      .Concat((facts.OtherStreams ?? []).Where(stream => !IsChapterText(stream)).Select(stream => $"{stream.CodecType}/{stream.CodecName}"))
+      .Order(StringComparer.Ordinal).ToArray();
+
+  private static bool IsChapterText(MediaStreamInfo stream)
+    => (stream.CodecType == "data" && stream.CodecName == "bin_data") || (stream.CodecType == "subtitle" && stream.CodecName == "mov_text");
+
+  internal static bool SameTiming(MediaProbeResult copy, MediaProbeResult original)
+    => copy.Duration == original.Duration && copy.AudioStreams.Count == original.AudioStreams.Count
+      && copy.AudioStreams.Zip(original.AudioStreams).All(pair => pair.First.StartTime == pair.Second.StartTime && pair.First.Duration == pair.Second.Duration);
 
   private ExistingM4bChecker Checker() => new(new FFprobeMediaProbe(_runner, _tools), _runner, _tools);
 
@@ -222,7 +243,7 @@ public sealed class EditCopyService : IEditCopyService
     return decimal.Abs(leftSeconds - rightSeconds) <= tolerance;
   }
 
-  private static bool ReadsBack(IReadOnlyList<Mp4MetadataItem> items, string key, string value)
+  internal static bool ReadsBack(IReadOnlyList<Mp4MetadataItem> items, string key, string value)
   {
     var atom = Mp4MetadataWriter.EditAtom(key);
     var freeform = items.Where(item => item.IsITunesFreeform(key)).ToArray();

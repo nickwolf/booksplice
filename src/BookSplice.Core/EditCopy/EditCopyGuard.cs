@@ -29,6 +29,8 @@ public static class EditCopyCodes
   public const string TagNotInProfile = "edit.tag-not-in-profile";
   public const string TagConflict = "edit.tag-conflict";
   public const string TagValueInvalid = "edit.tag-value-invalid";
+  public const string TagUnsupported = "edit.tag-unsupported";
+  public const string ChaptersUnsupportedLayout = "edit.chapters-unsupported-layout";
   public const string ChapterIndexInvalid = "edit.chapter-index-invalid";
   public const string ChapterTitleInvalid = "edit.chapter-title-invalid";
   public const string SourceChanged = "edit.source-changed";
@@ -46,6 +48,8 @@ public static class EditCopyCodes
   public const string CheckEditedTags = "edit.tags-edited";
   public const string CheckUntouchedTags = "edit.tags-untouched";
   public const string CheckMetadataBoxes = "edit.metadata-boxes";
+  public const string CheckStreams = "edit.streams";
+  public const string CheckDuration = "edit.duration";
 }
 
 // Checks that need no media parsing. Nothing is written anywhere when this returns a diagnostic.

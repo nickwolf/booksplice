@@ -7,7 +7,7 @@ namespace BookSplice.FFmpeg.Commands;
 internal sealed record Mp4MetadataItem(string Type, string? Mean, string? Name, byte[] Raw, IReadOnlyList<Mp4MetadataData> Data)
 {
   public bool IsFreeform => Type == "----";
-  public bool IsITunesFreeform(string key) => IsFreeform && string.Equals(Mean, Mp4MetadataWriter.FreeformMean, StringComparison.Ordinal) && string.Equals(Name, key, StringComparison.OrdinalIgnoreCase);
+  public bool IsITunesFreeform(string key) => IsFreeform && string.Equals(Mean, Mp4MetadataWriter.FreeformMean, StringComparison.Ordinal) && Name is not null && Mp4MetadataWriter.FreeformNames(key).Contains(Name, StringComparer.OrdinalIgnoreCase);
 }
 
 internal sealed record Mp4MetadataData(uint TypeCode, byte[] Payload)
@@ -100,18 +100,84 @@ internal static class Mp4MetadataBoxes
 
   // When udta ends the file (moov at the end, as ffmpeg writes it without faststart), TagLib's read of its last child runs off
   // the end and the box comes back shorter (a 37-byte chpl came back as 13 bytes). A free box after it keeps that read inside
-  // the file, so the box keeps its size and RestoreUserDataChildren can put the bytes back.
-  public static void PadAfterFinalUserData(string path)
+  // the file, so the box keeps its size and RestoreUserDataChildren can put the bytes back. Returns the pad's size, or 0.
+  public static int PadAfterFinalUserData(string path)
   {
     using var stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
     var udta = FindNested(stream, "moov", "udta");
-    if (udta is null || udta.Value.EndOffset != stream.Length) return;
+    if (udta is null || udta.Value.EndOffset != stream.Length) return 0;
     var largest = Children(stream, udta.Value).Select(box => box.EndOffset - box.Offset).DefaultIfEmpty(0).Max();
     var padding = new byte[checked((int)largest + 16)];
     BinaryPrimitives.WriteUInt32BigEndian(padding, (uint)padding.Length);
     "free"u8.CopyTo(padding.AsSpan(4));
     stream.Position = stream.Length;
     stream.Write(padding);
+    return padding.Length;
+  }
+
+  // Drops the pad PadAfterFinalUserData added, but only while it is still the file's last box with the size it was written with.
+  public static void RemoveFinalPadding(string path, int size)
+  {
+    if (size <= 0) return;
+    using var stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+    var last = Children(stream, 0, stream.Length).Cast<Box?>().LastOrDefault();
+    if (last is not { Type: "free" } pad || pad.EndOffset != stream.Length || pad.EndOffset - pad.Offset != size) return;
+    stream.SetLength(pad.Offset);
+    stream.Flush(flushToDisk: true);
+  }
+
+  private static readonly HashSet<string> RemuxTopLevel = new(StringComparer.Ordinal) { "ftyp", "moov", "mdat", "free", "skip", "wide" };
+  private static readonly HashSet<string> RemuxMoovChildren = new(StringComparer.Ordinal) { "mvhd", "trak", "udta", "meta", "iods" };
+
+  // Whether a chapter title remux keeps everything in the file: one sound track, at most one text track that the sound track
+  // names as its chapter track, at most one udta and one moov-level meta, and no other boxes the remux would leave behind.
+  public static bool CanRemuxChapters(string path)
+  {
+    using var stream = OpenRead(path);
+    var top = Children(stream, 0, stream.Length).ToArray();
+    if (top.Any(box => !RemuxTopLevel.Contains(box.Type)) || top.Count(box => box.Type == "moov") != 1) return false;
+    var moov = Children(stream, top.Single(box => box.Type == "moov")).ToArray();
+    if (moov.Any(box => !RemuxMoovChildren.Contains(box.Type)) || moov.Count(box => box.Type == "udta") > 1 || moov.Count(box => box.Type == "meta") > 1) return false;
+    var tracks = moov.Where(box => box.Type == "trak").Select(trak => ReadTrack(stream, trak)).ToArray();
+    var sound = tracks.Where(track => track.Handler == "soun").ToArray();
+    if (sound.Length != 1) return false;
+    var others = tracks.Where(track => track.Handler != "soun").ToArray();
+    return others.Length == 0 || (others.Length == 1 && others[0].Handler == "text" && others[0].Id is { } id && sound[0].Chapters.Contains(id));
+  }
+
+  private sealed record Track(string? Handler, uint? Id, IReadOnlyList<uint> Chapters);
+
+  private static Track ReadTrack(Stream stream, Box trak)
+  {
+    var children = Children(stream, trak).ToArray();
+    uint? id = null;
+    if (children.Where(box => box.Type == "tkhd").Cast<Box?>().FirstOrDefault() is { } tkhd && tkhd.PayloadLength >= 24)
+    {
+      var header = ReadPayload(stream, tkhd, 24);
+      id = BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(header[0] == 1 ? 20 : 12));
+    }
+    string? handler = null;
+    if (children.Where(box => box.Type == "mdia").Cast<Box?>().FirstOrDefault() is { } mdia
+      && Children(stream, mdia).ToArray().Where(box => box.Type == "hdlr").Cast<Box?>().FirstOrDefault() is { } hdlr && hdlr.PayloadLength >= 12)
+      handler = Encoding.Latin1.GetString(ReadPayload(stream, hdlr, 12), 8, 4);
+    var chapters = new List<uint>();
+    if (children.Where(box => box.Type == "tref").Cast<Box?>().FirstOrDefault() is { } tref)
+    {
+      foreach (var chap in Children(stream, tref).ToArray().Where(box => box.Type == "chap"))
+      {
+        var ids = ReadPayload(stream, chap, checked((int)chap.PayloadLength));
+        for (var offset = 0; offset + 4 <= ids.Length; offset += 4) chapters.Add(BinaryPrimitives.ReadUInt32BigEndian(ids.AsSpan(offset)));
+      }
+    }
+    return new Track(handler, id, chapters);
+  }
+
+  private static byte[] ReadPayload(Stream stream, Box box, int length)
+  {
+    var payload = new byte[length];
+    stream.Position = box.PayloadOffset;
+    stream.ReadExactly(payload);
+    return payload;
   }
 
   // Rebuilds moov so its udta holds the original's children in the original's order, with the file's own chpl in place of the

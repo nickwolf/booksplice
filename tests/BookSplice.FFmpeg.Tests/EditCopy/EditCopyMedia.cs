@@ -34,12 +34,12 @@ internal static class EditCopyMedia
 
   public static MediaToolSet Tools() => new MediaToolLocator(Environment.GetEnvironmentVariable("BOOKSPLICE_FFMPEG_DIR")!).Resolve();
 
-  public static async Task<string> GenerateAsync(string folder, MediaToolSet tools, IReadOnlyList<string> chapterTitles, int seconds = 6, bool cover = true, string name = "book.m4b", bool faststart = true, Action<string>? beforeTags = null)
+  public static async Task<string> GenerateAsync(string folder, MediaToolSet tools, IReadOnlyList<string> chapterTitles, int seconds = 6, bool cover = true, string name = "book.m4b", bool faststart = true, Action<string>? beforeTags = null, IReadOnlyDictionary<string, string>? extraTags = null, bool plainVideo = false)
   {
     var output = Path.Combine(folder, name);
     var metadata = Path.Combine(folder, $"{name}.ffmeta");
     var text = new StringBuilder(";FFMETADATA1\n");
-    foreach (var (key, value) in NativeTags) text.Append(CultureInfo.InvariantCulture, $"{key}={FFmetadataWriter.Escape(value)}\n");
+    foreach (var (key, value) in NativeTags.Concat(extraTags ?? new Dictionary<string, string>())) text.Append(CultureInfo.InvariantCulture, $"{key}={FFmetadataWriter.Escape(value)}\n");
     var length = seconds * 1000L;
     for (var index = 0; index < chapterTitles.Count; index++)
     {
@@ -50,16 +50,19 @@ internal static class EditCopyMedia
     await File.WriteAllTextAsync(metadata, text.ToString(), new UTF8Encoding(false));
     var runner = new ProcessRunner();
     var coverPath = Path.Combine(folder, $"{name}.jpg");
+    cover &= !plainVideo;
     if (cover)
     {
       var image = await runner.RunAsync(new ProcessSpec(tools.FFmpegPath, ["-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=blue:s=64x64:d=1", "-frames:v", "1", "-c:v", "mjpeg", coverPath]), null, CancellationToken.None);
       Assert.Equal(0, image.ExitCode);
     }
-    string[] coverArgs = cover ? ["-i", coverPath, "-map", "2:v:0", "-c:v", "copy", "-disposition:v:0", "attached_pic"] : [];
+    // A plain video stream (not a cover) stands in for chapter images; the ipod muxer won't take it, so that file is plain mp4.
+    string[] coverArgs = plainVideo ? ["-f", "lavfi", "-i", $"color=c=red:s=32x32:r=1:d={seconds}", "-map", "2:v:0", "-c:v", "mjpeg"]
+      : cover ? ["-i", coverPath, "-map", "2:v:0", "-c:v", "copy", "-disposition:v:0", "attached_pic"] : [];
     var generated = await runner.RunAsync(new ProcessSpec(tools.FFmpegPath,
     [
       "-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i", $"sine=frequency=440:duration={seconds}", "-f", "ffmetadata", "-i", metadata, .. coverArgs,
-      "-map", "0:a:0", "-map_metadata", "1", "-map_chapters", "1", "-c:a", "aac", "-ar", "44100", "-ac", "1", .. faststart ? FaststartArguments : [], "-f", "ipod", output,
+      "-map", "0:a:0", "-map_metadata", "1", "-map_chapters", "1", "-c:a", "aac", "-ar", "44100", "-ac", "1", .. faststart ? FaststartArguments : [], "-f", plainVideo ? "mp4" : "ipod", output,
     ]), null, CancellationToken.None);
     Assert.True(generated.ExitCode == 0, generated.StandardError);
     beforeTags?.Invoke(output);
@@ -99,6 +102,8 @@ internal static class EditCopyMedia
     children.Write(moovChild);
     File.WriteAllBytes(path, [.. file[..moov.Offset], .. Box("moov", children.ToArray())]);
   }
+
+  public static string LastTopLevelType(string path) => TopLevel(File.ReadAllBytes(path)).Last().Type;
 
   private static IEnumerable<(string Type, int Offset, int Size)> TopLevel(byte[] file)
   {
