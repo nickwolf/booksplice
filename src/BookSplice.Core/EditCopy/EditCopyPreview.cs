@@ -39,8 +39,10 @@ public static class EditCopyPreview
     _ => Words(field.ToString()),
   };
 
-  private static string? OriginalValue(MediaProbeResult original, MetadataProfile? profile, SemanticField field)
+  // The file's current value for a field, read through the profile's tag keys. Null when the profile has no tag for it or the file has no value.
+  public static string? OriginalValue(MediaProbeResult original, MetadataProfile? profile, SemanticField field)
   {
+    ArgumentNullException.ThrowIfNull(original);
     if (profile is null) return null;
     foreach (var key in profile.Mappings.Where(mapping => mapping.Field == field).SelectMany(mapping => mapping.Keys))
     {

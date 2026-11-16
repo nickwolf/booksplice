@@ -3,6 +3,7 @@ using BookSplice.Core.Analysis;
 using BookSplice.Core.Chapters;
 using BookSplice.Core.Covers;
 using BookSplice.Core.Discovery;
+using BookSplice.Core.EditCopy;
 using BookSplice.Core.Metadata;
 using BookSplice.Core.Naming;
 using BookSplice.Core.Ordering;
@@ -38,7 +39,7 @@ public sealed class AppHost(string localAppDataRoot)
       new FFmpegOutputValidator(probe, runner, tools, new CoverPayloadValidator()),
       new AtomicPublisher(), new TemporaryArtifactCleaner(temporaryRoot),
       jobLog);
-    return new(analyzer, planner, service, new BookSplice.FFmpeg.Covers.MediaCoverPayloadOpener(tools), Profiles, new ExistingM4bChecker(probe, runner, tools), jobLog);
+    return new(analyzer, planner, service, new BookSplice.FFmpeg.Covers.MediaCoverPayloadOpener(tools), Profiles, new ExistingM4bChecker(probe, runner, tools), jobLog, new BookSplice.FFmpeg.EditCopy.EditCopyService(runner, tools, temporaryRoot));
   }
 
   private sealed class StorageSpaceProvider : IStorageSpaceProvider
@@ -55,4 +56,4 @@ public sealed class AppHost(string localAppDataRoot)
   }
 }
 
-public sealed record GuiServices(IBookAnalyzer Analyzer, IConversionPlanner Planner, IConversionService Conversion, ICoverPayloadOpener CoverPayloads, MetadataProfileCatalog? Profiles = null, IExistingFileChecker? Checker = null, IJobLogWriter? JobLog = null);
+public sealed record GuiServices(IBookAnalyzer Analyzer, IConversionPlanner Planner, IConversionService Conversion, ICoverPayloadOpener CoverPayloads, MetadataProfileCatalog? Profiles = null, IExistingFileChecker? Checker = null, IJobLogWriter? JobLog = null, IEditCopyService? EditCopy = null);

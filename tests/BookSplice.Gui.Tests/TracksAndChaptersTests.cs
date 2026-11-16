@@ -233,10 +233,12 @@ public sealed class TracksAndChaptersTests
     Select(window, book);
     var pause = (UIElement)window.FindName("PauseQueueButton");
     var check = (Button)window.FindName("CheckSelectedButton");
+    var edit = (Button)window.FindName("EditCopySelectedButton");
+    var openEdit = (Button)window.FindName("OpenEditOutput");
     var entries = new List<(string Key, string Source)>();
     foreach (var element in Logical(window))
     {
-      if (element == pause || element == check) continue;
+      if (element == pause || element == check || element == edit || element == openEdit) continue;
       var text = element switch
       {
         ContentControl { Content: string content } => content,
@@ -255,6 +257,13 @@ public sealed class TracksAndChaptersTests
     // Check file only shows for an inspect-only book, which never has the conversion result card that holds Validation checks, so they share C.
     Assert.Equal("C", AccessKey((string)check.Content), StringComparer.OrdinalIgnoreCase);
     Assert.Contains(entries, entry => entry.Key.Equals("C", StringComparison.OrdinalIgnoreCase) && entry.Source.Contains("Validation", StringComparison.Ordinal));
+
+    // Edit a copy only shows for an inspect-only book, whose result is a check or an edit and never the conversion card, so it shares O with that card's Open output folder.
+    Assert.Equal("O", AccessKey((string)edit.Content), StringComparer.OrdinalIgnoreCase);
+    Assert.Contains(entries, entry => entry.Key.Equals("O", StringComparison.OrdinalIgnoreCase) && entry.Source.Contains("Open output folder", StringComparison.Ordinal));
+    // An edit result's own Open output folder sits in the check card, so it takes L and shares it with Cancel, which shows only while a book is busy, and a busy book has no result.
+    Assert.Equal("L", AccessKey((string)openEdit.Content), StringComparer.OrdinalIgnoreCase);
+    Assert.Contains(entries, entry => entry.Key.Equals("L", StringComparison.OrdinalIgnoreCase) && entry.Source.Contains("Cance_l", StringComparison.Ordinal));
 
     Assert.Contains(entries, entry => entry.Source.Contains("Tracks and chapters", StringComparison.Ordinal));
     Assert.Contains(entries, entry => entry.Source.Contains("Convert ready", StringComparison.Ordinal));

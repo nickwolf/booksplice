@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using BookSplice.Core.Analysis;
+using BookSplice.Core.EditCopy;
 using BookSplice.Core.Settings;
 using BookSplice.Core.Validation;
 
@@ -16,6 +17,9 @@ public sealed class ConversionResultDisplay
   public string Summary { get; private init; } = "";
   public string? PublishedPath { get; private init; }
   public bool IsCheck { get; private init; }
+  public bool IsEdit { get; private init; }
+  // The saved copy, shown under an edit result's title. Empty for every other result.
+  public string EditOutputText { get; private init; } = "";
   public string? CheckedPath { get; private init; }
   public IReadOnlyList<string> CheckLines { get; private init; } = [];
   public bool CanOpenOutput => PublishedPath is not null;
@@ -76,6 +80,23 @@ public sealed class ConversionResultDisplay
     };
   }
 
+
+  // The engine's own checks and diagnostics, one line each, in the same Passed/Failed style as a conversion's checks.
+  public static ConversionResultDisplay CreateEdit(EditCopyResult result, TimeSpan elapsed)
+  {
+    ArgumentNullException.ThrowIfNull(result);
+    var lines = result.Checks.Select(DescribeCheck).Concat(result.Diagnostics.Select(diagnostic => diagnostic.Message)).ToArray();
+    var published = result.Status == EditCopyStatus.Published ? result.PublishedPath : null;
+    return new ConversionResultDisplay
+    {
+      Title = result.Status == EditCopyStatus.Published ? "Edited copy" : "Edit failed",
+      IsEdit = true,
+      PublishedPath = published,
+      EditOutputText = published is null ? "No copy was saved." : $"Saved to: {published}",
+      ElapsedText = ConversionProgressDisplay.ElapsedText(elapsed),
+      CheckLines = Array.AsReadOnly(lines),
+    };
+  }
 
   internal static string DescribeStatus(ConversionTerminalStatus status) => status switch
   {
