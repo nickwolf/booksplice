@@ -85,7 +85,8 @@ public sealed class ConversionResultDisplay
   public static ConversionResultDisplay CreateEdit(EditCopyResult result, TimeSpan elapsed)
   {
     ArgumentNullException.ThrowIfNull(result);
-    var lines = result.Checks.Select(DescribeCheck).Concat(result.Diagnostics.Select(diagnostic => diagnostic.Message)).ToArray();
+    // audio.codec is not required for an edit but usually passes, and a passed check reads the same either way.
+    var lines = result.Checks.Select(check => check.Passed ? $"Passed: {check.Code}" : DescribeCheck(check)).Concat(result.Diagnostics.Select(diagnostic => diagnostic.Message)).ToArray();
     var published = result.Status == EditCopyStatus.Published ? result.PublishedPath : null;
     return new ConversionResultDisplay
     {

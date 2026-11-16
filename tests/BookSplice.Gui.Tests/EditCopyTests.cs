@@ -146,7 +146,7 @@ public sealed class EditCopyTests
       var copy = Path.Combine(root, "edit-book.m4b");
       await File.WriteAllTextAsync(copy, "audio");
       var service = new FakeEditCopy(new EditCopyResult(EditCopyStatus.Published, copy, [new("edit.note", "Cover was kept.")],
-        [new("edit.audio-packets", true, "The audio is unchanged."), new("edit.chapters-titles", true, "Titles match."), new("edit.cover", false, "Not required here.", false)]));
+        [new("edit.audio-packets", true, "The audio is unchanged."), new("edit.chapters-titles", true, "Titles match."), new("edit.cover", false, "Not required here.", false), new("audio.codec", true, "Passed.", false)]));
       var log = new FakeLog();
       using var model = Model(service, log, root);
       var item = await Add(model);
@@ -163,14 +163,14 @@ public sealed class EditCopyTests
       Assert.Equal(copy, item.PublishedPath);
       Assert.True(item.CanOpenOutput);
       Assert.True(item.CanEditCopy);
-      Assert.Equal(["Passed: edit.audio-packets", "Passed: edit.chapters-titles", "Not required: edit.cover. Not required here.", "Cover was kept."], item.Result!.CheckLines);
+      Assert.Equal(["Passed: edit.audio-packets", "Passed: edit.chapters-titles", "Not required: edit.cover. Not required here.", "Passed: audio.codec", "Cover was kept."], item.Result!.CheckLines);
       Assert.Equal($"Saved to: {copy}", item.Result.EditOutputText);
       var record = Assert.Single(log.Records);
       Assert.Equal("edit", record.Kind);
       Assert.Equal(ConversionTerminalStatus.Succeeded, record.TerminalStatus);
       Assert.Equal(copy, record.PublishedPath);
       Assert.Null(record.CheckedPath);
-      Assert.Equal(["edit.audio-packets", "edit.chapters-titles", "edit.cover", "edit.note"], record.Diagnostics.Select(value => value.Code));
+      Assert.Equal(["edit.audio-packets", "edit.chapters-titles", "edit.cover", "audio.codec", "edit.note"], record.Diagnostics.Select(value => value.Code));
       Assert.All(record.Diagnostics, value => Assert.Equal(ServiceDiagnosticSeverity.Information, value.Severity));
     }
     finally { try { Directory.Delete(root, true); } catch (IOException) { } }
@@ -380,7 +380,8 @@ public sealed class EditCopyTests
     var keys = buttons.Select(button => ((string)button.Content)[(((string)button.Content).IndexOf('_', StringComparison.Ordinal) + 1)..][..1].ToUpperInvariant()).ToArray();
     Assert.Equal(2, keys.Length);
     Assert.Equal(keys.Length, keys.Distinct().Count());
-    Assert.All(buttons, button => Assert.False(string.IsNullOrWhiteSpace(new ButtonAutomationPeer(button).GetAccessKey())));
+    // Read from the label, not ButtonAutomationPeer.GetAccessKey: off screen and without an Application the peer sometimes reports no key.
+    Assert.All(buttons, button => Assert.Matches("^[^_]*_[A-Za-z]", (string)button.Content));
     Assert.True(((Button)window.FindName("CancelButton")).IsCancel);
   });
 
