@@ -43,6 +43,9 @@ public sealed class RealMediaPlayerTests : IDisposable
     player.Open(wav);
 
     var first = await Task.WhenAny(opened.Task, failed.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+    // 0xC00D11BA is Media Foundation's "no audio device". CI runners have none, so there is nothing to play to.
+    if (ReferenceEquals(first, failed.Task) && failed.Task.Result.Contains("C00D11BA", StringComparison.OrdinalIgnoreCase))
+      throw Xunit.Sdk.SkipException.ForSkip("This machine has no audio device.");
     Assert.True(ReferenceEquals(first, opened.Task), failed.Task.IsCompleted ? $"The player failed: {failed.Task.Result}" : "The player neither opened the file nor failed within 5 seconds.");
 
     player.Close();
