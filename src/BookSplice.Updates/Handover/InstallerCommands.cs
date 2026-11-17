@@ -79,7 +79,8 @@ public static class InstallerCommands
       var installation = InstallationOpener.Open(managedRoot, programsDirectory: programsDirectory,
         hashLauncher: false);
       RemoveOwnedShortcut(installation, ProgramsPath(programsDirectory));
-      InstallationRegistry.Open(dataRoot, create: false)?.Unbind(installation.Layout.InstallationId);
+      // Unbind from the root this installation recorded; the leases above use the environment's root, like the GUI.
+      InstallationRegistry.Open(installation.Layout.DataRoot, create: false)?.Unbind(installation.Layout.InstallationId);
       Registry.CurrentUser.DeleteSubKeyTree(toastKeyPath, false);
       return Done;
     }

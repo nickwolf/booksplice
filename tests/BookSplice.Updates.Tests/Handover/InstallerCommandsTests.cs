@@ -50,6 +50,35 @@ public sealed class InstallerCommandsTests : IDisposable
   }
 
   [Fact]
+  public void RegisterWorksWhenTheDataRootDoesNotExistYet()
+  {
+    var fresh = Path.Combine(_root, "fresh", "BookSplice");
+    Directory.CreateDirectory(Path.GetDirectoryName(fresh)!);
+    var error = new StringWriter();
+    var code = InstallerCommands.Register(Original, fresh, false, error, Programs);
+    Assert.True(code == InstallerCommands.Done, error.ToString());
+    Assert.Single(InstallationRegistry.Open(fresh, create: false)!.Read().Value!.Bindings);
+  }
+
+  [Fact]
+  public void UnregisterUnbindsFromTheRecordedDataRootNotTheLeaseRoot()
+  {
+    Assert.Equal(InstallerCommands.Done, Register());
+    var managed = Assert.Single(ManagedRoots());
+    var other = Path.Combine(_root, "other-data");
+    Directory.CreateDirectory(other);
+    var toastKey = @"Software\BookSplice.Tests\" + Guid.NewGuid().ToString("N");
+    try
+    {
+      Assert.Equal(InstallerCommands.Done,
+        InstallerCommands.Unregister(managed, other, new StringWriter(), Programs, toastKey));
+      Assert.Empty(Bindings());
+      Assert.Null(InstallationRegistry.Open(other, create: false));
+    }
+    finally { Registry.CurrentUser.DeleteSubKeyTree(@"Software\BookSplice.Tests", false); }
+  }
+
+  [Fact]
   public void RegisterTwiceIsIdempotent()
   {
     Assert.Equal(InstallerCommands.Done, Register());
