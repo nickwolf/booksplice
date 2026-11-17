@@ -193,6 +193,20 @@ public sealed class InstallerCommandsTests : IDisposable
   }
 
   [Fact]
+  public void UnregisterRefusesWhileAnUpdateIsUnfinished()
+  {
+    Assert.Equal(InstallerCommands.Done, Register());
+    var managed = Assert.Single(ManagedRoots());
+    var installation = InstallationOpener.Open(managed, programsDirectory: Programs);
+    var current = installation.State.Read<CurrentTarget>(Path.Combine(installation.RecordsPath, "current.json")).Value!;
+    installation.Journal.Begin(new UpdateTransaction(1, installation.Layout.InstallationId, Guid.NewGuid(),
+      UpdatePhase.Preparing, current.Current, null, null, true, 1, new string('A', 64), [], null, null, current));
+    Assert.Equal(InstallerCommands.Busy,
+      InstallerCommands.Unregister(managed, Data, new StringWriter(), Programs));
+    Assert.Single(Bindings());
+  }
+
+  [Fact]
   public void UnregisterRemovesTheOwnedShortcutBindingAndToastKeyOnly()
   {
     var toastKey = @"Software\BookSplice.Tests\" + Guid.NewGuid().ToString("N");

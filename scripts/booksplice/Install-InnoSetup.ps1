@@ -7,7 +7,7 @@ param(
 )
 
 # CI only. Installs the pinned Inno Setup next to the build instead of trusting whatever the runner image has,
-# and exports its ISCC.exe as BOOKSPLICE_ISCC. It registers an uninstall entry, so do not run it on a developer machine.
+# and prints the path of its ISCC.exe for the caller to capture. It registers an uninstall entry, so do not run it on a developer machine.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -16,9 +16,8 @@ $installer = Join-Path ([IO.Path]::GetTempPath()) "innosetup-$Version.exe"
 Invoke-WebRequest -Uri "https://github.com/jrsoftware/issrc/releases/download/$tag/innosetup-$Version.exe" -OutFile $installer
 $actual = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actual -ne $Sha256) { throw "Inno Setup $Version download hash mismatch: expected $Sha256, got $actual." }
-$process = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/CURRENTUSER', "/DIR=$Destination" -Wait -PassThru
+$process = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/CURRENTUSER', "/DIR=`"$Destination`"" -Wait -PassThru
 if ($process.ExitCode -ne 0) { throw "The Inno Setup installer failed with exit code $($process.ExitCode)." }
 $iscc = Join-Path $Destination 'ISCC.exe'
 if (-not (Test-Path -LiteralPath $iscc -PathType Leaf)) { throw "ISCC.exe was not installed at $iscc." }
-if ($env:GITHUB_ENV) { "BOOKSPLICE_ISCC=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append }
 $iscc

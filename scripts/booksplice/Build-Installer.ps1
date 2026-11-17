@@ -22,6 +22,7 @@ if ($archive -notmatch '[\\/]BookSplice-(?<version>\d+\.\d+\.\d+(?:-[0-9A-Za-z.-
 $version = $Matches['version']
 $output = if ($OutputDirectory) { [IO.Path]::GetFullPath($OutputDirectory) } else { Split-Path $archive -Parent }
 
+if ($PSBoundParameters.ContainsKey('IsccPath') -and -not $IsccPath) { throw '-IsccPath was passed but is empty.' }
 function Find-Iscc {
     if ($IsccPath) {
         if (-not (Test-Path -LiteralPath $IsccPath -PathType Leaf)) { throw "ISCC.exe not found at '$IsccPath'." }

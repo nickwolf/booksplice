@@ -97,8 +97,11 @@ jobs:
       - name: Build the installer
         shell: pwsh
         run: |
-          .\scripts\booksplice\Install-InnoSetup.ps1
-          .\scripts\booksplice\Build-Installer.ps1 -ArchivePath ".\artifacts\release\BookSplice-$env:BOOKSPLICE_VERSION-win-x64.zip" -IsccPath $env:BOOKSPLICE_ISCC
+          $iscc = .\scripts\booksplice\Install-InnoSetup.ps1
+          .\scripts\booksplice\Build-Installer.ps1 -ArchivePath ".\artifacts\release\BookSplice-$env:BOOKSPLICE_VERSION-win-x64.zip" -IsccPath $iscc
+          # The hosted runner is a throwaway machine, so the Release setup can be tested against the real Start menu.
+          $scratch = Join-Path $env:RUNNER_TEMP 'installer-test'
+          .\scripts\booksplice\Test-Installer.ps1 -SetupPath ".\artifacts\release\BookSplice-$env:BOOKSPLICE_VERSION-win-x64-setup.exe" -ZipPath ".\artifacts\release\BookSplice-$env:BOOKSPLICE_VERSION-win-x64.zip" -DataRoot (Join-Path $scratch 'data') -InstallRoot (Join-Path $scratch 'install') -AllowRealStartMenu
       - name: Sign and verify update manifest
         shell: pwsh
         env:

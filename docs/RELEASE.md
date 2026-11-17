@@ -8,7 +8,7 @@ CI is the gate. A release is a tag, the draft that `release.yml` builds from it,
 
 `ci.yml` runs on every pull request and on `main`. It builds the pinned FFmpeg from source, runs the tests with `-m:1`, checks formatting, runs `Test-Release.ps1` on a `Test` package, builds the setup from that package and runs `Test-Installer.ps1` against it, runs `Test-UpdateTooling.ps1`, and scans for secrets with gitleaks. A release is cut only from a `main` commit with a green CI run.
 
-`release.yml` runs on the tag. It rebuilds the pinned FFmpeg, reruns the tests and format check, builds the `Release` package, runs `Test-Release.ps1`, builds the setup, signs and verifies the update manifest, creates the build-provenance attestation, builds and verifies `SHA256SUMS`, and creates the draft.
+`release.yml` runs on the tag. It rebuilds the pinned FFmpeg, reruns the tests and format check, builds the `Release` package, runs `Test-Release.ps1`, builds the setup and runs `Test-Installer.ps1 -AllowRealStartMenu` against it on the throwaway runner, signs and verifies the update manifest, creates the build-provenance attestation, builds and verifies `SHA256SUMS`, and creates the draft.
 
 ## Reproduce CI locally (optional)
 
@@ -38,7 +38,7 @@ dotnet format --verify-no-changes --no-restore
 
 ## Installer
 
-`installer\BookSplice.iss` is a per-user Inno Setup script (no admin rights). `scripts\booksplice\Build-Installer.ps1 -ArchivePath <zip>` extracts the ZIP and compiles `BookSplice-<version>-win-x64-setup.exe` from it, so setup and ZIP carry the same files. ISCC is found from `-IsccPath`, then PATH, then the standard Inno Setup 6 folders. CI and the release workflow run `scripts\booksplice\Install-InnoSetup.ps1` first, which installs Inno Setup 6.7.3 from the official release after checking its SHA-256; change the version and hash together there. Do not run that script on a developer machine, because it writes an uninstall entry.
+`installer\BookSplice.iss` is a per-user Inno Setup script (no admin rights). `scripts\booksplice\Build-Installer.ps1 -ArchivePath <zip>` extracts the ZIP and compiles `BookSplice-<version>-win-x64-setup.exe` from it, so setup and ZIP carry the same files. ISCC is found from `-IsccPath`, then PATH, then the standard Inno Setup 6 folders. CI and the release workflow run `scripts\booksplice\Install-InnoSetup.ps1` first, which installs Inno Setup 6.7.3 from the official release after checking its SHA-256 and prints the ISCC path they pass on; change the version and hash together there. Do not run that script on a developer machine, because it writes an uninstall entry.
 
 Setup copies the package to `{app}\app` and runs `BookSplice.Launcher.exe --register`, which creates the managed folder and the Start menu shortcut. The uninstaller runs the managed launcher with `--unregister` and then deletes `{app}\app` and the managed folder. Setup never touches `%LOCALAPPDATA%\BookSplice`. A `Test` package builds a setup with its own AppId and default folder, so a test run cannot collide with a real install.
 

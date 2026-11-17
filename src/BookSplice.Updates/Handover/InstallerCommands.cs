@@ -6,6 +6,8 @@ using Microsoft.Win32;
 namespace BookSplice.Updates.Handover;
 
 // The launcher commands setup runs silently: exit codes and one stderr line only, never a dialog.
+// An installed uninstaller never updates but runs the newest launcher, so --installed, --register,
+// --unregister and these exit codes must keep working in every later version.
 [SupportedOSPlatform("windows")]
 public static class InstallerCommands
 {
@@ -100,6 +102,11 @@ public static class InstallerCommands
       if (update is null) return Refuse(error);
       var installation = InstallationOpener.Open(managedRoot, programsDirectory: programsDirectory,
         hashLauncher: false);
+      // A handover between the old window exiting and the launcher taking the admission holds neither lock,
+      // so an unfinished journal also counts as busy (the same rule UpdateCleanup uses). Recovery clears it.
+      var transaction = installation.Journal.Read();
+      if (transaction.Kind == StateReadKind.Invalid || transaction.Value is { } open && !open.IsFinished())
+        return Refuse(error);
       RemoveOwnedShortcut(installation, ProgramsPath(programsDirectory));
       // Unbind from the root this installation recorded; the leases above use the environment's root, like the GUI.
       InstallationRegistry.Open(installation.Layout.DataRoot, create: false)?.Unbind(installation.Layout.InstallationId);
