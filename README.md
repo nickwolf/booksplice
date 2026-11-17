@@ -21,7 +21,18 @@ BookSplice does not modify source files. Existing M4B files can be inspected but
 
 ## Install on Windows
 
-1. Download `BookSplice-<version>-win-x64.zip` and `BookSplice-<version>-win-x64.zip.sha256` from the [GitHub release](https://github.com/nickwolf/booksplice/releases/latest).
+1. Download `BookSplice-<version>-win-x64-setup.exe` from the [GitHub release](https://github.com/nickwolf/booksplice/releases/latest) and run it. It installs for your user only, into `%LOCALAPPDATA%\Programs\BookSplice`, and does not ask for administrator rights.
+2. Start BookSplice from the Start menu.
+
+Windows may show a SmartScreen warning because releases are not code signed. Updates come from Settings > Updates inside BookSplice, so running setup on a copy that is already installed only points you there. To remove BookSplice, use Apps & features. That deletes the program and its update folder and keeps your settings, profiles, presets and history in `%LOCALAPPDATA%\BookSplice`.
+
+The package is self-contained and does not require the .NET SDK. It includes the pinned LGPL FFmpeg tools.
+
+### Portable copy
+
+The ZIP is the portable option.
+
+1. Download `BookSplice-<version>-win-x64.zip` and `BookSplice-<version>-win-x64.zip.sha256` from the same release page.
 2. Verify the archive in PowerShell, replacing `<version>` with the version you downloaded:
 
 ```powershell
@@ -31,10 +42,10 @@ $actual = (Get-FileHash ".\BookSplice-$version-win-x64.zip" -Algorithm SHA256).H
 if ($actual -ne $expected) { throw 'BookSplice checksum mismatch.' }
 ```
 
-3. Extract the ZIP to a folder you can keep, such as `%LOCALAPPDATA%\Programs\BookSplice`.
+3. Extract the ZIP to a folder you can write to and keep, such as `%LOCALAPPDATA%\Programs\BookSplice Portable`. Do not use `%LOCALAPPDATA%\Programs\BookSplice`, which is where setup installs.
 4. Run `BookSplice.Gui.exe`.
 
-The package is self-contained and does not require the .NET SDK. It includes the pinned LGPL FFmpeg tools. Windows may show a SmartScreen warning because releases are not code signed.
+To move from a portable copy to setup, delete the portable folder and the `.booksplice-managed-<id>` folder beside it (settings are kept), then run setup and agree when it offers to replace the BookSplice shortcut.
 
 ## Updates
 
@@ -44,7 +55,7 @@ Install and restart is available only while the queue is empty, because the app 
 
 A build from before the updater existed cannot update itself. Replace it once by hand with the first release that includes the updater. After that, updates are applied from the Updates window.
 
-The first update creates a managed folder named `.booksplice-managed-<id>` beside the folder you extracted, holding a small launcher (`BookSplice.Launcher.exe`), the installed versions, and the update records. The folder you extracted is never modified or deleted, so it stays as a manual fallback. BookSplice adds a Start Menu shortcut named `BookSplice` that starts the launcher. If a shortcut with that name already exists and BookSplice did not create it, it is left alone and the Updates window shows the launcher path to start instead. Update preferences are stored in `%LOCALAPPDATA%\BookSplice\updates`.
+A managed folder named `.booksplice-managed-<id>` sits beside the folder you installed or extracted. It holds a small launcher (`BookSplice.Launcher.exe`), the installed versions, and the update records. Setup creates it, and a portable copy gets it at the first update. The original folder is never modified or deleted, so it stays as a manual fallback. BookSplice adds a Start Menu shortcut named `BookSplice` that starts the launcher. If a shortcut with that name already exists and BookSplice did not create it, it is left alone and the Updates window shows the launcher path to start instead. Update preferences are stored in `%LOCALAPPDATA%\BookSplice\updates`.
 
 ## First launch and settings
 

@@ -4,6 +4,8 @@ BookSplice converts folders of audiobook tracks into validated, chaptered M4B fi
 
 ## Install
 
+BookSplice is also available as a per-user setup (`BookSplice-{{VERSION}}-win-x64-setup.exe`) on the release page. This folder is the portable copy.
+
 1. Keep this extracted folder together, including `tools\ffmpeg`, `licenses`, and `sources`.
 2. Run `BookSplice.Gui.exe`.
 3. Complete first-run setup and choose an existing output folder.

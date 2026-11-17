@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
+using BookSplice.Updates;
 using BookSplice.Updates.Handover;
 using BookSplice.Updates.Storage;
 using BookSplice.Updates.Windows;
@@ -13,6 +14,17 @@ public static class LauncherApplication
 
   public static int Run(string[] args)
   {
+    // Setup runs these silently, so they sit outside the dialog-showing catch below.
+    if (args is ["--register"] or ["--register", "--replace-shortcut"])
+      return InstallerCommands.Register(InstallDirectory(), InstallerCommands.DataRoot(),
+        args.Length == 2, Console.Error);
+    if (args is ["--installed"])
+      return InstallerCommands.IsInstalled(InstallDirectory(), InstallerCommands.DataRoot());
+    if (args is ["--unregister"])
+      // Test builds can point the toast key elsewhere so installer tests never delete the user's own key.
+      return InstallerCommands.Unregister(InstallDirectory(), InstallerCommands.DataRoot(), Console.Error,
+        toastKeyPath: UpdateBuild.TestSetting("BOOKSPLICE_TEST_TOAST_KEY") is { Length: > 0 } toastKey ?
+          toastKey : InstallerCommands.ToastKeyPath);
     try
     {
       if (args is ["--apply", var transaction, var pid, var startTicks])
@@ -98,7 +110,9 @@ public static class LauncherApplication
   private static void ShowError(string message) =>
     _ = MessageBoxW(0, message, "BookSplice update", 0x10);
 
+  private static string InstallDirectory() => Path.GetDirectoryName(Environment.ProcessPath ??
+    throw new IOException("The launcher image path is unavailable."))!;
+
   private static OpenedInstallation OpenInstallation() => InstallationOpener.Open(
-    Path.GetDirectoryName(Environment.ProcessPath ??
-      throw new IOException("The launcher image path is unavailable."))!, hashLauncher: false);
+    InstallDirectory(), hashLauncher: false);
 }

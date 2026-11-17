@@ -7,7 +7,7 @@ BookSplice separates audiobook analysis and conversion from its Windows and comm
 - `BookSplice.Gui` provides first-run setup, persistent settings, drag-and-drop analysis, ordering review, metadata and chapter editing, cover selection, output preview, and a bounded conversion queue.
 - `BookSplice.Cli` exposes the same services for terminal and automation use. JSON mode never prompts.
 - `BookSplice.Updates` owns release selection, signed-manifest verification, safe archive extraction, the managed installation layout and its ownership records, the update journal, and the launcher-side handover and recovery logic. It has no WPF dependency.
-- `BookSplice.Launcher` is the stable launcher. It lives in the managed folder and is the only thing the Start Menu shortcut starts. It resolves which installed version to run, applies a staged update, and falls back to the previous version.
+- `BookSplice.Launcher` is the stable launcher. It lives in the managed folder and is the only thing the Start Menu shortcut starts. It resolves which installed version to run, applies a staged update, and falls back to the previous version. It also has the `--register`, `--unregister` and `--installed` commands that the Inno Setup installer (`installer/BookSplice.iss`) runs, so a setup install gets its managed folder and shortcut at install time instead of at the first update.
 
 The main pipeline is:
 

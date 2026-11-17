@@ -94,6 +94,14 @@ jobs:
         run: |
           .\scripts\Build-Release.ps1 -Version $env:BOOKSPLICE_VERSION -MediaToolDirectory $env:BOOKSPLICE_FFMPEG_DIR -Flavor Release
           .\scripts\Test-Release.ps1 -ArchivePath ".\artifacts\release\BookSplice-$env:BOOKSPLICE_VERSION-win-x64.zip" -ChecksumPath ".\artifacts\release\BookSplice-$env:BOOKSPLICE_VERSION-win-x64.zip.sha256"
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $iscc = .\scripts\booksplice\Install-InnoSetup.ps1
+          .\scripts\booksplice\Build-Installer.ps1 -ArchivePath ".\artifacts\release\BookSplice-$env:BOOKSPLICE_VERSION-win-x64.zip" -IsccPath $iscc
+          # The hosted runner is a throwaway machine, so the Release setup can be tested against the real Start menu.
+          $scratch = Join-Path $env:RUNNER_TEMP 'installer-test'
+          .\scripts\booksplice\Test-Installer.ps1 -SetupPath ".\artifacts\release\BookSplice-$env:BOOKSPLICE_VERSION-win-x64-setup.exe" -ZipPath ".\artifacts\release\BookSplice-$env:BOOKSPLICE_VERSION-win-x64.zip" -DataRoot (Join-Path $scratch 'data') -InstallRoot (Join-Path $scratch 'install') -AllowRealStartMenu
       - name: Sign and verify update manifest
         shell: pwsh
         env:
@@ -110,7 +118,9 @@ jobs:
           finally { Remove-Item -LiteralPath $keyPath -Force -ErrorAction SilentlyContinue }
       - uses: actions/attest-build-provenance@v2
         with:
-          subject-path: artifacts/release/BookSplice-*-win-x64.zip
+          subject-path: |
+            artifacts/release/BookSplice-*-win-x64.zip
+            artifacts/release/BookSplice-*-win-x64-setup.exe
       - name: Build and verify SHA256SUMS
         shell: pwsh
         run: |
@@ -118,6 +128,7 @@ jobs:
           $assets = @(
             ".\artifacts\release\BookSplice-$v-win-x64.zip",
             ".\artifacts\release\BookSplice-$v-win-x64.zip.sha256",
+            ".\artifacts\release\BookSplice-$v-win-x64-setup.exe",
             ".\artifacts\release-signed\BookSplice-$v-win-x64.update.json",
             ".\artifacts\release-signed\BookSplice-$v-win-x64.update.sig.json",
             '.\scripts\booksplice\Test-UpdateManifest.ps1',
@@ -156,13 +167,14 @@ jobs:
         with:
           tag_name: ${{ env.BOOKSPLICE_TAG }}
           body: |
-            Automated build of BookSplice ${{ env.BOOKSPLICE_TAG }}. The release notes are added to this draft before it is published. Verify the ZIP against its .sha256 file or SHA256SUMS; the signed update files are BookSplice-${{ env.BOOKSPLICE_VERSION }}-win-x64.update.json and .update.sig.json.
+            Automated build of BookSplice ${{ env.BOOKSPLICE_TAG }}. The release notes are added to this draft before it is published. Verify the ZIP against its .sha256 file or SHA256SUMS, and the setup against SHA256SUMS; the signed update files are BookSplice-${{ env.BOOKSPLICE_VERSION }}-win-x64.update.json and .update.sig.json.
           draft: true
           overwrite_files: false
           fail_on_unmatched_files: true
           files: |
             artifacts/release/BookSplice-*-win-x64.zip
             artifacts/release/BookSplice-*-win-x64.zip.sha256
+            artifacts/release/BookSplice-*-win-x64-setup.exe
             artifacts/release-signed/BookSplice-*-win-x64.update.json
             artifacts/release-signed/BookSplice-*-win-x64.update.sig.json
             scripts/booksplice/Test-UpdateManifest.ps1

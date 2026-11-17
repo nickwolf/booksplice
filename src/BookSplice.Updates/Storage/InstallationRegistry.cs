@@ -96,6 +96,21 @@ public sealed class InstallationRegistry(AtomicStateStore store, string path)
       return new InstallationRegistryState(1, entries);
     });
   }
+
+  // Drops every binding of one installation; a missing registry has nothing to drop and stays missing.
+  public void Unbind(Guid installationId)
+  {
+    if (store.Read<InstallationRegistryState>(path).Kind == StateReadKind.Missing) return;
+    store.Transition<InstallationRegistryState>(path, read =>
+    {
+      if (read.Kind == StateReadKind.Invalid)
+        throw new InvalidDataException("The installation registry is invalid.");
+      return read.Value is { } state ?
+        new InstallationRegistryState(1, state.Bindings.Where(item =>
+          item.InstallationId != installationId).ToList()) :
+        new InstallationRegistryState(1, []);
+    });
+  }
 }
 
 [SupportedOSPlatform("windows")]
