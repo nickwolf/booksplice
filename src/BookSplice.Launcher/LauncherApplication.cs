@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
+using BookSplice.Updates;
 using BookSplice.Updates.Handover;
 using BookSplice.Updates.Storage;
 using BookSplice.Updates.Windows;
@@ -20,7 +21,10 @@ public static class LauncherApplication
     if (args is ["--installed"])
       return InstallerCommands.IsInstalled(InstallDirectory(), InstallerCommands.DataRoot());
     if (args is ["--unregister"])
-      return InstallerCommands.Unregister(InstallDirectory(), InstallerCommands.DataRoot(), Console.Error);
+      // Test builds can point the toast key elsewhere so installer tests never delete the user's own key.
+      return InstallerCommands.Unregister(InstallDirectory(), InstallerCommands.DataRoot(), Console.Error,
+        toastKeyPath: UpdateBuild.TestSetting("BOOKSPLICE_TEST_TOAST_KEY") is { Length: > 0 } toastKey ?
+          toastKey : InstallerCommands.ToastKeyPath);
     try
     {
       if (args is ["--apply", var transaction, var pid, var startTicks])

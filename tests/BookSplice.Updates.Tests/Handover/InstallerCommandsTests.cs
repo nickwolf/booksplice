@@ -87,6 +87,8 @@ public sealed class InstallerCommandsTests : IDisposable
     Assert.Equal(InstallerCommands.Failed,
       InstallerCommands.IsInstalled(Path.Combine(_root, "elsewhere"), Data));
     Assert.Equal(InstallerCommands.Failed, InstallerCommands.IsInstalled(Original, Path.Combine(_root, "none")));
+    File.WriteAllText(Path.Combine(Data, "updates", "registry.json"), "not json");
+    Assert.Equal(InstallerCommands.Unknown, InstallerCommands.IsInstalled(Original, Data));
   }
 
   [Fact]

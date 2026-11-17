@@ -9,7 +9,7 @@ namespace BookSplice.Updates.Handover;
 [SupportedOSPlatform("windows")]
 public static class InstallerCommands
 {
-  public const int Done = 0, Failed = 1, ShortcutCollision = 2, Busy = 3;
+  public const int Done = 0, Failed = 1, ShortcutCollision = 2, Busy = 3, Unknown = 4;
   // Mirrors the key the GUI registers for toasts (WindowsToastNotifier).
   public const string ToastKeyPath = @"Software\Classes\AppUserModelId\BookSplice.App";
 
@@ -68,20 +68,24 @@ public static class InstallerCommands
   }
 
   // Read-only query for setup: Done when the data-root registry binds this folder's BookSplice.Gui.exe,
-  // Failed otherwise (no registry, no binding, or an unreadable registry).
+  // Failed when it does not (or there is no registry yet), Unknown when the registry can't be read, so
+  // setup never overwrites a folder it could not rule out.
   public static int IsInstalled(string applicationDirectory, string dataRoot)
   {
     try
     {
       var executable = Path.Combine(Path.TrimEndingDirectorySeparator(Path.GetFullPath(applicationDirectory)),
         "BookSplice.Gui.exe");
-      var read = InstallationRegistry.Open(dataRoot, create: false)?.Read();
-      return read?.Value?.Bindings.Any(item => string.Equals(item.ExecutablePath, executable,
+      var registry = InstallationRegistry.Open(dataRoot, create: false);
+      if (registry is null) return Failed;
+      var read = registry.Read();
+      if (read.Kind == StateReadKind.Invalid) return Unknown;
+      return read.Value?.Bindings.Any(item => string.Equals(item.ExecutablePath, executable,
         StringComparison.OrdinalIgnoreCase)) == true ? Done : Failed;
     }
     catch (Exception)
     {
-      return Failed;
+      return Unknown;
     }
   }
 

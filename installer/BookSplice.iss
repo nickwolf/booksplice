@@ -108,27 +108,32 @@ begin
     SW_HIDE, ewWaitUntilTerminated, Result) then
   begin
     Reason := SysErrorMessage(Result);
-    Result := 1;
+    Result := -1;
     Exit;
   end;
   if LoadStringFromFile(ErrorFile, Output) then Reason := Trim(String(Output));
 end;
 
-function IsInstalled(Root: String): Boolean;
+// 0 when the folder is installed, 1 when it is not (or holds no app yet), anything else when the
+// launcher could not tell; setup refuses in that case rather than overwrite a possible install.
+function InstalledState(Root: String; var Reason: String): Integer;
 var
-  Launcher, Reason: String;
+  Launcher: String;
 begin
+  Reason := '';
   Launcher := Root + '\app\BookSplice.Launcher.exe';
-  Result := FileExists(Launcher) and (RunLauncher(Launcher, '--installed', Reason) = 0);
+  if FileExists(Launcher) then Result := RunLauncher(Launcher, '--installed', Reason)
+  else Result := 1;
 end;
 
 function InitializeSetup: Boolean;
 var
-  Root, Shortcut: String;
-  Answer: Integer;
+  Root, Shortcut, Reason: String;
+  Answer, State: Integer;
 begin
   Result := True;
   Root := InstallFolder;
+  State := InstalledState(Root, Reason);
   if FileExists(Root + '\BookSplice.Gui.exe') then
   begin
     if not IsSilent then
@@ -136,7 +141,14 @@ begin
         'Your settings in %LOCALAPPDATA%\BookSplice are kept.', mbError, MB_OK);
     Result := False;
   end
-  else if IsInstalled(Root) then
+  else if (State <> 0) and (State <> 1) then
+  begin
+    if not IsSilent then
+      MsgBox('Setup could not check the BookSplice already in ' + Root + ', so it changed nothing. ' + Reason,
+        mbError, MB_OK);
+    Result := False;
+  end
+  else if State = 0 then
   begin
     if not IsSilent then
     begin

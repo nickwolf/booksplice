@@ -67,29 +67,16 @@ $uninstallKey = if ($flavor -eq 'Test') { 'HKCU:\Software\Microsoft\Windows\Curr
 else { 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{3B7D5A4E-6F1C-4C58-9E0A-52D7B1F46A19}_is1' }
 if (Test-Path -LiteralPath $uninstallKey) { throw 'The installer uninstall entry already exists on this machine; refusing to run.' }
 
-# --unregister deletes the toast key under HKCU, which the GUI also owns, and Test builds cannot redirect it.
-# Keep a copy of the real key and put it back at the end.
-$toastKey = 'HKCU\Software\Classes\AppUserModelId\BookSplice.App'
-$toastBackup = Join-Path ([IO.Path]::GetTempPath()) "booksplice-toast-key-$([guid]::NewGuid().ToString('N')).reg"
-function Save-RegistryKey([string]$Key, [string]$File) {
-    & reg.exe query $Key 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) { return $false }
-    & reg.exe export $Key $File /y 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Could not back up $Key." }
-    $true
-}
-function Restore-RegistryKey([string]$Key, [string]$File) {
-    if (-not (Test-Path -LiteralPath $File)) { return }
-    & reg.exe import $File 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Could not restore $Key from $File." }
-    Remove-Item -LiteralPath $File -Force
-}
-$toastSaved = Save-RegistryKey $toastKey $toastBackup
+# --unregister deletes the toast key. A Test build takes a throwaway key from BOOKSPLICE_TEST_TOAST_KEY, so the
+# user's own key is never touched; a Release package (throwaway machine only) uses the real one.
+$toastParent = "Software\BookSplice.Tests\installer-$([guid]::NewGuid().ToString('N'))"
+$toastKey = if ($flavor -eq 'Test') { "$toastParent\BookSplice.App" } else { 'Software\Classes\AppUserModelId\BookSplice.App' }
+function Add-ToastKey { if ($flavor -eq 'Test') { New-Item -Path "HKCU:\$toastKey" -Force | Out-Null } }
 
 $saved = @{}
-foreach ($name in 'BOOKSPLICE_LOCAL_APP_DATA', 'BOOKSPLICE_TEST_PROGRAMS_DIR') { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+foreach ($name in 'BOOKSPLICE_LOCAL_APP_DATA', 'BOOKSPLICE_TEST_PROGRAMS_DIR', 'BOOKSPLICE_TEST_TOAST_KEY') { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
 $env:BOOKSPLICE_LOCAL_APP_DATA = $data
-if ($flavor -eq 'Test') { $env:BOOKSPLICE_TEST_PROGRAMS_DIR = $programs }
+if ($flavor -eq 'Test') { $env:BOOKSPLICE_TEST_PROGRAMS_DIR = $programs; $env:BOOKSPLICE_TEST_TOAST_KEY = $toastKey }
 
 # ---- helpers ----------------------------------------------------------------------------------------
 $results = [Collections.Generic.List[object]]::new()
@@ -187,6 +174,7 @@ try {
     $script:case = 'clean install'
     Write-Host "== $($script:case)"
     Add-Sentinel
+    Add-ToastKey
     $code = Invoke-Setup
     Assert-That 'setup exits 0' ($code -eq 0) "exit $code"
     Test-InstallIntact 'installed'
@@ -226,6 +214,7 @@ try {
     Assert-That 'uninstall exits 0' ($code -eq 0) "exit $code"
     Test-Removed 'uninstalled'
     Assert-That 'owned shortcut gone' (-not (Test-Path -LiteralPath $shortcutPath))
+    if ($flavor -eq 'Test') { Assert-That 'toast key gone' (-not (Test-Path -LiteralPath "HKCU:\$toastKey")) }
     Assert-That 'data root sentinel survives' ((Test-Path -LiteralPath $sentinel) -and (Get-Content -LiteralPath $sentinel) -eq 'keep')
 
     $script:case = 'reinstall after uninstall'
@@ -312,7 +301,8 @@ finally {
     # Always leave the machine as found: uninstall anything still installed, then drop the scratch folders.
     try { [void](Invoke-Uninstall) } catch { Write-Host "cleanup uninstall: $($_.Exception.Message)" }
     if (Test-Path -LiteralPath $uninstallKey) { Remove-Item -LiteralPath $uninstallKey -Recurse -Force }
-    if ($toastSaved) { Restore-RegistryKey $toastKey $toastBackup }
+    if (Test-Path -LiteralPath "HKCU:\$toastParent") { Remove-Item -LiteralPath "HKCU:\$toastParent" -Recurse -Force }
+    if ((Test-Path -LiteralPath 'HKCU:\Software\BookSplice.Tests') -and -not (Get-ChildItem -LiteralPath 'HKCU:\Software\BookSplice.Tests')) { Remove-Item -LiteralPath 'HKCU:\Software\BookSplice.Tests' }
     foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
     foreach ($dir in $scratch) {
         if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
