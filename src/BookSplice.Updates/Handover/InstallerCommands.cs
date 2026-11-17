@@ -67,6 +67,24 @@ public static class InstallerCommands
     }
   }
 
+  // Read-only query for setup: Done when the data-root registry binds this folder's BookSplice.Gui.exe,
+  // Failed otherwise (no registry, no binding, or an unreadable registry).
+  public static int IsInstalled(string applicationDirectory, string dataRoot)
+  {
+    try
+    {
+      var executable = Path.Combine(Path.TrimEndingDirectorySeparator(Path.GetFullPath(applicationDirectory)),
+        "BookSplice.Gui.exe");
+      var read = InstallationRegistry.Open(dataRoot, create: false)?.Read();
+      return read?.Value?.Bindings.Any(item => string.Equals(item.ExecutablePath, executable,
+        StringComparison.OrdinalIgnoreCase)) == true ? Done : Failed;
+    }
+    catch (Exception)
+    {
+      return Failed;
+    }
+  }
+
   // Run from the managed root's launcher. Leaves every folder for the uninstaller.
   public static int Unregister(string managedRoot, string dataRoot, TextWriter error,
     string? programsDirectory = null, string toastKeyPath = ToastKeyPath)

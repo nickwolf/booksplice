@@ -17,6 +17,8 @@ public static class LauncherApplication
     if (args is ["--register"] or ["--register", "--replace-shortcut"])
       return InstallerCommands.Register(InstallDirectory(), InstallerCommands.DataRoot(),
         args.Length == 2, Console.Error);
+    if (args is ["--installed"])
+      return InstallerCommands.IsInstalled(InstallDirectory(), InstallerCommands.DataRoot());
     if (args is ["--unregister"])
       return InstallerCommands.Unregister(InstallDirectory(), InstallerCommands.DataRoot(), Console.Error);
     try

@@ -79,6 +79,17 @@ public sealed class InstallerCommandsTests : IDisposable
   }
 
   [Fact]
+  public void InstalledIsTrueOnlyForABoundFolder()
+  {
+    Assert.Equal(InstallerCommands.Failed, InstallerCommands.IsInstalled(Original, Data));
+    Assert.Equal(InstallerCommands.Done, Register());
+    Assert.Equal(InstallerCommands.Done, InstallerCommands.IsInstalled(Original, Data));
+    Assert.Equal(InstallerCommands.Failed,
+      InstallerCommands.IsInstalled(Path.Combine(_root, "elsewhere"), Data));
+    Assert.Equal(InstallerCommands.Failed, InstallerCommands.IsInstalled(Original, Path.Combine(_root, "none")));
+  }
+
+  [Fact]
   public void RegisterTwiceIsIdempotent()
   {
     Assert.Equal(InstallerCommands.Done, Register());
