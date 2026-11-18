@@ -262,7 +262,7 @@ function New-Sandbox([string]$Name) {
     $s.Original = "$($s.Apps)\BookSplice-$Version1-win-x64"
     [IO.Compression.ZipFile]::ExtractToDirectory("$out\packages\BookSplice-$Version1-win-x64.zip", $s.Original)
     $settings = [ordered]@{ schemaVersion = 1; outputDirectory = $s.Books; qualityProfileId = 'high-quality'; channelPolicy = 'PreserveSourceChannels'
-        createChapters = $true; conversionJobs = $null; collisionPolicy = 'AvoidCollision'; metadataProfileId = 'GenericMp4'; validationLevel = 'Lightweight'; logLevel = 'Information' } | ConvertTo-Json
+        createChapters = $true; conversionJobs = $null; collisionPolicy = 'AvoidCollision'; metadataProfileId = 'GenericMp4'; validationLevel = 'Lightweight'; logLevel = 'Information'; notificationsEnabled = $true } | ConvertTo-Json
     [IO.File]::WriteAllText("$($s.Data)\BookSplice\settings.json", $settings, [Text.UTF8Encoding]::new($false))
     $s.SettingsPath = "$($s.Data)\BookSplice\settings.json"
     $s.SettingsSha = Sha $s.SettingsPath
@@ -500,7 +500,7 @@ if ($Scenario -contains 'upgrade' -or $Scenario -contains 'rollback') {
         Assert-That 'the Release toast keys are unchanged (by value)' ($releaseNow -eq $releaseToastBefore) $(if ($releaseNow -eq $releaseToastBefore) { '' } else { 'the AppUserModelId or CLSID values differ from the start of the run' })
         # A click while the GUI runs goes to its in-process receiver, which restores a minimized window.
         # The launcher fallback also exits quietly while the GUI holds its lease, so the window state tells them apart.
-        $runningGui = Get-GuiProcesses
+        $runningGui = @(Get-GuiProcesses)
         $main = Get-MainWindow
         $window = $main.GetCurrentPattern([Windows.Automation.WindowPattern]::Pattern)
         $window.SetWindowVisualState([Windows.Automation.WindowVisualState]::Minimized)
@@ -520,13 +520,13 @@ if ($Scenario -contains 'upgrade' -or $Scenario -contains 'rollback') {
         Assert-That 'a click with the GUI running was accepted' ($clickError -eq '') $clickError
         Assert-That 'a click with the GUI running restored the minimized window' ($minimized -and $restored) "minimized $minimized, restored $restored"
         Assert-That 'a click with the GUI running started no launcher' ($newLaunchers.Count -eq 0) "$($newLaunchers.Count) launcher processes appeared"
-        $afterClick = Get-GuiProcesses
+        $afterClick = @(Get-GuiProcesses)
         Assert-That 'a click with the GUI running starts no new GUI' ($afterClick.Count -eq 1 -and $runningGui.Count -eq 1 -and $afterClick[0].Id -eq $runningGui[0].Id) "before $($runningGui.Count), after $($afterClick.Count)"
         # A click with nothing running makes COM start the launcher, which starts the current version.
         Close-AllGui
         $clickError = [BookSpliceToastClick]::Click($TestToastClsid, 'BookSplice.Test.App', 'rehearsal-click', 40000)
         Assert-That 'a click with nothing running was accepted' ($clickError -eq '') $clickError
-        [void](Wait-Until { (Get-GuiProcesses).Count -eq 1 -and (Get-MainWindow) } 60)
+        [void](Wait-Until { (@(Get-GuiProcesses)).Count -eq 1 -and (Get-MainWindow) } 60)
         Assert-OneResponsiveGui $dir
         # Rollback expects a running GUI that has the rehearsal environment, which a COM-started one lacks.
         if ($Scenario -contains 'rollback') {
