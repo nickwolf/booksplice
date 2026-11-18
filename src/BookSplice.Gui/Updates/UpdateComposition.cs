@@ -67,7 +67,8 @@ public sealed class UpdateComposition : IUpdateBackend, IDisposable
   // since a running launcher cannot be replaced; any failure keeps the old launcher, which still works.
   // Right after an update the launcher that applied it is still running and holding the installation
   // open, so a busy refresh or a sharing violation retries for a few minutes; any later start tries again.
-  public void RefreshLauncherSoon() => _ = Task.Run(async () =>
+  // launcherCurrent gets the stable launcher's path once that launcher is this committed version's own copy.
+  public void RefreshLauncherSoon(Action<string>? launcherCurrent = null) => _ = Task.Run(async () =>
   {
     for (var attempt = 0; attempt < 20; attempt++)
     {
@@ -75,9 +76,15 @@ public sealed class UpdateComposition : IUpdateBackend, IDisposable
       try
       {
         lock (_openGate)
-          if (FindInstallationUnlocked() is not { } opened ||
-              StableLauncherBootstrap.Refresh(opened) != LauncherRefreshOutcome.Busy)
-            return;
+        {
+          if (FindInstallationUnlocked() is not { } opened) return;
+          if (StableLauncherBootstrap.Refresh(opened) == LauncherRefreshOutcome.Busy) continue;
+          if (launcherCurrent is not null && opened.Record.StableLauncherIdentity is not null &&
+              Current(opened) is { } current && Self() is var self && current.ExecutableIdentity == self.Identity &&
+              string.Equals(current.ExecutablePath, self.Path, StringComparison.OrdinalIgnoreCase))
+            launcherCurrent(opened.Layout.StableLauncherPath);
+          return;
+        }
       }
       catch (Exception error) when (error is IOException or UnauthorizedAccessException or
         System.ComponentModel.Win32Exception)
@@ -101,11 +108,16 @@ public sealed class UpdateComposition : IUpdateBackend, IDisposable
       return (prepared, opened);
     }, shutdown);
 
+  // Runs before a rollback is handed to the launcher; the version it starts may be older than this one.
+  public Action? BeforeRollbackHandOff { get; set; }
+
   public Task<UpdateOutcome> RollbackAsync(Action shutdown, CancellationToken cancellationToken) =>
     HandOffAsync(async () =>
     {
       var opened = FindInstallation() ?? throw new InvalidDataException("No previous version is recorded.");
-      return (await Preparation(opened).PrepareRollbackAsync(opened.Layout, cancellationToken), opened);
+      var prepared = await Preparation(opened).PrepareRollbackAsync(opened.Layout, cancellationToken);
+      BeforeRollbackHandOff?.Invoke();
+      return (prepared, opened);
     }, shutdown);
 
   private async Task<UpdateOutcome> HandOffAsync(

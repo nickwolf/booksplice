@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using BookSplice.Core.Settings;
 using BookSplice.Gui.Diagnostics;
+using BookSplice.Gui.Notifications;
 using BookSplice.Gui.Bootstrap;
 using BookSplice.Gui.ViewModels;
 using BookSplice.Gui.Views;
@@ -17,6 +18,8 @@ public partial class App : Application
 {
   private GuiInstanceLease? _lease;
   private UpdateComposition? _updates;
+  private ToastRegistrar? _toasts;
+  private IDisposable? _toastServer;
   private string _applicationDirectory = AppContext.BaseDirectory;
   private UpdatePreferencesStore? _preferenceStore;
   private UpdatePreferences? _preferences;
@@ -164,14 +167,37 @@ public partial class App : Application
   {
     if (PackagedIdentity.Version is { } version)
     {
+      var toasts = _toasts = new ToastRegistrar(ToastRegistration.ForCurrentUser(ToastIdentity.Current),
+        Environment.ProcessPath);
+      window.UseNotifications(toasts);
+      _updates!.BeforeRollbackHandOff = () => toasts.UseLauncher(null);
       window.UseUpdates(_updates!, _preferenceStore!, _preferences!, version,
         _applicationDirectory);
-      _updates!.RefreshLauncherSoon();
+      _updates!.RefreshLauncherSoon(launcher => Dispatcher.BeginInvoke(() => UseToastLauncher(window, launcher)));
+    }
+  }
+
+  // Clicks from the notification list reach this running window through its own class object; with
+  // BookSplice closed, Windows starts the stable launcher instead.
+  private void UseToastLauncher(MainWindow window, string launcher)
+  {
+    _toasts!.UseLauncher(launcher);
+    if (_toastServer is not null) return;
+    try
+    {
+      var identity = ToastIdentity.Current;
+      _toastServer = ToastActivationServer.Start(identity.ActivatorClsid, identity.AppUserModelId,
+        token => window.Dispatcher.BeginInvoke(() => window.ShowToastResult(token)));
+    }
+    catch (System.Runtime.InteropServices.COMException error)
+    {
+      System.Diagnostics.Trace.TraceWarning($"Toast activation server failed: {error.Message}");
     }
   }
 
   protected override void OnExit(ExitEventArgs e)
   {
+    _toastServer?.Dispose();
     _updates?.Dispose();
     _lease?.Dispose();
     base.OnExit(e);

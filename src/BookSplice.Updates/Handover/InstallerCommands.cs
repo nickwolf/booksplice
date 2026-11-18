@@ -93,7 +93,7 @@ public static class InstallerCommands
 
   // Run from the managed root's launcher. Leaves every folder for the uninstaller.
   public static int Unregister(string managedRoot, string dataRoot, TextWriter error,
-    string? programsDirectory = null, string toastKeyPath = ToastKeyPath)
+    string? programsDirectory = null, string toastKeyPath = ToastKeyPath, ToastRegistration? toasts = null)
   {
     try
     {
@@ -111,6 +111,8 @@ public static class InstallerCommands
       // Unbind from the root this installation recorded; the leases above use the environment's root, like the GUI.
       InstallationRegistry.Open(installation.Layout.DataRoot, create: false)?.Unbind(installation.Layout.InstallationId);
       Registry.CurrentUser.DeleteSubKeyTree(toastKeyPath, false);
+      // A portable copy and a setup install share the toast identity, so leave another launcher's activator.
+      toasts?.RemoveActivatorIfOwnedBy(installation.Layout.StableLauncherPath);
       return Done;
     }
     catch (Exception failure)

@@ -8,6 +8,8 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- The toast registration's IconUri points at this stable launcher, not a versioned folder. -->
+    <ApplicationIcon>..\BookSplice.Gui\Assets\BookSplice.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\BookSplice.Updates\BookSplice.Updates.csproj" />
