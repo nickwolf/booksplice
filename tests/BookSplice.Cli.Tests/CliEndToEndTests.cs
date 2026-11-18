@@ -250,15 +250,20 @@ public sealed class CliEndToEndTests
     var outputDirectory = Directory.CreateDirectory(Path.Combine(root.Path, "output")).FullName;
     var localData = Path.Combine(root.Path, "local");
     using var cancellation = new CancellationTokenSource();
-    var childId = 0;
-    ProcessRunner.ProcessStarted.Value = id => childId = id;
-    var conversion = CliComposition.Create(localData, ToolDirectory()).RunAsync([source, "--output", outputDirectory], TextWriter.Null, TextWriter.Null, cancellation.Token);
+    // Open each child as it starts: looked up by id later, a child that already exited can't be found.
     Process? child = null;
+    ProcessRunner.ProcessStarted.Value = id =>
+    {
+      Process? started = null;
+      try { started = Process.GetProcessById(id); }
+      catch (ArgumentException) { }
+      Interlocked.Exchange(ref child, started)?.Dispose();
+    };
+    var conversion = CliComposition.Create(localData, ToolDirectory()).RunAsync([source, "--output", outputDirectory], TextWriter.Null, TextWriter.Null, cancellation.Token);
     try
     {
       await WaitForOutputAsync(Path.Combine(localData, "BookSplice", "temp"));
-      Assert.True(childId > 0);
-      child = Process.GetProcessById(childId);
+      Assert.NotNull(Volatile.Read(ref child));
       cancellation.Cancel();
       var exitCode = await conversion;
 
@@ -268,14 +273,14 @@ public sealed class CliEndToEndTests
       var audit = Assert.Single(Directory.GetFiles(Path.Combine(localData, "BookSplice", "logs"), "*.json"));
       using var auditJson = JsonDocument.Parse(File.ReadAllBytes(audit));
       Assert.Equal("Cancelled", auditJson.RootElement.GetProperty("terminalStatus").GetString());
-      await WaitForExitAsync(child);
+      await WaitForExitAsync(Volatile.Read(ref child)!);
     }
     finally
     {
       cancellation.Cancel();
       try { await conversion; } catch (OperationCanceledException) { }
       ProcessRunner.ProcessStarted.Value = null;
-      child?.Dispose();
+      Interlocked.Exchange(ref child, null)?.Dispose();
     }
   }
 
