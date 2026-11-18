@@ -59,12 +59,18 @@ public sealed class ToastRegistrarTests : IDisposable
   }
 
   [Fact]
-  public void ClearingTheLauncherBeforeARollbackRemovesOnlyTheActivator()
+  public void RetiringBeforeARollbackRemovesOnlyTheActivatorForGood()
   {
     _registrar.Sync(true);
     _registrar.UseLauncher(@"C:\app\.booksplice-managed-x\BookSplice.Launcher.exe");
-    _registrar.UseLauncher(null);
+    _registrar.Retire();
     Assert.Equal("BookSplice", Value("DisplayName"));
+    Assert.Null(Value("CustomActivator"));
+    Assert.False(HasServer());
+    // A launcher check that started before the rollback and reports afterwards changes nothing.
+    _registrar.UseLauncher(@"C:\app\.booksplice-managed-x\BookSplice.Launcher.exe");
+    _registrar.Sync(true);
+    Assert.True(_registrar.Retired);
     Assert.Null(Value("CustomActivator"));
     Assert.False(HasServer());
   }

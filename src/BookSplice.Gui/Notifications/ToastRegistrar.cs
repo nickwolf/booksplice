@@ -12,7 +12,13 @@ public sealed class ToastRegistrar(ToastRegistration registration, string? defau
 {
   private readonly object _gate = new();
   private bool _enabled;
+  private bool _retired;
   private string? _launcher;
+
+  public bool Retired
+  {
+    get { lock (_gate) return _retired; }
+  }
 
   public void Sync(bool enabled)
   {
@@ -23,11 +29,24 @@ public sealed class ToastRegistrar(ToastRegistration registration, string? defau
     }
   }
 
-  public void UseLauncher(string? launcherPath)
+  public void UseLauncher(string launcherPath)
   {
     lock (_gate)
     {
+      if (_retired) return;
       _launcher = launcherPath;
+      Apply();
+    }
+  }
+
+  // Before a rollback: the version started next may be older, so the activator goes and stays gone for the
+  // rest of this process, even if a launcher check that started earlier reports in afterwards.
+  public void Retire()
+  {
+    lock (_gate)
+    {
+      _retired = true;
+      _launcher = null;
       Apply();
     }
   }

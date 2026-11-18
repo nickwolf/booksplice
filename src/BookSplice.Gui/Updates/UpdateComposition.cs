@@ -116,7 +116,7 @@ public sealed class UpdateComposition : IUpdateBackend, IDisposable
     {
       var opened = FindInstallation() ?? throw new InvalidDataException("No previous version is recorded.");
       var prepared = await Preparation(opened).PrepareRollbackAsync(opened.Layout, cancellationToken);
-      BeforeRollbackHandOff?.Invoke();
+      if (prepared.Outcome.Kind == UpdateOutcomeKind.Prepared) BeforeRollbackHandOff?.Invoke();
       return (prepared, opened);
     }, shutdown);
 

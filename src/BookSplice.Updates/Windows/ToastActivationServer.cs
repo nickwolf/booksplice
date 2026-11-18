@@ -52,7 +52,7 @@ public static class ToastActivationServer
     public void Activate(string appUserModelId, string invokedArgs, IntPtr data, uint count)
     {
       if (!string.Equals(appUserModelId, expected, StringComparison.Ordinal)) return;
-      // An exception escaping into COM would take the process down.
+      // A click has nothing to report back, so a failure in the handler stays here.
       try { onActivated(invokedArgs); }
       catch (Exception) { }
     }

@@ -170,7 +170,7 @@ public partial class App : Application
       var toasts = _toasts = new ToastRegistrar(ToastRegistration.ForCurrentUser(ToastIdentity.Current),
         Environment.ProcessPath);
       window.UseNotifications(toasts);
-      _updates!.BeforeRollbackHandOff = () => toasts.UseLauncher(null);
+      _updates!.BeforeRollbackHandOff = toasts.Retire;
       window.UseUpdates(_updates!, _preferenceStore!, _preferences!, version,
         _applicationDirectory);
       _updates!.RefreshLauncherSoon(launcher => Dispatcher.BeginInvoke(() => UseToastLauncher(window, launcher)));
@@ -182,15 +182,16 @@ public partial class App : Application
   private void UseToastLauncher(MainWindow window, string launcher)
   {
     _toasts!.UseLauncher(launcher);
-    if (_toastServer is not null) return;
+    if (_toastServer is not null || _toasts.Retired) return;
     try
     {
       var identity = ToastIdentity.Current;
       _toastServer = ToastActivationServer.Start(identity.ActivatorClsid, identity.AppUserModelId,
         token => window.Dispatcher.BeginInvoke(() => window.ShowToastResult(token)));
     }
-    catch (System.Runtime.InteropServices.COMException error)
+    catch (Exception error)
     {
+      // Without it a click from the list does nothing while BookSplice runs; nothing else depends on it.
       System.Diagnostics.Trace.TraceWarning($"Toast activation server failed: {error.Message}");
     }
   }

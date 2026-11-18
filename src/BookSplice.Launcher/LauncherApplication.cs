@@ -80,7 +80,8 @@ public static class LauncherApplication
           _ => clicked.Set());
         _ = clicked.Wait(TimeSpan.FromSeconds(10));
       }
-      catch (Exception error) when (error is COMException or ArgumentException) { }
+      // A click that can't be received just doesn't open BookSplice.
+      catch (Exception) { }
     });
     thread.SetApartmentState(ApartmentState.MTA);
     thread.Start();
@@ -97,9 +98,9 @@ public static class LauncherApplication
       using var lease = GuiInstanceLease.TryAcquire(OpenInstallation().Layout.DataRoot);
       return lease is null;
     }
-    catch (Exception error) when (error is IOException or UnauthorizedAccessException or
-      System.ComponentModel.Win32Exception or NotSupportedException or InvalidDataException)
+    catch (Exception)
     {
+      // The normal launch below reports whatever is wrong with the installation.
       return false;
     }
   }
