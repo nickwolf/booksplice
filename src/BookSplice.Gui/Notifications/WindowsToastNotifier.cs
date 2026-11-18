@@ -1,46 +1,38 @@
-using System.Diagnostics;
-using System.IO;
-using System.Security;
-using Microsoft.Win32;
+using BookSplice.Updates.Windows;
 using Windows.Data.Xml.Dom;
 using Windows.UI.Notifications;
 
 namespace BookSplice.Gui.Notifications;
 
-// Shows toasts through the Windows SDK projection. Only an AppUserModelId key is registered: no CLSID or COM activator,
-// so a click while BookSplice is closed does nothing and nothing in the registry points at a versioned folder.
-public sealed class WindowsToastNotifier(string? iconPath = null, Action<string?>? activated = null) : IConversionNotifier
+// Shows toasts through the Windows SDK projection. The registrar owns the registry keys; without one (source runs
+// and tests) nothing is registered. A click while the pop-up is up arrives through Activated; one from the
+// notification list arrives through the activator, as the toast's launch argument. That argument is a random
+// token rather than the book's path, because Windows keeps it in its notification history.
+public sealed class WindowsToastNotifier(Action<string?>? activated = null) : IConversionNotifier
 {
-  public const string AppUserModelId = "BookSplice.App";
-  private const string KeyPath = @"Software\Classes\AppUserModelId\" + AppUserModelId;
+  private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _keys = new(StringComparer.Ordinal);
 
-  public static void Register(string? iconPath)
-  {
-    using var key = Registry.CurrentUser.CreateSubKey(KeyPath, true);
-    key.SetValue("DisplayName", "BookSplice");
-    if (iconPath is { Length: > 0 }) key.SetValue("IconUri", iconPath);
-    else key.DeleteValue("IconUri", false);
-  }
+  public ToastRegistrar? Registrar { get; set; }
 
-  public static void Unregister() => Registry.CurrentUser.DeleteSubKeyTree(KeyPath, false);
-
-  public static void Sync(bool enabled, string? iconPath)
-  {
-    try { if (enabled) Register(iconPath); else Unregister(); }
-    catch (Exception error) when (error is UnauthorizedAccessException or SecurityException or IOException)
-    { Trace.TraceWarning($"Notification registration failed: {error.Message}"); }
-  }
+  // The queue key for a token this process issued, or null for an unknown one (from an earlier run).
+  public string? Resolve(string? token) => token is not null && _keys.TryGetValue(token, out var key) ? key : null;
 
   public void Show(NotificationRequest request)
   {
-    Register(iconPath);
+    Registrar?.Ensure();
     var xml = new XmlDocument();
     xml.LoadXml("<toast><visual><binding template=\"ToastGeneric\"><text/><text/></binding></visual></toast>");
+    if (request.ResultKey is { } key)
+    {
+      var token = Guid.NewGuid().ToString("N");
+      _keys[token] = key;
+      xml.DocumentElement.SetAttribute("launch", token);
+    }
     var texts = xml.GetElementsByTagName("text");
     texts[0].InnerText = request.Title;
     texts[1].InnerText = request.Body;
     var toast = new ToastNotification(xml);
     if (activated is not null) toast.Activated += (_, _) => activated(request.ResultKey);
-    ToastNotificationManager.CreateToastNotifier(AppUserModelId).Show(toast);
+    ToastNotificationManager.CreateToastNotifier(ToastIdentity.Current.AppUserModelId).Show(toast);
   }
 }

@@ -24,7 +24,14 @@ public static class LauncherApplication
       // Test builds can point the toast key elsewhere so installer tests never delete the user's own key.
       return InstallerCommands.Unregister(InstallDirectory(), InstallerCommands.DataRoot(), Console.Error,
         toastKeyPath: UpdateBuild.TestSetting("BOOKSPLICE_TEST_TOAST_KEY") is { Length: > 0 } toastKey ?
-          toastKey : InstallerCommands.ToastKeyPath);
+          toastKey : @"Software\Classes\AppUserModelId\" + ToastIdentity.Current.AppUserModelId,
+        toasts: ToastRegistration.ForCurrentUser(ToastIdentity.Current));
+    // Windows starts this for a click on a toast from the notification list; COM appends -Embedding.
+    if (args is [ToastRegistration.ActivatedArgument, ..] && args[1..].All(IsComEmbedding))
+    {
+      if (!WaitForToastActivation() || GuiIsRunning()) return 0;
+      args = [];
+    }
     try
     {
       if (args is ["--apply", var transaction, var pid, var startTicks])
@@ -53,6 +60,48 @@ public static class LauncherApplication
     {
       ShowError(error.Message + "\n\nOpen the original BookSplice folder for manual recovery.");
       return 1;
+    }
+  }
+
+  private static bool IsComEmbedding(string argument) =>
+    argument is "-Embedding" or "/Embedding" or "-embedding" or "/embedding";
+
+  // The click is delivered through the class object; nothing in it is used beyond the fact that it came.
+  // Registration and the wait run on an MTA thread, because this STA main thread pumps no messages.
+  private static bool WaitForToastActivation()
+  {
+    using var clicked = new ManualResetEventSlim();
+    var thread = new Thread(() =>
+    {
+      try
+      {
+        var identity = ToastIdentity.Current;
+        using var server = ToastActivationServer.Start(identity.ActivatorClsid, identity.AppUserModelId,
+          _ => clicked.Set());
+        _ = clicked.Wait(TimeSpan.FromSeconds(10));
+      }
+      // A click that can't be received just doesn't open BookSplice.
+      catch (Exception) { }
+    });
+    thread.SetApartmentState(ApartmentState.MTA);
+    thread.Start();
+    thread.Join();
+    return clicked.IsSet;
+  }
+
+  // A running window registers its own class object, so a click only lands here in a race with it starting.
+  // Windows starts this without BookSplice's environment, so the data root comes from the installation record.
+  private static bool GuiIsRunning()
+  {
+    try
+    {
+      using var lease = GuiInstanceLease.TryAcquire(OpenInstallation().Layout.DataRoot);
+      return lease is null;
+    }
+    catch (Exception)
+    {
+      // The normal launch below reports whatever is wrong with the installation.
+      return false;
     }
   }
 

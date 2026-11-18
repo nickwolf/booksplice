@@ -232,6 +232,33 @@ public sealed class InstallerCommandsTests : IDisposable
   }
 
   [Fact]
+  public void UnregisterRemovesOnlyItsOwnToastActivator()
+  {
+    var scratch = @"Software\BookSplice.Tests\" + Guid.NewGuid().ToString("N");
+    var toastKey = scratch + @"\AppUserModelId\BookSplice.Scratch.App";
+    using var classes = Registry.CurrentUser.CreateSubKey(scratch, true);
+    var toasts = new ToastRegistration(classes, "BookSplice.Scratch.App", Guid.NewGuid());
+    try
+    {
+      Assert.Equal(InstallerCommands.Done, Register());
+      var managed = Assert.Single(ManagedRoots());
+      var launcher = Path.Combine(managed, "BookSplice.Launcher.exe");
+      // Another copy (a portable one) registered last, so its activator stays.
+      toasts.RegisterActivator(Path.Combine(_root, "portable", "BookSplice.Launcher.exe"));
+      Assert.Equal(InstallerCommands.Done,
+        InstallerCommands.Unregister(managed, Data, new StringWriter(), Programs, toastKey, toasts));
+      Assert.False(toasts.RemoveActivatorIfOwnedBy(launcher));
+      Assert.True(toasts.RemoveActivatorIfOwnedBy(Path.Combine(_root, "portable", "BookSplice.Launcher.exe")));
+
+      toasts.RegisterActivator(launcher);
+      Assert.Equal(InstallerCommands.Done,
+        InstallerCommands.Unregister(managed, Data, new StringWriter(), Programs, toastKey, toasts));
+      Assert.False(toasts.RemoveActivatorIfOwnedBy(launcher));
+    }
+    finally { Registry.CurrentUser.DeleteSubKeyTree(scratch, false); }
+  }
+
+  [Fact]
   public void UnregisterLeavesAShortcutThatIsNotOwnedOrWasChanged()
   {
     var toastKey = @"Software\BookSplice.Tests\" + Guid.NewGuid().ToString("N");

@@ -26,6 +26,8 @@ public partial class MainWindow : Window
   private AppSettings _settings;
   private readonly MainWindowViewModel? _model;
   private readonly GuiOperationGate _gate;
+  private readonly WindowsToastNotifier _notifier;
+  private ToastRegistrar? _toasts;
   private UpdatesViewModel? _updates;
   private bool _closeForUpdate;
   private BookSplice.Gui.History.ConversionHistoryReader? _history;
@@ -38,11 +40,11 @@ public partial class MainWindow : Window
     _services = services;
     _settings = settings;
     _gate = new GuiOperationGate(Dispatcher);
+    _notifier = new WindowsToastNotifier(key => Dispatcher.BeginInvoke(() => ShowResult(key)));
     if (services is not null) DataContext = _model = new MainWindowViewModel(services.Analyzer, services.Conversion, settings, services.Planner, _gate, services.Profiles,
-      new WindowsToastNotifier(Environment.ProcessPath, key => Dispatcher.BeginInvoke(() => ShowResult(key))), coverPayloads: services.CoverPayloads, checker: services.Checker, checkLog: services.JobLog,
+      _notifier, coverPayloads: services.CoverPayloads, checker: services.Checker, checkLog: services.JobLog,
       preview: services.PreviewDecoder is { } decoder && services.PreviewRoot is { } previewRoot ? new PreviewViewModel(decoder, services.PreviewPlayerFactory ?? (() => new MediaPlayerAudioPlayer()), previewRoot) : null,
       editCopy: services.EditCopy);
-    WindowsToastNotifier.Sync(settings.NotificationsEnabled, Environment.ProcessPath);
     Destination.Text = $"Output folder: {settings.OutputDirectory}";
     _presets = new PresetsViewModel(new Core.Presets.PresetStore(Path.Combine(Path.GetDirectoryName(store.SettingsPath)!, Core.Presets.PresetStore.FileName)), services?.Profiles);
     PresetPicker.ItemsSource = _presets.Presets;
@@ -53,6 +55,17 @@ public partial class MainWindow : Window
   }
 
   internal UpdatesViewModel? Updates => _updates;
+
+  // Packaged runs only: source runs and tests leave the toast registry keys alone.
+  public void UseNotifications(ToastRegistrar registrar)
+  {
+    _toasts = registrar;
+    _notifier.Registrar = registrar;
+    registrar.Sync(_settings.NotificationsEnabled);
+  }
+
+  // A click from the notification list, through the activator; the token maps to a book only in this process.
+  public void ShowToastResult(string? token) => ShowResult(_notifier.Resolve(token));
 
   public void UseUpdates(IUpdateBackend backend, UpdatePreferencesStore store, UpdatePreferences preferences,
     string installedVersion, string installLocation)
@@ -168,7 +181,7 @@ public partial class MainWindow : Window
     if (!saved) return;
     _settings = model.SavedSettings!;
     if (_model is not null) _model.Settings = _settings;
-    WindowsToastNotifier.Sync(_settings.NotificationsEnabled, Environment.ProcessPath);
+    _toasts?.Sync(_settings.NotificationsEnabled);
     Destination.Text = $"Output folder: {_settings.OutputDirectory} (applies to newly added books)";
   }
 
