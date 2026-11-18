@@ -364,16 +364,13 @@ public static class ProcessSupervisor
     try { return ImageFingerprint(path); }
     catch (Win32Exception error) when (error.NativeErrorCode == 32)
     {
-      using var file = File.OpenHandle(path, FileMode.Open, FileAccess.Read,
-        FileShare.ReadWrite | FileShare.Delete);
-      SafeDirectoryHandle.RejectReparseFile(file);
-      return (NativeFileIdentity.Read(file), PackageInventory.HashHandle(file));
+      return DirectImage(path, null);
     }
   }
 
-  // Reads the image a new process started from. It opens the file directly rather than walking its
-  // folders, and the caller ties the process to the verified file by comparing this identity.
-  private static (FileIdentity Identity, string Sha256) StartedImage(string path, string? knownSha256)
+  // Opens an image file directly rather than walking its folders, so handles held inside them can't
+  // block it. Callers tie the image to a verified file by comparing this identity.
+  private static (FileIdentity Identity, string Sha256) DirectImage(string path, string? knownSha256)
   {
     using var file = File.OpenHandle(path, FileMode.Open, FileAccess.Read,
       FileShare.ReadWrite | FileShare.Delete);
@@ -432,7 +429,7 @@ public static class ProcessSupervisor
     try
     {
       var identity = Identity(process.SafeHandle);
-      var image = StartedImage(identity.ExecutablePath,
+      var image = DirectImage(identity.ExecutablePath,
         verifiedExecutable.RetainedSha256 ?? verifiedExecutable.PinnedSha256);
       if (!string.Equals(identity.ExecutablePath, verifiedExecutable.Path,
           StringComparison.OrdinalIgnoreCase) ||

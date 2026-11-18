@@ -27,7 +27,7 @@ The updater defends against:
 - A malformed or hostile archive. Entries with traversal, absolute or device paths, alternate data streams, links or reparse points are rejected before any payload is written, and extraction stops at 20,000 entries, 1 GiB per file or 4 GiB in total.
 - A crash or power loss at any point. State files are replaced atomically with write-through, the journal records each step, a release is staged and self-checked before it is moved into place, and the launcher commits it only after the new version reports Ready. Otherwise the previous version starts.
 - Following a link out of BookSplice's folders. Folders are opened without following reparse points, and a folder that is one is rejected.
-- Working on a different folder than the one recorded. The managed folder, its records and the original package are checked against their recorded file identities before each change is committed.
+- Working on a different folder than the one recorded. Each step reopens the folder it changes and checks it against its recorded file identity. Promotion, the commit of the new version and cleanup also recheck the managed folder, its subfolders and the original application folder.
 
 It does not defend against other programs running as the same Windows user, administrators, or malware already on the machine. A program running as the user can already rewrite a per-user install directly, so holding folders open against it would protect nothing. A compromised signing key or a tampered first install are also out of scope, as the design spec says.
 
