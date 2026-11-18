@@ -80,7 +80,7 @@ public sealed partial class MainWindowViewModel(IBookAnalyzer analyzer, IConvers
   private static readonly HashSet<string> HeaderTriggers = new(StringComparer.Ordinal)
   {
     nameof(BookQueueItemViewModel.Analysis), nameof(BookQueueItemViewModel.Settings), nameof(BookQueueItemViewModel.Status),
-    nameof(BookQueueItemViewModel.Outcome), nameof(BookQueueItemViewModel.IsBusy),
+    nameof(BookQueueItemViewModel.Outcome), nameof(BookQueueItemViewModel.IsBusy), nameof(BookQueueItemViewModel.HasConversionResult),
   };
 
   private ObservableCollection<BookQueueItemViewModel> TrackItems()

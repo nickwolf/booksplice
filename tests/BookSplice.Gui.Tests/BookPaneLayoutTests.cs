@@ -65,14 +65,20 @@ public sealed class BookPaneLayoutTests
     Assert.True(scroll.ScrollableHeight <= 0.5, $"The pane scrolls by {scroll.ScrollableHeight}.");
   });
 
-  [Fact]
-  public void WithAResultShowingTheTabsStillGetUsableHeightAtTheDefaultWindow() => RunWindow(1120, 760, async (window, model) =>
+  [Theory]
+  [InlineData(ConversionTerminalStatus.Succeeded, "Complete")]
+  [InlineData(ConversionTerminalStatus.ExecutionFailed, "Conversion failed")]
+  public void WithAResultShowingTheTabsStillGetUsableHeightAtTheDefaultWindow(ConversionTerminalStatus outcome, string status) => RunWindow(1120, 760, async (window, model) =>
   {
     var item = await Select(window, model);
-    typeof(BookQueueItemViewModel).GetProperty(nameof(BookQueueItemViewModel.Result))!.SetValue(item, ConversionResultDisplay.Create(
-      new(Guid.NewGuid(), ConversionTerminalStatus.Succeeded, ConversionStage.Completed, null, null, null, null, null,
-        [new("warning", ServiceDiagnosticSeverity.Warning, "Unknown warning")], [], "finished.m4b"), TimeSpan.Zero, ValidationLevel.Lightweight));
+    // Set the way a finished conversion leaves the book.
+    item.Result = ConversionResultDisplay.Create(
+      new(Guid.NewGuid(), outcome, ConversionStage.Completed, null, null, null, null, null,
+        [new("warning", ServiceDiagnosticSeverity.Warning, "Unknown warning")], [], "finished.m4b"), TimeSpan.Zero, ValidationLevel.Lightweight);
+    item.Status = status;
+    await model.HeaderSettledAsync();
     Settle(window);
+    Assert.Null(item.Header);
     var scroll = (ScrollViewer)window.FindName("BookPaneScroll");
     var panel = (DockPanel)window.FindName("SelectedBookPanel");
     var tabs = Descendants<TabControl>(panel).Single();
@@ -98,7 +104,9 @@ public sealed class BookPaneLayoutTests
     var item = model.Items[^1];
     await model.ResolveOrderAsync(item, OrderCandidateId.NaturalPath);
     ((ListBox)window.FindName("Queue")).SelectedItem = item;
+    await model.HeaderSettledAsync();
     Settle(window);
+    Assert.True(item.HasHeaderPlan);
     return item;
   }
 
@@ -108,11 +116,14 @@ public sealed class BookPaneLayoutTests
     try
     {
       var services = new BookSplice.Gui.Bootstrap.GuiServices(new QueueTests.Analyzer(), new BookHeaderTests.FakePlanner(), new Idle(), new NoCovers());
-      var window = new MainWindow(new JsonSettingsStore(root), AppSettings.Defaults with { OutputDirectory = Path.Combine(root, "out") }, services)
+      // The header only plans an output for a destination that exists.
+      var output = Directory.CreateDirectory(Path.Combine(root, "out")).FullName;
+      var window = new MainWindow(new JsonSettingsStore(root), AppSettings.Defaults with { OutputDirectory = output }, services)
       { ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = -10000, Top = -10000, Width = width, Height = height };
       window.Show();
       Settle(window);
       var model = (MainWindowViewModel)window.DataContext;
+      model.HeaderDebounce = TimeSpan.Zero;
       try { await check(window, model); }
       finally
       {

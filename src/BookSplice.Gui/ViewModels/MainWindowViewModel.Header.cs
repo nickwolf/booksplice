@@ -63,12 +63,12 @@ public sealed partial class MainWindowViewModel
     }
   }
 
-  private static bool CanPlanHeader(BookQueueItemViewModel item) => !item.IsBusy && item.Status != "Complete" && item.Analysis?.Status == BookAnalysisStatus.Ready;
+  private static bool CanPlanHeader(BookQueueItemViewModel item) => !item.IsBusy && item.Status != "Complete" && !item.HasConversionResult && item.Analysis?.Status == BookAnalysisStatus.Ready;
 
-  // A book that is working keeps its header, a finished one drops it (the result card takes over), and anything else says why there is no plan.
+  // A book that is working keeps its header, one showing a conversion result drops it (the result card takes over), and anything else says why there is no plan.
   private static BookHeader? HeaderWithoutPlan(BookQueueItemViewModel item) => item switch
   {
-    { Status: "Complete" } => null,
+    { Status: "Complete" } or { HasConversionResult: true } => null,
     { IsBusy: true } => item.Header,
     { Analysis: null } => BookHeader.Refused("The output is planned once the book has been analyzed."),
     { Analysis.Status: BookAnalysisStatus.NeedsDecision } => BookHeader.Refused("Choose a track order to plan the output."),

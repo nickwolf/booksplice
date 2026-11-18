@@ -221,6 +221,26 @@ public sealed class BookHeaderTests
   });
 
   [Fact]
+  public void AFailedConversionDropsThePlanWhileItsResultShows() => DispatcherTestHost.Run(async _ =>
+  {
+    using var folder = new TempFolder();
+    using var model = Model(new FakePlanner(), folder.Path, new Converter(ConversionTerminalStatus.ExecutionFailed));
+    var item = await AddAsync(model, "Made Up Tale");
+    model.SelectedItem = item;
+    await model.HeaderSettledAsync();
+    Assert.True(item.HasHeaderPlan);
+
+    await model.ConvertAsync(item);
+    await model.HeaderSettledAsync();
+    Assert.True(item.HasConversionResult);
+    Assert.Null(item.Header);
+
+    item.Result = null;
+    await model.HeaderSettledAsync();
+    Assert.True(item.HasHeaderPlan);
+  });
+
+  [Fact]
   public void OnlyTheSelectedBookIsPlanned() => DispatcherTestHost.Run(async _ =>
   {
     using var folder = new TempFolder();
