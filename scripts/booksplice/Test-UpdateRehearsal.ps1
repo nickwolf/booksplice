@@ -36,16 +36,35 @@ if ($explorerSessions.Count -eq 0 -or $explorerSessions -notcontains (Get-Proces
 }
 $realPrograms = Join-Path ([Environment]::GetFolderPath('Programs')) 'BookSplice.lnk'
 $realData = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'BookSplice'
+# Toast identity of the Test flavor (the rehearsal packages) and of Release (which the run must never touch).
+$TestToastAumidPath = 'Software\Classes\AppUserModelId\BookSplice.Test.App'
+$TestToastClsid = '{c9cd0ba0-726e-48ef-b23f-4e0a15a106f8}'
+$TestToastClsidPath = "Software\Classes\CLSID\$TestToastClsid"
+$ReleaseToastAumidPath = 'Software\Classes\AppUserModelId\BookSplice.App'
+$ReleaseToastClsidPath = 'Software\Classes\CLSID\{129caa63-8b2d-4578-a9e0-82cc04123257}'
+function Test-RegistryKey([string]$Path) { $k = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($Path); if ($k) { $k.Dispose(); $true } else { $false } }
+function Remove-TestToastKeys {
+    $removed = $false
+    foreach ($path in $TestToastAumidPath, $TestToastClsidPath) {
+        if (Test-RegistryKey $path) { [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($path, $false); $removed = $true }
+    }
+    $removed
+}
+function Get-ReleaseToastKeys { "aumid=$(Test-RegistryKey $ReleaseToastAumidPath);clsid=$(Test-RegistryKey $ReleaseToastClsidPath)" }
 function Get-RealStateFingerprint {
     $shortcut = if (Test-Path -LiteralPath $realPrograms) { (Get-FileHash -LiteralPath $realPrograms).Hash } else { 'absent' }
     $data = if (Test-Path -LiteralPath $realData) {
         (Get-ChildItem -LiteralPath $realData -Recurse -Force -File -ErrorAction SilentlyContinue | Sort-Object FullName |
             ForEach-Object { "$($_.FullName)|$($_.Length)|$($_.LastWriteTimeUtc.Ticks)" }) -join "`n"
     } else { 'absent' }
-    $bytes = [Text.Encoding]::UTF8.GetBytes("$shortcut`n$data")
+    $bytes = [Text.Encoding]::UTF8.GetBytes("$shortcut`n$data`n$(Get-ReleaseToastKeys)")
     [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))
 }
 $realStateBefore = Get-RealStateFingerprint
+$releaseToastBefore = Get-ReleaseToastKeys
+if (Remove-TestToastKeys) { Write-Host 'Removed Test toast registry keys left by an earlier run.' }
+# An aborted run must not leave the Test registration behind.
+trap { [void](Remove-TestToastKeys); throw }
 
 New-Item -ItemType Directory -Path $out | Out-Null
 [IO.File]::WriteAllText((Join-Path $out '.rehearsal-owner'), "BookSplice update rehearsal`n")
@@ -69,6 +88,60 @@ function Wait-Until([scriptblock]$Condition, [int]$Seconds, [int]$PollMs = 500) 
     while ([DateTime]::UtcNow -lt $deadline) { $value = & $Condition; if ($value) { return $value }; Start-Sleep -Milliseconds $PollMs }
     $null
 }
+
+# Simulates the click Windows makes on a toast: CoCreateInstance(CLSCTX_LOCAL_SERVER) of the activator, then Activate.
+# It runs on an MTA thread and returns '' on success, so a launcher that never registers cannot hang the run.
+if (-not ('BookSpliceToastClick' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Threading;
+
+public static class BookSpliceToastClick
+{
+    [ComImport, Guid("53E31837-6600-4A81-9395-75CFFE746F94"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface INotificationActivationCallback
+    {
+        void Activate([MarshalAs(UnmanagedType.LPWStr)] string appUserModelId, [MarshalAs(UnmanagedType.LPWStr)] string invokedArgs, IntPtr data, uint count);
+    }
+
+    [DllImport("ole32.dll")]
+    static extern int CoCreateInstance(ref Guid rclsid, IntPtr pUnkOuter, uint dwClsContext, ref Guid riid, out IntPtr ppv);
+
+    public static string Click(string clsid, string appUserModelId, string invokedArgs, int timeoutMs)
+    {
+        string result = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                var rclsid = new Guid(clsid);
+                var riid = new Guid("53E31837-6600-4A81-9395-75CFFE746F94");
+                Marshal.ThrowExceptionForHR(CoCreateInstance(ref rclsid, IntPtr.Zero, 4, ref riid, out var pointer));
+                var callback = (INotificationActivationCallback)Marshal.GetObjectForIUnknown(pointer);
+                try { callback.Activate(appUserModelId, invokedArgs, IntPtr.Zero, 0); }
+                finally { Marshal.ReleaseComObject(callback); Marshal.Release(pointer); }
+                result = "";
+            }
+            catch (Exception e) { result = e.GetType().Name + ": " + e.Message; }
+        });
+        thread.SetApartmentState(ApartmentState.MTA);
+        thread.IsBackground = true;
+        thread.Start();
+        return thread.Join(timeoutMs) ? result : "timed out after " + timeoutMs + " ms";
+    }
+}
+'@
+}
+function Get-ToastState {
+    $state = [ordered]@{ Activator = $null; Server = $null; Icon = $null }
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($TestToastAumidPath)
+    if ($key) { $state.Activator = $key.GetValue('CustomActivator'); $state.Icon = $key.GetValue('IconUri'); $key.Dispose() }
+    $server = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("$TestToastClsidPath\LocalServer32")
+    if ($server) { $state.Server = $server.GetValue($null); $server.Dispose() }
+    [pscustomobject]$state
+}
+function Get-GuiProcesses { @(Get-OwnedProcesses | Where-Object { $_.ProcessName -eq 'BookSplice.Gui' }) }
 
 $ae = [Windows.Automation.AutomationElement]
 function Get-TopWindows([string]$AutomationId, [string]$Name, [int[]]$ProcessIds) {
@@ -353,6 +426,34 @@ if ($Scenario -contains 'upgrade' -or $Scenario -contains 'rollback') {
             Assert-That 'output has one audio stream and one chapter' ((@($probe.streams | Where-Object codec_type -eq 'audio').Count -eq 1) -and (@($probe.chapters).Count -eq 1))
         }
         Assert-That 'conversion left no FFmpeg process behind' ((@(Get-OwnedProcesses | Where-Object { $_.ProcessName -in 'ffmpeg', 'ffprobe', 'booksplice' })).Count -eq 0)
+        # Toast activator: the 0.9.1 GUI registers it about 10 s after the launcher is its own copy.
+        $launcherPath = "$($rec.Root)\BookSplice.Launcher.exe"
+        $registered = Wait-Until { $t = Get-ToastState; if ($t.Activator -and $t.Server) { $t } } 90
+        $toast = Get-ToastState
+        Assert-That 'the toast activator was registered' ($null -ne $registered)
+        Assert-That 'the activator CLSID is the Test flavor CLSID' ("$($toast.Activator)" -eq $TestToastClsid) "$($toast.Activator)"
+        Assert-That 'the activator server runs the sandbox launcher with --toast-activated' ("$($toast.Server)" -eq "`"$launcherPath`" --toast-activated") "$($toast.Server)"
+        Assert-That 'the toast icon is the sandbox launcher' ("$($toast.Icon)" -eq $launcherPath) "$($toast.Icon)"
+        Assert-That 'the Release toast keys are unchanged' ((Get-ReleaseToastKeys) -eq $releaseToastBefore) (Get-ReleaseToastKeys)
+        # A click while the GUI runs goes to it in-process: no new GUI, and the same one keeps running.
+        $runningGui = Get-GuiProcesses
+        $clickError = [BookSpliceToastClick]::Click($TestToastClsid, 'BookSplice.Test.App', 'rehearsal-click', 30000)
+        Assert-That 'a click with the GUI running was accepted' ($clickError -eq '') $clickError
+        Start-Sleep -Seconds 5
+        $afterClick = Get-GuiProcesses
+        Assert-That 'a click with the GUI running starts no new GUI' ($afterClick.Count -eq 1 -and $runningGui.Count -eq 1 -and $afterClick[0].Id -eq $runningGui[0].Id) "before $($runningGui.Count), after $($afterClick.Count)"
+        # A click with nothing running makes COM start the launcher, which starts the current version.
+        Close-AllGui
+        $clickError = [BookSpliceToastClick]::Click($TestToastClsid, 'BookSplice.Test.App', 'rehearsal-click', 40000)
+        Assert-That 'a click with nothing running was accepted' ($clickError -eq '') $clickError
+        [void](Wait-Until { (Get-GuiProcesses).Count -eq 1 -and (Get-MainWindow) } 60)
+        Assert-OneResponsiveGui $dir
+        # Rollback expects a running GUI that has the rehearsal environment, which a COM-started one lacks.
+        if ($Scenario -contains 'rollback') {
+            Close-AllGui
+            Start-Process -FilePath $launcherPath | Out-Null
+            Assert-That 'the GUI was restarted for the rollback scenario' ([bool](Wait-MainWindow 60))
+        }
         # leave the 0.9.1 GUI running for the rollback scenario when it is requested
         if ($Scenario -notcontains 'rollback') { Close-AllGui }
     }
@@ -394,6 +495,10 @@ if ($Scenario -contains 'rollback') {
             Assert-That 'previous is now the former current (0.9.1)' ((Get-Target $after.Current.previous) -eq (Get-Target $before.Current.current) -and $after.Current.previous.executablePath -eq $before.Current.current.executablePath) (Get-Target $after.Current.previous)
             Assert-OneResponsiveGui $S.Original
             Assert-Intact $S
+            # Rollback removed the activator; the version started next may add it back, but only for this launcher.
+            [void](Wait-Until { (Get-ToastState).Activator } 15)
+            $toast = Get-ToastState
+            Assert-That 'a toast activator after the rollback names the sandbox launcher' (-not $toast.Activator -or "$($toast.Server)" -eq "`"$($before.Root)\BookSplice.Launcher.exe`" --toast-activated") "activator '$($toast.Activator)', server '$($toast.Server)'"
             Close-AllGui
         }
     }
@@ -499,6 +604,7 @@ if ($Scenario -contains 'cleanup') {
 }
 
 # ---- aggregate ------------------------------------------------------------------------------------
+[void](Remove-TestToastKeys)
 $realStateAfter = Get-RealStateFingerprint
 $strays = @(Get-OwnedProcesses)
 $names = 'upgrade', 'rollback', 'no-ready', 'launcher-killed', 'bad-release', 'cleanup'
