@@ -159,8 +159,6 @@ public sealed class PackageStagerTests
     Assert.Equal(Path.Combine(staged.Stage.Path, "payload"), staged.Payload.Path);
     Assert.Equal(19, staged.Inventory.Files.Count);
     staged.Inventory.Revalidate();
-    Assert.ThrowsAny<IOException>(() => File.Move(Path.Combine(staged.Stage.Path,
-      fixture.Manifest.ArchiveName), Path.Combine(staged.Stage.Path, "swapped.zip")));
 
     using var promoted = await fixture.Stager.PromoteAsync(staged, fixture.Layout, CancellationToken.None);
     Assert.Equal(staged.Payload.Identity, promoted.Owned.Identity);
@@ -260,7 +258,7 @@ public sealed class PackageStagerTests
   }
 
   [Fact]
-  public async Task ManagedRootJournalReplacementSucceedsAfterFullInventoryRelease()
+  public async Task ManagedRootJournalReplacementSucceedsWhileTheInventoryIsHeld()
   {
     using var fixture = new Fixture();
     var (stager, journal, _, _) = fixture.CreateDurableStager();
@@ -271,11 +269,12 @@ public sealed class PackageStagerTests
     directJournal.Begin(journal.Read().Value!);
     var staged = await stager.StageAsync(fixture.Release, fixture.Manifest,
       fixture.Layout, CancellationToken.None);
-    Assert.ThrowsAny<Exception>(() => directJournal.Change(fixture.Operation,
-      UpdatePhase.Preparing, current => current));
-    staged.Dispose();
-    directJournal.Change(fixture.Operation, UpdatePhase.Preparing, current => current);
-    Assert.Equal(UpdatePhase.Preparing, directJournal.Read().Value!.Phase);
+    using (staged)
+    {
+      directJournal.Change(fixture.Operation, UpdatePhase.Preparing, current => current);
+      Assert.Equal(UpdatePhase.Preparing, directJournal.Read().Value!.Phase);
+      staged.Inventory.Revalidate();
+    }
   }
 
   [Fact]

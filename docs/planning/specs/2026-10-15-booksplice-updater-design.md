@@ -212,6 +212,7 @@ These differ from the text above and are what the implementation does.
 - The previous target's settings schema is not recorded. Candidate readiness (settings readable without writing) is the only compatibility gate for rollback.
 - Manifests describe stable `X.Y.Z` releases only. Tags and manifest versions with a prerelease suffix are rejected.
 - A Release updater accepts a `Test` flavor line in `VERSION.txt`, because the manifest signature is the guard and a Test package cannot satisfy it.
+- Only the folder an operation works in stays open. The folders above it are checked for reparse points and recorded identities while the path is opened and then released, because moving them is something only a same-user process could do (see the threat model in `ARCHITECTURE.md`). Windows also refuses to move a folder while anything below it is open.
 
 ## References
 

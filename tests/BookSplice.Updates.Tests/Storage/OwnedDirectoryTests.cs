@@ -180,7 +180,7 @@ public sealed class OwnedDirectoryTests
   }
 
   [Fact]
-  public void ManagedAncestryAndValidatedLeafDenyWriteOpenButAllowedRootIsShared()
+  public void ValidatedLeafDeniesWriteOpenButItsAncestorsAreShared()
   {
     var root = NewRoot();
     var middle = Path.Combine(root, InstallationOpener.Prefix + Guid.NewGuid().ToString("D"));
@@ -201,7 +201,7 @@ public sealed class OwnedDirectoryTests
       using (var validated = store.OpenValidated(owned))
       {
         Assert.Equal(0, TryOpenForDataWrite(root));
-        Assert.Equal(32, TryOpenForDataWrite(middle));
+        Assert.Equal(0, TryOpenForDataWrite(middle));
         Assert.Equal(32, TryOpenForDataWrite(owned.Path));
       }
 

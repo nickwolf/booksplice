@@ -29,7 +29,6 @@ public sealed class SafeDirectoryHandle : IDisposable
   private const uint ObjCaseInsensitive = 0x40;
   private const uint ShareRead = 1;
   private const uint ShareReadWrite = 3;
-  private readonly List<SafeFileHandle> _ancestry;
   private readonly SafeDirectoryHandle? _parent;
   private bool _disposed;
 
@@ -39,12 +38,10 @@ public sealed class SafeDirectoryHandle : IDisposable
 
   public static SafeDirectoryHandle OpenCanonical(string path) => OpenPath(path, false);
 
-  internal SafeDirectoryHandle(string path, SafeFileHandle handle, List<SafeFileHandle> ancestry,
-    SafeDirectoryHandle? parent = null)
+  internal SafeDirectoryHandle(string path, SafeFileHandle handle, SafeDirectoryHandle? parent = null)
   {
     Path = path;
     Handle = handle;
-    _ancestry = ancestry;
     _parent = parent;
     RejectReparse(handle);
     Identity = NativeFileIdentity.Read(handle);
@@ -170,11 +167,13 @@ public sealed class SafeDirectoryHandle : IDisposable
         }
       }
 
+      // Ancestors are held only while the walk checks them; moving a folder above the leaf is a
+      // same-user action, which the threat model in ARCHITECTURE.md leaves out of scope.
       var leaf = handles[^1];
       handles.RemoveAt(handles.Count - 1);
       try
       {
-        return new SafeDirectoryHandle(full, leaf, handles);
+        return new SafeDirectoryHandle(full, leaf);
       }
       catch
       {
@@ -182,14 +181,12 @@ public sealed class SafeDirectoryHandle : IDisposable
         throw;
       }
     }
-    catch
+    finally
     {
       foreach (var handle in handles)
       {
         handle.Dispose();
       }
-
-      throw;
     }
   }
 
@@ -200,7 +197,7 @@ public sealed class SafeDirectoryHandle : IDisposable
     try
     {
       return new SafeDirectoryHandle(System.IO.Path.Combine(parent.Path, name), handle,
-        new List<SafeFileHandle>(), parent);
+        parent);
     }
     catch
     {
@@ -215,8 +212,7 @@ public sealed class SafeDirectoryHandle : IDisposable
       FileCreate);
     try
     {
-      return new SafeDirectoryHandle(System.IO.Path.Combine(parent.Path, name), handle,
-        new List<SafeFileHandle>());
+      return new SafeDirectoryHandle(System.IO.Path.Combine(parent.Path, name), handle);
     }
     catch
     {
@@ -231,8 +227,7 @@ public sealed class SafeDirectoryHandle : IDisposable
       FileOpen, FileDirectoryFile, 3);
     try
     {
-      return new SafeDirectoryHandle(System.IO.Path.Combine(parent.Path, name), handle,
-        new List<SafeFileHandle>());
+      return new SafeDirectoryHandle(System.IO.Path.Combine(parent.Path, name), handle);
     }
     catch
     {
@@ -247,8 +242,7 @@ public sealed class SafeDirectoryHandle : IDisposable
       FileOpen, FileDirectoryFile);
     try
     {
-      return new SafeDirectoryHandle(System.IO.Path.Combine(parent.Path, name), handle,
-        new List<SafeFileHandle>());
+      return new SafeDirectoryHandle(System.IO.Path.Combine(parent.Path, name), handle);
     }
     catch
     {
@@ -443,7 +437,6 @@ public sealed class SafeDirectoryHandle : IDisposable
     if (_disposed) return;
     _disposed = true;
     Handle.Dispose();
-    foreach (var handle in _ancestry) handle.Dispose();
     _parent?.Dispose();
   }
 }

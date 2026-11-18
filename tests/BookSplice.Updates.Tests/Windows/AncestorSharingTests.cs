@@ -6,8 +6,8 @@ using Microsoft.Win32.SafeHandles;
 
 namespace BookSplice.Updates.Tests.Windows;
 
-// Folders above BookSplice's own (Downloads, AppData\Local) are held for whole updates and GUI runs,
-// so other programs must still be able to rename files inside them.
+// Only the folder an operation works in stays open, so other programs can still rename files in the
+// folders above it (Downloads, AppData\Local, the managed root) during whole updates and GUI runs.
 [Collection("WindowsOwnedStorage")]
 public sealed class AncestorSharingTests
 {
@@ -21,7 +21,7 @@ public sealed class AncestorSharingTests
     uint inputLength, nint output, uint outputLength, out uint returned, nint overlapped);
 
   [Fact]
-  public void HeldFolderAboveOwnedAllowsRenameInsideButNotRenameOrJunction()
+  public void FoldersAboveAHeldFolderAllowRenameInsideButNotMoveOrJunction()
   {
     if (!OperatingSystem.IsWindows()) return;
     var root = Path.Combine(Path.GetTempPath(), "booksplice-sharing-" + Guid.NewGuid().ToString("N"));
@@ -53,24 +53,21 @@ public sealed class AncestorSharingTests
 
       File.Move(Path.Combine(downloads, "book.part"), Path.Combine(downloads, "book.m4b"));
       Assert.True(File.Exists(Path.Combine(downloads, "book.m4b")));
-      Assert.Equal(32, Win32Code(Assert.ThrowsAny<IOException>(() =>
-        Directory.Move(downloads, downloads + "-moved"))));
+      // Windows refuses to move a folder while anything below it is open.
+      Assert.ThrowsAny<IOException>(() => Directory.Move(downloads, downloads + "-moved"));
       // With the download moved out, only BookSplice's held children keep Downloads non-empty.
       File.Move(Path.Combine(downloads, "book.m4b"), Path.Combine(root, "book.m4b"));
       Assert.Equal(145, TrySetMountPoint(downloads, outside));
       Assert.Equal(0, (int)(File.GetAttributes(downloads) & FileAttributes.ReparsePoint));
 
-      // The managed root is BookSplice's own, so holding it as an ancestor still keeps it read-only.
-      Assert.Equal(32, Win32Code(Assert.ThrowsAny<IOException>(() =>
-        File.Move(Path.Combine(managed.Path, "inside.tmp"), Path.Combine(managed.Path, "renamed.tmp")))));
+      File.Move(Path.Combine(managed.Path, "inside.tmp"), Path.Combine(managed.Path, "renamed.tmp"));
+      Assert.True(File.Exists(Path.Combine(managed.Path, "renamed.tmp")));
     }
     finally
     {
       Directory.Delete(root, true);
     }
   }
-
-  private static int Win32Code(IOException error) => error.HResult & 0xFFFF;
 
   private static int TrySetMountPoint(string directory, string target)
   {
