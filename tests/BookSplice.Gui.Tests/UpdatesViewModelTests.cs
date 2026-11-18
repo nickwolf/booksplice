@@ -11,21 +11,26 @@ public sealed class UpdatesViewModelTests : IDisposable
   private readonly FakeBackend _backend = new();
   private int _queue;
   private int _shutdowns;
+  private readonly List<UpdatesViewModel> _models = [];
 
   public void Dispose()
   {
+    // Checks queue preference saves in the background; a save still writing would block the delete or recreate the folder.
+    Assert.True(Task.WhenAll(_models.Select(model => model.Saved)).Wait(TimeSpan.FromSeconds(10)));
     for (var attempt = 0; Directory.Exists(_root); attempt++)
     {
       try { Directory.Delete(_root, true); }
-      catch (IOException) when (attempt < 20) { Thread.Sleep(100); }
+      catch (Exception exception) when (exception is IOException or UnauthorizedAccessException && attempt < 20) { Thread.Sleep(100); }
     }
   }
 
   private UpdatesViewModel Create(System.Windows.Threading.Dispatcher dispatcher, out GuiOperationGate gate)
   {
     gate = new GuiOperationGate(dispatcher);
-    return new UpdatesViewModel(_backend, new UpdatePreferencesStore(_root), new UpdatePreferences(), "0.1.0",
+    var model = new UpdatesViewModel(_backend, new UpdatePreferencesStore(_root), new UpdatePreferences(), "0.1.0",
       @"C:\Apps\BookSplice", gate, () => _queue, () => _shutdowns++, _clock);
+    _models.Add(model);
+    return model;
   }
 
   [Fact]

@@ -18,7 +18,14 @@ public sealed class SettingsWindowTests : IDisposable
   private static readonly string[] FooterNames = ["CloseButton", "SaveButton"];
   private readonly string _root = Directory.CreateTempSubdirectory("booksplice-settings-window-").FullName;
 
-  public void Dispose() => Directory.Delete(_root, true);
+  public void Dispose()
+  {
+    for (var attempt = 0; Directory.Exists(_root); attempt++)
+    {
+      try { Directory.Delete(_root, true); }
+      catch (Exception exception) when (exception is IOException or UnauthorizedAccessException && attempt < 20) { Thread.Sleep(100); }
+    }
+  }
 
   private FirstLaunchViewModel Model() => new(new FirstLaunchService(new JsonSettingsStore(_root)), AppSettings.Defaults);
 
@@ -203,6 +210,7 @@ public sealed class SettingsWindowTests : IDisposable
     backend.Version = "v0.1.0";
     await window.Updates.CheckAsync(manual: true);
     Assert.Equal(Visibility.Collapsed, button.Visibility);
+    await window.Updates.Saved;
     window.Updates.Dispose();
   });
 
@@ -223,6 +231,7 @@ public sealed class SettingsWindowTests : IDisposable
     await install;
     Assert.True(save.IsEnabled);
     window.Close();
+    await updates.Saved;
     updates.Dispose();
   });
 
