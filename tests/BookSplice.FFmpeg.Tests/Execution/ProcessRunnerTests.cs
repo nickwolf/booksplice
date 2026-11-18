@@ -49,7 +49,8 @@ public sealed class ProcessRunnerTests
     try
     {
       var running = new ProcessRunner().RunAsync(new ProcessSpec("pwsh", ["-NoProfile", "-File", parentScript, parentPidFile, childScript, childPidFile], GracefulCancellation: TimeSpan.FromMilliseconds(50)), null, cancellation.Token);
-      var deadline = DateTime.UtcNow.AddSeconds(5);
+      // Two PowerShell starts can take several seconds on a busy runner.
+      var deadline = DateTime.UtcNow.AddSeconds(30);
       while ((!File.Exists(parentPidFile) || !File.Exists(childPidFile)) && DateTime.UtcNow < deadline) await Task.Delay(25);
       Assert.True(File.Exists(parentPidFile) && File.Exists(childPidFile));
       var parentPid = await ReadPidAsync(parentPidFile, deadline);
