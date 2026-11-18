@@ -63,6 +63,7 @@ public sealed class UpdatesPageTests
       await model.CheckAsync(manual: true);
       page.UpdateLayout();
       Assert.Equal(Visibility.Collapsed, ((UIElement)heading.Parent).Visibility);
+      await model.Saved;
       model.Dispose();
     }
     finally { Directory.Delete(root, true); }
