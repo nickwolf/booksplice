@@ -164,11 +164,12 @@
         <StackPanel DockPanel.Dock="Top" Margin="8,0,0,8">
           <TextBlock Text="{Binding Name}" FontSize="20" FontWeight="SemiBold"/>
           <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" Margin="0,4"/>
-          <TextBlock Text="{Binding Source}" TextWrapping="Wrap" Foreground="DimGray"/>
-          <!-- The planned file and audio strategy, or a short reason there is no plan. The full reasons, storage estimate and notes are behind the info icon. -->
-          <TextBlock x:Name="HeaderOutput" TextWrapping="Wrap" Margin="0,6,0,0" ToolTip="{Binding HeaderFullPath}"
-                     Visibility="{Binding HasHeaderPlan, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}"><Run Text="Output: "/><Run Text="{Binding HeaderFileName, Mode=OneWay}" FontWeight="SemiBold"/></TextBlock>
-          <WrapPanel Margin="0,2,0,0">
+          <!-- One line whatever the path length, so the tabs below keep the same height. -->
+          <TextBlock Text="{Binding Source}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Source}" Foreground="DimGray"/>
+          <!-- The planned file and audio strategy on one line, or a short reason there is no plan. The full reasons, storage estimate and notes are behind the info icon. -->
+          <WrapPanel Margin="0,4,0,0">
+            <TextBlock x:Name="HeaderOutput" TextWrapping="Wrap" Margin="0,0,16,0" VerticalAlignment="Center" ToolTip="{Binding HeaderFullPath}"
+                       Visibility="{Binding HasHeaderPlan, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}"><Run Text="Output: "/><Run Text="{Binding HeaderFileName, Mode=OneWay}" FontWeight="SemiBold"/></TextBlock>
             <TextBlock x:Name="HeaderAudio" Text="{Binding HeaderAudioText}" TextWrapping="Wrap" VerticalAlignment="Center"
                        Visibility="{Binding HasHeaderPlan, Converter={StaticResource BooleanVisibility}, FallbackValue=Collapsed}"/>
             <TextBlock x:Name="HeaderRefusal" Text="{Binding HeaderRefusalText}" TextWrapping="Wrap" Foreground="Firebrick" VerticalAlignment="Center" AutomationProperties.LiveSetting="Polite"
