@@ -6,6 +6,8 @@ namespace BookSplice.FFmpeg.Execution;
 public sealed class ProcessRunner : IProcessRunner
 {
   internal static AsyncLocal<Action<int>?> ProcessStarted { get; } = new();
+  private static readonly TimeSpan StopFallback = TimeSpan.FromSeconds(5);
+
   public async Task<ProcessResult> RunAsync(ProcessSpec spec, IProgress<string>? progress, CancellationToken cancellationToken)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(spec.FileName);
@@ -18,22 +20,20 @@ public sealed class ProcessRunner : IProcessRunner
       cpuBefore = process.TotalProcessorTime;
       var stdout = new StringBuilder();
       var stderr = new StringBuilder();
-      var outputTask = spec.StandardOutputLine is { } onLine ? ForwardAsync(process.StandardOutput, onLine) : DrainAsync(process.StandardOutput, stdout, progress);
-      var errorTask = DrainAsync(process.StandardError, stderr, progress);
+      // A read from a redirected pipe blocks its thread until the process writes or exits, so each stream gets its own thread instead of holding a thread pool thread for the whole run.
+      var outputTask = OnOwnThread(spec.StandardOutputLine is { } onLine ? () => Forward(process.StandardOutput, onLine) : () => Drain(process.StandardOutput, stdout, progress));
+      var errorTask = OnOwnThread(() => Drain(process.StandardError, stderr, progress));
+      var graceful = spec.GracefulCancellation ?? TimeSpan.FromMilliseconds(250);
+      // Stopping starts from the thread that cancels, so a busy thread pool can't hold the kill back until the process finishes by itself.
+      using var stopOnCancel = cancellationToken.Register(() => StartStopping(process, graceful));
       try
       {
         await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
       }
       catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
       {
-        if (!process.HasExited)
-        {
-          var graceful = spec.GracefulCancellation ?? TimeSpan.FromMilliseconds(250);
-          if (graceful > TimeSpan.Zero)
-          {
-            await Task.WhenAny(process.WaitForExitAsync(CancellationToken.None), Task.Delay(graceful, CancellationToken.None)).ConfigureAwait(false);
-          }
-        }
+        // The stop that cancelling started normally ends the process. Kill it here only if that didn't happen.
+        await Task.WhenAny(process.WaitForExitAsync(CancellationToken.None), Task.Delay(graceful + StopFallback, CancellationToken.None)).ConfigureAwait(false);
         if (!process.HasExited)
         {
           try { process.Kill(entireProcessTree: true); }
@@ -60,9 +60,25 @@ public sealed class ProcessRunner : IProcessRunner
     return info;
   }
 
-  private static async Task DrainAsync(StreamReader reader, StringBuilder retained, IProgress<string>? progress)
+  private static Task OnOwnThread(Action read) => Task.Factory.StartNew(read, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
+  private static void StartStopping(Process process, TimeSpan graceful)
+    => new Thread(() =>
+    {
+      try
+      {
+        if (graceful <= TimeSpan.Zero || !process.WaitForExit(graceful)) process.Kill(entireProcessTree: true);
+      }
+      // Best effort: the process may exit or be disposed meanwhile, nothing can observe an error here, and an exception on this thread would end the app. A cancelled run still kills the process itself if this didn't.
+#pragma warning disable CA1031
+      catch (Exception) { }
+#pragma warning restore CA1031
+    })
+    { IsBackground = true, Name = "BookSplice process stop" }.Start();
+
+  private static void Drain(StreamReader reader, StringBuilder retained, IProgress<string>? progress)
   {
-    while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
+    while (reader.ReadLine() is { } line)
     {
       if (retained.Length > 0) retained.AppendLine();
       retained.Append(line);
@@ -71,9 +87,9 @@ public sealed class ProcessRunner : IProcessRunner
   }
 
   // Large outputs go line by line to the caller instead of being kept in memory.
-  private static async Task ForwardAsync(StreamReader reader, Action<string> onLine)
+  private static void Forward(StreamReader reader, Action<string> onLine)
   {
-    while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line) onLine(line);
+    while (reader.ReadLine() is { } line) onLine(line);
   }
 
   internal static string SanitizeForProgress(string line)
