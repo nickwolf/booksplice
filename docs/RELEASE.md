@@ -6,7 +6,7 @@ CI is the gate. A release is a tag, the draft that `release.yml` builds from it,
 
 ## What CI checks
 
-`ci.yml` runs on every pull request and on `main`. It builds the pinned FFmpeg from source, runs the tests with `-m:1`, checks formatting, runs `Test-Release.ps1` on a `Test` package, builds the setup from that package and runs `Test-Installer.ps1` against it, runs `Test-UpdateTooling.ps1`, and scans for secrets with gitleaks. A release is cut only from a `main` commit with a green CI run.
+`ci.yml` runs on every pull request and on `main`. It builds the pinned FFmpeg from source, runs the tests, checks formatting, runs `Test-Release.ps1` on a `Test` package, builds the setup from that package and runs `Test-Installer.ps1` against it, runs `Test-UpdateTooling.ps1`, and scans for secrets with gitleaks. A release is cut only from a `main` commit with a green CI run.
 
 `release.yml` runs on the tag. It rebuilds the pinned FFmpeg, reruns the tests and format check, builds the `Release` package, runs `Test-Release.ps1`, builds the setup and runs `Test-Installer.ps1 -AllowRealStartMenu` against it on the throwaway runner, signs and verifies the update manifest, creates the build-provenance attestation, builds and verifies `SHA256SUMS`, and creates the draft.
 
@@ -27,7 +27,7 @@ $env:BOOKSPLICE_FIXTURE_FFMPEG_DIR = Join-Path $fixtureRoot $fixtureRelease
 dotnet restore
 $env:BOOKSPLICE_FFMPEG_DIR = $toolDirectory
 dotnet build --configuration Release --no-restore
-dotnet test --configuration Release --no-build -m:1
+dotnet test --configuration Release --no-build
 dotnet format --verify-no-changes --no-restore
 
 .\scripts\Build-Release.ps1 -Version 0.2.1 -MediaToolDirectory $toolDirectory

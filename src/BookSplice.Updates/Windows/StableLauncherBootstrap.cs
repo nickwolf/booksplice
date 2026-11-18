@@ -112,8 +112,7 @@ public static class StableLauncherBootstrap
         try
         {
           identity = CopyPayload(source, created, sourceFile);
-          // A managed package lives under the managed root, and the source walk holds that folder
-          // shared read-only; the rename needs it writable, so release the source first.
+          // The copy is complete, so nothing in the source package needs to stay open for the rename.
           source.Dispose();
           sourceRoot.Dispose();
           SafeDirectoryHandle.RenameStateTemp(created, root, "BookSplice.Launcher.exe");

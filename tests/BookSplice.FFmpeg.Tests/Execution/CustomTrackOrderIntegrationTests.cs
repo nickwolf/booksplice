@@ -208,12 +208,12 @@ public sealed class CustomTrackOrderIntegrationTests
       if (withCover)
       {
         var image = await runner.RunAsync(new ProcessSpec(_tools.FFmpegPath, ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=32x32:d=1", "-frames:v", "1", picture]), null, CancellationToken.None);
-        Assert.Equal(0, image.ExitCode);
+        Assert.True(image.ExitCode == 0, $"ffmpeg exited with {image.ExitCode}: {image.StandardError}");
         args.AddRange(["-i", picture, "-map", "0:a:0", "-map", "1:v:0", "-c:v", "copy", "-disposition:v:0", "attached_pic"]);
       }
       args.AddRange(["-ac", "1", "-ar", "44100", "-c:a", "aac", "-b:a", "96k", path]);
       var result = await runner.RunAsync(new ProcessSpec(_tools.FFmpegPath, args), null, CancellationToken.None);
-      Assert.Equal(0, result.ExitCode);
+      Assert.True(result.ExitCode == 0, $"ffmpeg exited with {result.ExitCode}: {result.StandardError}");
     }
 
     public Dictionary<string, string> Hashes() => Directory.EnumerateFiles(Source, "*", SearchOption.AllDirectories)

@@ -31,8 +31,8 @@ public sealed class VerifiedExecutable : IDisposable
   public string Path { get; }
   public FileIdentity Identity { get; }
   internal string? RetainedSha256 { get; }
-  // Hash of the image, already verified through handles this object retains; lets Start skip
-  // re-walking the directory path, which would conflict with those retained handles.
+  // Hash of the image, already verified through handles this object retains, so Start doesn't hash
+  // the started image again.
   internal string? PinnedSha256 { get; }
 
   internal static VerifiedExecutable FromStaged(StagedPackage package)
@@ -98,37 +98,23 @@ public sealed class VerifiedExecutable : IDisposable
 
   internal static VerifiedExecutable PinFile(string path)
   {
-    var directory = SafeDirectoryHandle.OpenPath(System.IO.Path.GetDirectoryName(path)!, false);
-    SafeFileHandle? handle = null;
+    SafeFileHandle handle;
+    using (var directory = SafeDirectoryHandle.OpenPath(System.IO.Path.GetDirectoryName(path)!, false))
+      handle = directory.OpenFile(System.IO.Path.GetFileName(path));
     try
     {
-      handle = directory.OpenFile(System.IO.Path.GetFileName(path));
       SafeDirectoryHandle.RejectReparseFile(handle);
       var identity = NativeFileIdentity.Read(handle);
       var length = RandomAccess.GetLength(handle);
       var digest = PackageInventory.HashHandle(handle);
-      var guard = new PinnedFile(directory, handle);
-      return new VerifiedExecutable(path, identity, guard, () =>
+      return new VerifiedExecutable(path, identity, handle, () =>
       {
-        if (directory.Identity != guard.DirectoryIdentity)
-          throw new PackageException("The executable parent changed before launch.");
         if (NativeFileIdentity.Read(handle) != identity || RandomAccess.GetLength(handle) != length ||
             PackageInventory.HashHandle(handle) != digest)
           throw new PackageException("The executable changed before launch.");
       });
     }
-    catch { handle?.Dispose(); directory.Dispose(); throw; }
-  }
-
-  private sealed class PinnedFile(SafeDirectoryHandle directory, SafeFileHandle file) : IDisposable
-  {
-    public FileIdentity DirectoryIdentity { get; } = directory.Identity;
-
-    public void Dispose()
-    {
-      file.Dispose();
-      directory.Dispose();
-    }
+    catch { handle.Dispose(); throw; }
   }
 
   internal void Revalidate()
@@ -378,11 +364,18 @@ public static class ProcessSupervisor
     try { return ImageFingerprint(path); }
     catch (Win32Exception error) when (error.NativeErrorCode == 32)
     {
-      using var file = File.OpenHandle(path, FileMode.Open, FileAccess.Read,
-        FileShare.ReadWrite | FileShare.Delete);
-      SafeDirectoryHandle.RejectReparseFile(file);
-      return (NativeFileIdentity.Read(file), PackageInventory.HashHandle(file));
+      return DirectImage(path, null);
     }
+  }
+
+  // Opens an image file directly rather than walking its folders, so handles held inside them can't
+  // block it. Callers tie the image to a verified file by comparing this identity.
+  private static (FileIdentity Identity, string Sha256) DirectImage(string path, string? knownSha256)
+  {
+    using var file = File.OpenHandle(path, FileMode.Open, FileAccess.Read,
+      FileShare.ReadWrite | FileShare.Delete);
+    SafeDirectoryHandle.RejectReparseFile(file);
+    return (NativeFileIdentity.Read(file), knownSha256 ?? PackageInventory.HashHandle(file));
   }
 
   internal static (FileIdentity Identity, string Sha256) ImageFingerprint(string path)
@@ -436,9 +429,8 @@ public static class ProcessSupervisor
     try
     {
       var identity = Identity(process.SafeHandle);
-      var image = (verifiedExecutable.RetainedSha256 ?? verifiedExecutable.PinnedSha256) is { } knownSha256
-        ? (verifiedExecutable.Identity, Sha256: knownSha256)
-        : ImageFingerprint(identity.ExecutablePath);
+      var image = DirectImage(identity.ExecutablePath,
+        verifiedExecutable.RetainedSha256 ?? verifiedExecutable.PinnedSha256);
       if (!string.Equals(identity.ExecutablePath, verifiedExecutable.Path,
           StringComparison.OrdinalIgnoreCase) ||
           image.Identity != verifiedExecutable.Identity ||

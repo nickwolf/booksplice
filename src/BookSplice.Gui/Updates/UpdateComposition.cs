@@ -172,8 +172,8 @@ public sealed class UpdateComposition : IUpdateBackend, IDisposable
   private OpenedInstallation? FindInstallationUnlocked()
   {
     InstallationBinding? binding;
-    // Release these handles before opening: the installation store walks the shared parent folder
-    // with write access, which a retained read-only handle on the same ancestors would block.
+    // Release these handles before opening: the installation store opens folders on this path with
+    // write access, which a retained read-only handle on one of them would block.
     using (var directory = SafeDirectoryHandle.OpenCanonical(_applicationDirectory))
     {
       var self = SupervisedProcess.CurrentImage();
