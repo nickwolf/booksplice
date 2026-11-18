@@ -126,9 +126,15 @@ public sealed class ExistingM4bCheckerIntegrationTests
     var looped = await new ProcessRunner().RunAsync(new ProcessSpec(tools.FFmpegPath, ["-hide_banner", "-v", "error", "-y", "-stream_loop", "35", "-i", seed, "-map", "0:a:0", "-c", "copy", path]), null, CancellationToken.None);
     Assert.Equal(0, looped.ExitCode);
     var before = Hash(path);
+    // Time the decode itself: the probe and packet passes before it can take most of the check on a busy runner.
+    var decodeStartedAt = TimeSpan.Zero;
     var uncancelled = Stopwatch.StartNew();
-    var baseline = await Checker(tools).CheckAsync(path, true, CancellationToken.None);
+    var baseline = await Checker(tools).CheckAsync(path, true, CancellationToken.None, new SyncProgress(value =>
+    {
+      if (IsDecoding(value) && decodeStartedAt == TimeSpan.Zero) decodeStartedAt = uncancelled.Elapsed;
+    }));
     uncancelled.Stop();
+    var decode = uncancelled.Elapsed - decodeStartedAt;
     Assert.Contains(baseline.Checks, check => check.Code == "decode.full" && check.Status == ExistingCheckStatus.Passed);
 
     using var cancellation = new CancellationTokenSource();
@@ -136,23 +142,26 @@ public sealed class ExistingM4bCheckerIntegrationTests
     var watch = Stopwatch.StartNew();
     var progress = new SyncProgress(value =>
     {
-      if (value.Phase == ConversionPhase.FullDecode && value.PhasePercent is > 0 && !cancellation.IsCancellationRequested)
+      if (IsDecoding(value) && !cancellation.IsCancellationRequested)
       {
         cancelledAt = watch.Elapsed;
         cancellation.Cancel();
       }
     });
 
-    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Checker(tools).CheckAsync(path, true, cancellation.Token, progress));
+    var cancelled = false;
+    try { await Checker(tools).CheckAsync(path, true, cancellation.Token, progress); }
+    catch (OperationCanceledException) { cancelled = true; }
     watch.Stop();
 
-    Assert.NotEqual(TimeSpan.Zero, cancelledAt);
-    // The first progress report can arrive late on a slow machine, so measure from the cancel request: the run must stop well before the decode that was left would have finished.
-    var timings = $"Cancelled run took {watch.Elapsed.TotalSeconds:F1}s, full decode took {uncancelled.Elapsed.TotalSeconds:F1}s, cancel requested at {cancelledAt.TotalSeconds:F1}s.";
-    Assert.True(cancelledAt < uncancelled.Elapsed * 0.75, timings);
-    Assert.True(watch.Elapsed - cancelledAt < (uncancelled.Elapsed - cancelledAt) / 2, timings);
+    var timings = $"Uncancelled check took {uncancelled.Elapsed.TotalSeconds:F1}s with the decode starting at {decodeStartedAt.TotalSeconds:F1}s; cancel requested at {cancelledAt.TotalSeconds:F1}s, cancelled run took {watch.Elapsed.TotalSeconds:F1}s.";
+    Assert.True(decodeStartedAt > TimeSpan.Zero && cancelledAt > TimeSpan.Zero, "No decode progress was reported. " + timings);
+    Assert.True(cancelled, "The check finished before the cancel took effect. " + timings);
+    Assert.True(watch.Elapsed - cancelledAt < decode / 2, timings);
     Assert.Equal(before, Hash(path));
   }
+
+  private static bool IsDecoding(ConversionProgress value) => value.Phase == ConversionPhase.FullDecode && value.PhasePercent is > 0;
 
   private static (int Start, int Length) FindMediaData(byte[] bytes)
   {
