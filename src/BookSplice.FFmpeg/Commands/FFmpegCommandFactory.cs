@@ -6,7 +6,7 @@ namespace BookSplice.FFmpeg.Commands;
 
 public sealed class FFmpegCommandFactory(MediaToolSet tools)
 {
-  public ProcessSpec CreateFinal(ConversionPlan plan, string temporaryOutput, string? concatManifest = null, string? filterGraph = null, string? metadataFile = null)
+  public ProcessSpec CreateFinal(ConversionPlan plan, string temporaryOutput, string? concatManifest = null, string? filterGraph = null, string? metadataFile = null, string? coverFile = null)
   {
     ArgumentNullException.ThrowIfNull(plan);
     var args = BaseArguments();
@@ -30,7 +30,7 @@ public sealed class FFmpegCommandFactory(MediaToolSet tools)
     if (plan.Cover is { } cover)
     {
       coverIndex = sourceInputs + (metadataIndex >= 0 ? 1 : 0);
-      args.AddRange(["-i", cover.SourcePath]);
+      args.AddRange(["-i", cover.Origin == CoverOrigin.EmbeddedPicture ? coverFile ?? throw new ArgumentException("An extracted cover file is required for an embedded cover.", nameof(coverFile)) : cover.SourcePath]);
     }
     if (plan.Strategy == AudioStrategy.FilterConcatTranscode)
     {
@@ -51,6 +51,13 @@ public sealed class FFmpegCommandFactory(MediaToolSet tools)
     }
     args.AddRange(["-movflags", "+faststart", "-f", "ipod", "-y", temporaryOutput]);
     return new ProcessSpec(tools.FFmpegPath, args);
+  }
+  public ProcessSpec CreateCoverExtraction(CoverCandidate cover, string output)
+  {
+    ArgumentNullException.ThrowIfNull(cover);
+    if (cover.EmbeddedPictureIndex is not >= 0) throw new ArgumentException("The embedded cover has no stream index.", nameof(cover));
+    var index = cover.EmbeddedPictureIndex.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    return new ProcessSpec(tools.FFmpegPath, ["-hide_banner", "-loglevel", "error", "-nostdin", "-i", cover.SourcePath, "-map", $"0:{index}", "-c:v", "copy", "-frames:v", "1", "-f", "image2pipe", "-y", output]);
   }
   public ProcessSpec CreateSegment(ConversionPlan plan, string source, string output)
   {
@@ -76,9 +83,6 @@ public sealed class FFmpegCommandFactory(MediaToolSet tools)
   private static void AddCoverMap(List<string> args, CoverCandidate? cover, int coverInput)
   {
     if (cover is null) return;
-    var map = cover.Origin == CoverOrigin.EmbeddedPicture
-      ? $"{coverInput}:{cover.EmbeddedPictureIndex ?? 0}"
-      : $"{coverInput}:v:0";
-    args.AddRange(["-map", map, "-c:v", "copy", "-disposition:v:0", "attached_pic"]);
+    args.AddRange(["-map", $"{coverInput}:v:0", "-c:v", "copy", "-disposition:v:0", "attached_pic"]);
   }
 }

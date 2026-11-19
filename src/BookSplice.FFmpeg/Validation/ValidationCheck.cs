@@ -13,6 +13,7 @@ public static class ValidationCodes
   public const string PacketsEndRegion = "packets.end-region";
   public const string ChaptersCount = "chapters.count";
   public const string ChaptersMonotonic = "chapters.monotonic";
+  public const string ChaptersTrack = "chapters.track";
   public const string ChaptersTiming = "chapters.timing";
   public const string ChaptersTitles = "chapters.titles";
   public const string CoverPresence = "cover.presence";

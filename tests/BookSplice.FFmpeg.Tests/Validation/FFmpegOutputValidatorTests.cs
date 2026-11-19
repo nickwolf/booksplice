@@ -68,6 +68,22 @@ public sealed class FFmpegOutputValidatorTests
   }
 
   [Fact]
+  public async Task ValidateAsyncFailsWhenPlannedChaptersHaveNoChapterTrack()
+  {
+    using var output = new TemporaryOutput();
+    var withoutTrack = Media() with { OtherStreams = [] };
+    var report = await Validator(new Probe(withoutTrack)).ValidateAsync(Plan(), output.Path, CancellationToken.None);
+
+    Assert.False(report.IsValid);
+    Assert.Contains(report.Checks, check => check.Code == "chapters.track" && !check.Passed && check.Required);
+    Assert.Contains("The output has no chapter track.", report.Errors);
+    Assert.Contains(report.Checks, check => check.Code == "chapters.timing" && check.Passed);
+    var subtitleTrack = Media() with { OtherStreams = [new(1, "subtitle", "mov_text", "tx3g")] };
+    report = await Validator(new Probe(subtitleTrack)).ValidateAsync(Plan(), output.Path, CancellationToken.None);
+    Assert.True(report.Checks.Single(check => check.Code == "chapters.track").Passed);
+  }
+
+  [Fact]
   public async Task ValidateAsyncRejectsSilentlyTruncatedChapterTitle()
   {
     using var output = new TemporaryOutput();
@@ -310,7 +326,7 @@ public sealed class FFmpegOutputValidatorTests
     => Media(audio) with { Warnings = warnings, OtherStreams = other };
 
   private static MediaProbeResult Media(IReadOnlyList<AudioTrack>? audio = null, decimal duration = 4m, IReadOnlyList<MediaChapter>? chapters = null, IReadOnlyDictionary<string, string>? tags = null)
-    => new(audio ?? [Track()], [], chapters ?? [new MediaChapter(0, 0m, 4m, new Rational(1, 1), new Dictionary<string, string> { ["title"] = "One" })], new TagCollection(tags ?? new Dictionary<string, string> { ["title"] = "Book", ["album"] = "Book", ["CUSTOM"] = "Value" }), tags ?? new Dictionary<string, string> { ["title"] = "Book", ["album"] = "Book", ["CUSTOM"] = "Value" }, [], duration, "mov,mp4,m4a,3gp,3g2,mj2", 1);
+    => new(audio ?? [Track()], [], chapters ?? [new MediaChapter(0, 0m, 4m, new Rational(1, 1), new Dictionary<string, string> { ["title"] = "One" })], new TagCollection(tags ?? new Dictionary<string, string> { ["title"] = "Book", ["album"] = "Book", ["CUSTOM"] = "Value" }), tags ?? new Dictionary<string, string> { ["title"] = "Book", ["album"] = "Book", ["CUSTOM"] = "Value" }, [], duration, "mov,mp4,m4a,3gp,3g2,mj2", 1) { OtherStreams = ChapterTrack };
   private static AudioTrack Track(string codec = "aac", int channels = 1, int sampleRate = 44_100, string layout = "mono") => new(0, codec, "audio", channels, sampleRate, 4m, new Rational(1, sampleRate), new Dictionary<string, string>(), "LC", layout, 0m, "mp4a", null, 64_000);
 
   private sealed class Probe(MediaProbeResult? result = null, Exception? exception = null) : IMediaProbe

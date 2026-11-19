@@ -41,14 +41,32 @@ public sealed class FFmpegCommandFactoryTests
   }
 
   [Fact]
-  public void CreateFinalEmbeddedCoverAddsDedicatedInputAndUsesEmbeddedIndex()
+  public void CreateFinalEmbeddedCoverMapsTheExtractedFileAndNeverTheSourcePicture()
   {
     var cover = new CoverCandidate("hash", CoverOrigin.EmbeddedPicture, @"C:\input\later.mp3", 3, "image/jpeg", 1, 1, CoverSemanticType.FrontCover, false);
-    var spec = Factory().CreateFinal(Plan(AudioStrategy.AacStreamCopy, 2, cover: cover), @"C:\temp\out.m4b", @"C:\temp\concat.txt");
+    var spec = Factory().CreateFinal(Plan(AudioStrategy.AacStreamCopy, 2, cover: cover), @"C:\temp\out.m4b", @"C:\temp\concat.txt", coverFile: @"C:\temp\cover.jpg");
     var inputs = spec.Arguments.Select((value, index) => (value, index)).Where(item => item.value == "-i").Select(item => spec.Arguments[item.index + 1]).ToArray();
-    Assert.Equal([@"C:\temp\concat.txt", @"C:\input\later.mp3"], inputs);
+    Assert.Equal([@"C:\temp\concat.txt", @"C:\temp\cover.jpg"], inputs);
+    Assert.DoesNotContain(@"C:\input\later.mp3", spec.Arguments);
     var mapIndex = spec.Arguments.ToList().IndexOf("-map", spec.Arguments.ToList().IndexOf("-map") + 1);
-    Assert.Equal("1:3", spec.Arguments[mapIndex + 1]);
+    Assert.Equal("1:v:0", spec.Arguments[mapIndex + 1]);
+    Assert.DoesNotContain("1:3", spec.Arguments);
+  }
+
+  [Fact]
+  public void CreateFinalEmbeddedCoverRequiresTheExtractedFile()
+  {
+    var cover = new CoverCandidate("hash", CoverOrigin.EmbeddedPicture, @"C:\input\later.mp3", 3, "image/jpeg", 1, 1, CoverSemanticType.FrontCover, false);
+    Assert.Throws<ArgumentException>(() => Factory().CreateFinal(Plan(AudioStrategy.DirectTranscode, cover: cover), @"C:\temp\out.m4b"));
+  }
+
+  [Fact]
+  public void CreateCoverExtractionCopiesTheSelectedPictureWithTheSameArgumentsTheCoverHashWasTaken()
+  {
+    var cover = new CoverCandidate("hash", CoverOrigin.EmbeddedPicture, @"C:\input\later.mp3", 3, "image/jpeg", 1, 1, CoverSemanticType.FrontCover, false);
+    var spec = Factory().CreateCoverExtraction(cover, @"C:\temp\cover.jpg");
+    Assert.Equal(["-hide_banner", "-loglevel", "error", "-nostdin", "-i", @"C:\input\later.mp3", "-map", "0:3", "-c:v", "copy", "-frames:v", "1", "-f", "image2pipe", "-y", @"C:\temp\cover.jpg"], spec.Arguments);
+    Assert.Throws<ArgumentException>(() => Factory().CreateCoverExtraction(cover with { EmbeddedPictureIndex = null }, @"C:\temp\cover.jpg"));
   }
 
   [Theory]
@@ -66,14 +84,15 @@ public sealed class FFmpegCommandFactoryTests
   [Theory]
   [InlineData("image/jpeg", 1)]
   [InlineData("image/png", 4)]
-  public void CreateFinalEmbeddedCoverMapsSelectedPictureFromDedicatedInput(string contentType, int pictureIndex)
+  public void CreateFinalEmbeddedCoverIgnoresThePictureIndexOfTheSource(string contentType, int pictureIndex)
   {
     var cover = new CoverCandidate("hash", CoverOrigin.EmbeddedPicture, @"C:\input\later1.mp3", pictureIndex, contentType, 1, 1, CoverSemanticType.FrontCover, false);
-    var spec = Factory().CreateFinal(Plan(AudioStrategy.DirectTranscode, cover: cover), @"C:\temp\out.m4b");
+    var spec = Factory().CreateFinal(Plan(AudioStrategy.DirectTranscode, cover: cover), @"C:\temp\out.m4b", coverFile: @"C:\temp\cover.img");
     var mapIndex = spec.Arguments.ToList().IndexOf("-map", spec.Arguments.ToList().IndexOf("-map") + 1);
-    Assert.Equal($"1:{pictureIndex}", spec.Arguments[mapIndex + 1]);
+    Assert.Equal("1:v:0", spec.Arguments[mapIndex + 1]);
     var inputIndexes = spec.Arguments.Select((value, index) => (value, index)).Where(item => item.value == "-i").Select(item => item.index).ToArray();
-    Assert.Equal(cover.SourcePath, spec.Arguments[inputIndexes[^1] + 1]);
+    Assert.Equal(@"C:\temp\cover.img", spec.Arguments[inputIndexes[^1] + 1]);
+    Assert.DoesNotContain(cover.SourcePath, spec.Arguments);
   }
 
   [Fact]
