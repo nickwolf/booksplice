@@ -433,7 +433,8 @@ public sealed class FFmpegRealMediaIntegrationTests
     Assert.Equal("mjpeg", media.AttachedPictures[0].CodecName);
     var final = runner.Specs.Last(spec => spec.Arguments.Contains("copy") && spec.FileName.EndsWith("ffmpeg.exe", StringComparison.OrdinalIgnoreCase));
     var mapIndex = final.Arguments.ToList().IndexOf("-map", final.Arguments.ToList().IndexOf("-map") + 1);
-    Assert.Equal("2:1", final.Arguments[mapIndex + 1]);
+    Assert.Equal("2:v:0", final.Arguments[mapIndex + 1]);
+    Assert.Equal("cover.jpg", Path.GetFileName(final.Arguments[final.Arguments.ToList().LastIndexOf("-i") + 1]));
   }
 
   [PinnedMediaFact]

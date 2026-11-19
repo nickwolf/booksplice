@@ -1,4 +1,5 @@
 using BookSplice.Core.Chapters;
+using BookSplice.Core.Covers;
 using BookSplice.Core.Metadata;
 using BookSplice.Core.Naming;
 using BookSplice.Core.Planning;
@@ -327,14 +328,86 @@ public sealed class FFmpegConversionExecutorTests
     Assert.True(File.Exists(jobFile));
   }
 
+  [Theory]
+  [InlineData("image/jpeg", "cover.jpg")]
+  [InlineData("image/png", "cover.png")]
+  public async Task EmbeddedCoverIsExtractedToTheWorkspaceFirstAndTheFinalMuxMapsThatFile(string contentType, string fileName)
+  {
+    using var root = new TemporaryDirectory();
+    var source = Path.Combine(Path.GetTempPath(), "source-00.mp3");
+    var cover = new CoverCandidate("hash", CoverOrigin.EmbeddedPicture, source, 1, contentType, 1, 1, CoverSemanticType.FrontCover, false);
+    var existedDuringFinal = false;
+    var runner = new FakeRunner
+    {
+      OnRun = (spec, _) =>
+      {
+        if (spec.Arguments.Contains("image2pipe")) File.WriteAllText(spec.Arguments[^1], "picture");
+        else existedDuringFinal = File.Exists(spec.Arguments[spec.Arguments.ToList().LastIndexOf("-i") + 1]);
+      }
+    };
+    var result = await Executor(runner, root.Path).ExecuteAsync(Plan(AudioStrategy.DirectTranscode, 1, 1, cover: cover), CancellationToken.None);
+
+    Assert.Equal(ExecutionStatus.Succeeded, result.Status);
+    Assert.Equal(2, runner.Specs.Count);
+    var extraction = runner.Specs[0];
+    Assert.Equal(["-hide_banner", "-loglevel", "error", "-nostdin", "-i", source, "-map", "0:1", "-c:v", "copy", "-frames:v", "1", "-f", "image2pipe", "-y"], extraction.Arguments.Take(15));
+    Assert.Equal(fileName, Path.GetFileName(extraction.Arguments[^1]));
+    var final = runner.Specs[1];
+    var inputs = final.Arguments.Select((value, index) => (value, index)).Where(item => item.value == "-i").Select(item => final.Arguments[item.index + 1]).ToArray();
+    Assert.Equal(3, inputs.Length);
+    Assert.Equal(source, inputs[0]);
+    Assert.Equal(extraction.Arguments[^1], inputs[2]);
+    Assert.True(existedDuringFinal);
+    Assert.DoesNotContain("2:1", final.Arguments);
+    Assert.Contains("2:v:0", final.Arguments);
+    Assert.Equal(2, result.Processes.Count);
+    Assert.Equal(extraction.Arguments, result.Processes[0].Arguments);
+    var job = Path.GetDirectoryName(result.TemporaryOutputPath)!;
+    Assert.Equal(job, Path.GetDirectoryName(extraction.Arguments[^1]));
+    await new TemporaryArtifactCleaner(root.Path).CleanupAsync(result.TemporaryOutputPath!, CancellationToken.None);
+    Assert.False(File.Exists(extraction.Arguments[^1]));
+    Assert.False(Directory.Exists(job));
+  }
+
+  [Fact]
+  public async Task FailedCoverExtractionFailsTheExecutionAndRemovesTheWorkspaceFile()
+  {
+    using var root = new TemporaryDirectory();
+    var cover = new CoverCandidate("hash", CoverOrigin.EmbeddedPicture, Path.Combine(Path.GetTempPath(), "source-00.mp3"), 1, "image/jpeg", 1, 1, CoverSemanticType.FrontCover, false);
+    var runner = new FakeRunner { ExitCode = 1, OnRun = (spec, _) => File.WriteAllText(spec.Arguments[^1], "partial") };
+    var result = await Executor(runner, root.Path).ExecuteAsync(Plan(AudioStrategy.DirectTranscode, 1, 1, cover: cover), CancellationToken.None);
+
+    Assert.Equal(ExecutionStatus.Failed, result.Status);
+    Assert.Equal("execution.process-failed", result.Diagnostics.Single().Code);
+    Assert.Single(runner.Specs);
+    Assert.False(File.Exists(runner.Specs[0].Arguments[^1]));
+    Assert.Empty(Directory.EnumerateFileSystemEntries(root.Path));
+  }
+
+  [Theory]
+  [InlineData(AudioStrategy.DirectTranscode, 1, 0)]
+  [InlineData(AudioStrategy.DirectTranscode, 1, 183)]
+  [InlineData(AudioStrategy.SegmentedTranscode, 2, 0)]
+  public async Task FinalMuxThatCouldNotTimeAChapterFailsWithTheInvalidDurationDiagnostic(AudioStrategy strategy, int count, int exitCode)
+  {
+    using var root = new TemporaryDirectory();
+    var runner = new FakeRunner { ExitCode = exitCode, StandardError = "[mov,mp4,m4a,3gp,3g2,mj2 @ 000001] Application provided duration: -2147483648 in stream 2 is invalid\n" };
+    var result = await Executor(runner, root.Path).ExecuteAsync(Plan(strategy, count, 1), CancellationToken.None);
+
+    Assert.Equal(ExecutionStatus.Failed, result.Status);
+    Assert.Equal("execution.invalid-duration", result.Diagnostics.Single().Code);
+    Assert.Null(result.TemporaryOutputPath);
+    Assert.Empty(Directory.EnumerateFileSystemEntries(root.Path));
+  }
+
   private static FFmpegConversionExecutor Executor(FakeRunner runner, string root, FakeMetadataWriter? writer = null) => new(runner, new FFmpegCommandFactory(new MediaToolSet("ffmpeg.exe", "ffprobe.exe", "pinned", "pinned")), writer ?? new FakeMetadataWriter(), root);
 
-  internal static ConversionPlan Plan(AudioStrategy strategy, int count, int jobs, string? destination = null, string? sourceOverride = null, BookMetadata? metadata = null, MetadataProfile? metadataProfile = null, IReadOnlyList<long?>? durations = null, bool chaptersEnabled = true)
+  internal static ConversionPlan Plan(AudioStrategy strategy, int count, int jobs, string? destination = null, string? sourceOverride = null, BookMetadata? metadata = null, MetadataProfile? metadataProfile = null, IReadOnlyList<long?>? durations = null, bool chaptersEnabled = true, CoverCandidate? cover = null)
   {
     var sources = Enumerable.Range(0, count).Select(index => index == 0 && sourceOverride is not null ? sourceOverride : Path.Combine(Path.GetTempPath(), $"source-{index:D2}.mp3")).ToArray();
     var chapters = chaptersEnabled ? sources.Select((_, index) => new ChapterEntry(index * 10_000_000L, (index + 1) * 10_000_000L, $"Chapter {index + 1}", string.Empty, sources[index])).ToArray() : [];
     metadata ??= new BookMetadata(new Dictionary<SemanticField, AggregatedValue>(), new Dictionary<string, string>(), new Dictionary<SemanticField, IReadOnlyList<string>>());
-    return new ConversionPlan(sources, metadata, null, chapters, QualityProfileCatalog.Version1[2], ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, destination ?? Path.Combine(Path.GetTempPath(), $"planned-{Guid.NewGuid():N}.m4b"), strategy, [], new SpaceEstimate(1, 1, 1, 1, 0), jobs, "test", metadataProfile ?? MetadataProfiles.GenericMp4, sourceDurationsMicroseconds: durations);
+    return new ConversionPlan(sources, metadata, cover, chapters, QualityProfileCatalog.Version1[2], ValidationLevel.Lightweight, CollisionPolicy.AvoidCollision, destination ?? Path.Combine(Path.GetTempPath(), $"planned-{Guid.NewGuid():N}.m4b"), strategy, [], new SpaceEstimate(1, 1, 1, 1, 0), jobs, "test", metadataProfile ?? MetadataProfiles.GenericMp4, sourceDurationsMicroseconds: durations);
   }
 
   private sealed class FakeRunner : IProcessRunner
@@ -344,6 +417,7 @@ public sealed class FFmpegConversionExecutorTests
     public List<ProcessSpec> Specs { get; } = [];
     public int MaximumActive { get; private set; }
     public int ExitCode { get; init; }
+    public string StandardError { get; init; } = string.Empty;
     public Exception? ExceptionToThrow { get; init; }
     public TimeSpan Delay { get; init; }
     public bool WaitForCancellation { get; init; }
@@ -362,7 +436,7 @@ public sealed class FFmpegConversionExecutorTests
       if (WaitForCancellation) await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
       if (Delay > TimeSpan.Zero) await Task.Delay(Delay, cancellationToken);
       Interlocked.Decrement(ref _active);
-      return new ProcessResult(ExitCode, string.Empty, string.Empty);
+      return new ProcessResult(ExitCode, string.Empty, StandardError);
     }
   }
 

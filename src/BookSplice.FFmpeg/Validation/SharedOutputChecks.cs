@@ -48,6 +48,11 @@ internal static partial class SharedOutputChecks
     return Check(ValidationCodes.ChaptersMonotonic, monotonic, "The output chapters are not positive and monotonic.");
   }
 
+  internal static bool IsChapterText(MediaStreamInfo stream)
+    => (stream.CodecType == "data" && stream.CodecName == "bin_data") || (stream.CodecType == "subtitle" && stream.CodecName == "mov_text");
+
+  internal static bool HasChapterText(MediaProbeResult facts) => (facts.OtherStreams ?? []).Any(IsChapterText);
+
   // The chapter track can outlast the audio, and then the file duration follows the chapters, so the final end is also checked against the audio stream itself.
   internal static bool EndsPastAudio(decimal chapterEnd, IReadOnlyList<AudioTrack> audio)
   {

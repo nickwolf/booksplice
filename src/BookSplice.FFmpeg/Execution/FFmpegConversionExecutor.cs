@@ -1,4 +1,6 @@
+using System.Text.RegularExpressions;
 using BookSplice.Core.Chapters;
+using BookSplice.Core.Covers;
 using BookSplice.Core.Execution;
 using BookSplice.Core.Metadata;
 using BookSplice.Core.Planning;
@@ -82,7 +84,7 @@ public sealed class FileConversionWorkspaceFactory : IConversionWorkspaceFactory
   }
 }
 
-public sealed class FFmpegConversionExecutor : IConversionExecutor
+public sealed partial class FFmpegConversionExecutor : IConversionExecutor
 {
   private readonly IProcessRunner _runner;
   private readonly FFmpegCommandFactory _commands;
@@ -117,6 +119,7 @@ public sealed class FFmpegConversionExecutor : IConversionExecutor
       string metadata;
       string? manifest = null;
       string? filter = null;
+      string? coverFile = null;
       string[]? segments = null;
       using (normalizer.BeginPhase(ConversionPhase.Preparation))
       {
@@ -138,6 +141,14 @@ public sealed class FFmpegConversionExecutor : IConversionExecutor
           FilterGraphWriter.WriteFile(filter, plan.SourcePaths.Count, plan.SampleRate, plan.Channels);
         }
         if (plan.Strategy == AudioStrategy.SegmentedTranscode) segments = plan.SourcePaths.Select((_, index) => Register(artifacts, job, $"segment-{index:D4}.m4a")).ToArray();
+        if (plan.Cover is { Origin: CoverOrigin.EmbeddedPicture } embedded)
+        {
+          coverFile = Register(artifacts, job, embedded.ContentType.Equals("image/png", StringComparison.OrdinalIgnoreCase) ? "cover.png" : "cover.jpg");
+          var spec = _commands.CreateCoverExtraction(embedded, coverFile);
+          var extraction = await _runner.RunAsync(spec, null, cancellationToken).ConfigureAwait(false);
+          processes.Add(extraction with { Executable = spec.FileName, Arguments = Array.AsReadOnly(spec.Arguments.ToArray()) });
+          if (extraction.ExitCode != 0) throw new FFmpegProcessFailedException(extraction.ExitCode);
+        }
       }
       if (plan.Strategy == AudioStrategy.SegmentedTranscode)
       {
@@ -149,9 +160,9 @@ public sealed class FFmpegConversionExecutor : IConversionExecutor
         using (normalizer.BeginPhase(ConversionPhase.Assembly))
         {
           ConcatManifestWriter.WriteFile(manifest!, segments!);
-          var finalAssembly = await RunStageAsync(_commands.CreateFinal(plan, output, manifest, filter, metadata), normalizer, plan.SourcePaths.Count, null, cancellationToken).ConfigureAwait(false);
+          var finalAssembly = await RunStageAsync(_commands.CreateFinal(plan, output, manifest, filter, metadata, coverFile), normalizer, plan.SourcePaths.Count, null, cancellationToken).ConfigureAwait(false);
           processes.Add(finalAssembly);
-          if (finalAssembly.ExitCode != 0) throw new FFmpegProcessFailedException(finalAssembly.ExitCode);
+          ThrowIfFinalFailed(finalAssembly);
         }
       }
       else
@@ -159,9 +170,9 @@ public sealed class FFmpegConversionExecutor : IConversionExecutor
         var phase = plan.Strategy == AudioStrategy.AacStreamCopy ? ConversionPhase.StreamCopy : ConversionPhase.Encoding;
         using (normalizer.BeginPhase(phase))
         {
-          var final = await RunStageAsync(_commands.CreateFinal(plan, output, manifest, filter, metadata), normalizer, plan.SourcePaths.Count, null, cancellationToken).ConfigureAwait(false);
+          var final = await RunStageAsync(_commands.CreateFinal(plan, output, manifest, filter, metadata, coverFile), normalizer, plan.SourcePaths.Count, null, cancellationToken).ConfigureAwait(false);
           processes.Add(final);
-          if (final.ExitCode != 0) throw new FFmpegProcessFailedException(final.ExitCode);
+          ThrowIfFinalFailed(final);
         }
       }
       using (normalizer.BeginPhase(ConversionPhase.MetadataWriting))
@@ -174,6 +185,7 @@ public sealed class FFmpegConversionExecutor : IConversionExecutor
     }
     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { CleanupFailure(normalizer, artifacts, job); return Cancelled(processes); }
     catch (FFmpegProcessFailedException exception) { CleanupFailure(normalizer, artifacts, job); return Failed(processes, "execution.process-failed", $"FFmpeg exited with code {exception.ExitCode.ToString(System.Globalization.CultureInfo.InvariantCulture)}."); }
+    catch (InvalidDurationException) { CleanupFailure(normalizer, artifacts, job); return Failed(processes, "execution.invalid-duration", "FFmpeg could not time part of the output."); }
     catch (MetadataWriteException) { CleanupFailure(normalizer, artifacts, job); return Failed(processes, "execution.metadata-write-failed", "The converted file metadata could not be written."); }
     catch (ProcessExecutionException) { CleanupFailure(normalizer, artifacts, job); return Failed(processes, "execution.process-start-failed", "FFmpeg could not be started."); }
     catch (ArgumentException) { CleanupFailure(normalizer, artifacts, job); return Failed(processes, "execution.invalid-path", "A conversion path is invalid."); }
@@ -182,6 +194,16 @@ public sealed class FFmpegConversionExecutor : IConversionExecutor
     catch (InvalidOperationException) { CleanupFailure(normalizer, artifacts, job); return Failed(processes, "execution.process-start-failed", "FFmpeg could not be started."); }
     catch (Exception) { CleanupFailure(normalizer, artifacts, job); return Failed(processes, "execution.failed", "The conversion could not be completed."); }
   }
+
+  // The mov muxer logs this when a chapter duration does not fit its track timescale, and the output then lacks the chapter track or times it wrongly.
+  private static void ThrowIfFinalFailed(ProcessResult final)
+  {
+    if (InvalidDurationLine().IsMatch(final.StandardError)) throw new InvalidDurationException();
+    if (final.ExitCode != 0) throw new FFmpegProcessFailedException(final.ExitCode);
+  }
+
+  [GeneratedRegex(@"Application provided duration: -?[0-9]+ in stream [0-9]+ is invalid", RegexOptions.CultureInvariant)]
+  private static partial Regex InvalidDurationLine();
 
   private static void CleanupFailure(ConversionProgressNormalizer normalizer, IEnumerable<string> artifacts, string? job)
   {
@@ -298,5 +320,6 @@ public sealed class FFmpegConversionExecutor : IConversionExecutor
   private static ConversionExecutionResult Failed(IReadOnlyList<ProcessResult> processes, string code, string message) => new(ExecutionStatus.Failed, null, Copy(processes), [new(code, message)]);
   private static System.Collections.ObjectModel.ReadOnlyCollection<ExecutionProcessResult> Copy(IEnumerable<ProcessResult> processes) => Array.AsReadOnly(processes.Select(process => new ExecutionProcessResult(process.ExitCode, process.StandardOutput, process.StandardError, process.ChildCpuTime, process.Executable, process.Arguments)).ToArray());
   private sealed class FFmpegProcessFailedException(int exitCode) : Exception { public int ExitCode { get; } = exitCode; }
+  private sealed class InvalidDurationException : Exception;
   private sealed class MetadataWriteException(Exception inner) : Exception("Metadata write failed.", inner);
 }

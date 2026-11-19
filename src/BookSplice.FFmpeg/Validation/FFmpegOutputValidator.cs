@@ -95,6 +95,7 @@ public sealed partial class FFmpegOutputValidator : IOutputValidator
   {
     if (plan.Chapters.Count == 0) return;
     var chapters = facts.Chapters;
+    checks.Add(Check(ValidationCodes.ChaptersTrack, SharedOutputChecks.HasChapterText(facts), "The output has no chapter track."));
     checks.Add(Check(ValidationCodes.ChaptersCount, chapters.Count == plan.Chapters.Count, "The output chapter count does not match the plan."));
     checks.Add(SharedOutputChecks.ChaptersMonotonic(chapters));
     var timing = chapters.Count == plan.Chapters.Count && chapters.Zip(plan.Chapters, (actual, expected) => WithinChapterTolerance(actual.StartTime, expected.StartMicroseconds) && WithinChapterTolerance(actual.EndTime, expected.EndMicroseconds)).All(value => value);

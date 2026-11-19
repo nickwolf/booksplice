@@ -193,6 +193,28 @@ public sealed class ConversionPlannerTests
       new ChapterEntry(2_000_000, 3_000_000, "Third", "Orig Two", "02.mp3")], result.Plan!.Chapters);
   }
 
+  [Theory]
+  [InlineData(false)]
+  [InlineData(true)]
+  public async Task CreateAsync_splits_a_chapter_longer_than_the_sample_rate_allows(bool withTitleOverride)
+  {
+    const long hour = 3_600_000_000;
+    var files = new[] { File("01.mp3", false) };
+    var baseAnalysis = Analysis(BookAnalysisStatus.Ready);
+    var tracks = ChapterPlan.Valid([new ChapterEntry(0, 14 * hour, "One", "Orig One", "01.mp3")], 14 * hour);
+    var analysis = new BookAnalysis(BookAnalysisStatus.Ready, "book", files, null, baseAnalysis.BookMetadata, baseAnalysis.Cover, tracks, []);
+    var settings = AppSettings.Defaults with { OutputDirectory = Path.GetTempPath() };
+    var titles = withTitleOverride ? new Dictionary<string, string> { ["01.mp3"] = "Renamed" } : null;
+    var result = await Planner().CreateAsync(analysis, new ConversionOptions(settings, QualityProfileCatalog.Version1[0], chapterTitles: titles), CancellationToken.None);
+    var chapters = result.Plan!.Chapters;
+    var name = withTitleOverride ? "Renamed" : "One";
+    Assert.Equal(2, chapters.Count);
+    Assert.Equal(0, chapters[0].StartMicroseconds);
+    Assert.Equal(14 * hour, chapters[^1].EndMicroseconds);
+    Assert.Equal([$"{name} (part 1 of 2)", $"{name} (part 2 of 2)"], chapters.Select(chapter => chapter.Title));
+    Assert.All(chapters, chapter => Assert.Equal(("Orig One", "01.mp3"), (chapter.OriginalTitle, chapter.SourceRelativePath)));
+  }
+
   [Fact]
   public async Task CreateAsync_fails_planning_when_the_chapter_marks_are_invalid()
   {

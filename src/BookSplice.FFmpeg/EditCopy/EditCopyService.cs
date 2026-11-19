@@ -216,18 +216,13 @@ public sealed class EditCopyService : IEditCopyService
   internal static IReadOnlyList<string> StreamKinds(MediaProbeResult facts)
     => facts.AudioStreams.Select(stream => $"audio/{stream.CodecName}")
       .Concat(facts.AttachedPictures.Select(picture => $"attached_pic/{picture.CodecName}"))
-      .Concat((facts.OtherStreams ?? []).Where(stream => !IsChapterText(stream)).Select(stream => $"{stream.CodecType}/{stream.CodecName}"))
+      .Concat((facts.OtherStreams ?? []).Where(stream => !SharedOutputChecks.IsChapterText(stream)).Select(stream => $"{stream.CodecType}/{stream.CodecName}"))
       .Order(StringComparer.Ordinal).ToArray();
 
   // The chapter track itself is compared by the chapter checks, but those fall back to the Nero chpl box when the copy has no chapter
   // track, so a copy of a file with one has to keep one. A file with only a chpl box gets a chapter track from the remux, which is fine.
   internal static bool SameStreams(MediaProbeResult copy, MediaProbeResult original)
-    => StreamKinds(copy).SequenceEqual(StreamKinds(original), StringComparer.Ordinal) && (!HasChapterText(original) || HasChapterText(copy));
-
-  private static bool HasChapterText(MediaProbeResult facts) => (facts.OtherStreams ?? []).Any(IsChapterText);
-
-  private static bool IsChapterText(MediaStreamInfo stream)
-    => (stream.CodecType == "data" && stream.CodecName == "bin_data") || (stream.CodecType == "subtitle" && stream.CodecName == "mov_text");
+    => StreamKinds(copy).SequenceEqual(StreamKinds(original), StringComparer.Ordinal) && (!SharedOutputChecks.HasChapterText(original) || SharedOutputChecks.HasChapterText(copy));
 
   internal static bool SameTiming(MediaProbeResult copy, MediaProbeResult original)
     => copy.Duration == original.Duration && copy.AudioStreams.Count == original.AudioStreams.Count
