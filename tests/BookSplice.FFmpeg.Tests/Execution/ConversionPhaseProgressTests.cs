@@ -74,6 +74,26 @@ public sealed class ConversionPhaseProgressTests
   }
 
   [Fact]
+  public void EncodingRangesReplaceSourcesAsTheProgressUnitsOnceMeasured()
+  {
+    var events = new List<ConversionProgress>();
+    var plan = FFmpegConversionExecutorTests.Plan(AudioStrategy.SegmentedTranscode, 40, 2, chaptersEnabled: false);
+    var normalizer = new ConversionProgressNormalizer(plan, new InlineProgress(events.Add));
+    normalizer.UseEncodingRanges([10_000_000, 30_000_000, 20_000_000]);
+    using var phase = normalizer.BeginPhase(ConversionPhase.Encoding);
+    normalizer.ForProcess(0, 0).Report("out_time_us=5000000");
+    normalizer.ForProcess(2, 2).Report("out_time_us=20000000");
+    normalizer.ForProcess(2, 2).Report("out_time_us=40000000");
+
+    Assert.Equal(100d * 25 / 60, events[^2].PhasePercent);
+    Assert.Equal(100d * 25 / 60, events[^1].PhasePercent);
+    Assert.All(events, item => { Assert.True(item.ExpectsMeasurableUpdates); Assert.Null(item.TotalSources); Assert.Null(item.CompletedSources); });
+    normalizer.ForProcess(1, 1);
+    normalizer.CompleteProcess(1, 1);
+    Assert.Equal(100d * 55 / 60, events[^1].PhasePercent);
+  }
+
+  [Fact]
   public void BackwardsAndExcessiveTimesStayFiniteAndSpeedUsesAggregateWallTime()
   {
     var events = new List<ConversionProgress>();

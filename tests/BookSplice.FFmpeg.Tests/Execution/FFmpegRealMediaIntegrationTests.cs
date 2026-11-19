@@ -126,9 +126,13 @@ public sealed class FFmpegRealMediaIntegrationTests
       var ffmpegSpecs = runner.Specs.Where(spec => spec.FileName.EndsWith("ffmpeg.exe", StringComparison.OrdinalIgnoreCase)).ToArray();
       if (strategy == AudioStrategy.SegmentedTranscode)
       {
-        Assert.Equal(sources.Count + 1, ffmpegSpecs.Length);
-        Assert.Equal(sources.Count, ffmpegSpecs.Count(spec => ValueAfter(spec, "-c:a") == "aac"));
+        var encodes = ffmpegSpecs.Count(spec => ValueAfter(spec, "-c:a") == "aac");
+        Assert.Equal(sources.Count, ffmpegSpecs.Count(spec => spec.Arguments.Contains("null")));
+        Assert.InRange(encodes, 1, 2 * plan.ConversionJobs);
+        Assert.Equal(encodes, ffmpegSpecs.Count(spec => ValueAfter(spec, "-f") == "adts"));
+        Assert.Equal(1, ffmpegSpecs.Count(spec => spec.Arguments.Contains("-itsoffset")));
         Assert.Equal(1, ffmpegSpecs.Count(spec => ValueAfter(spec, "-c:a") == "copy"));
+        Assert.Equal(sources.Count + encodes + 2, ffmpegSpecs.Length);
       }
       else
       {
@@ -395,7 +399,7 @@ public sealed class FFmpegRealMediaIntegrationTests
     var samples = decoded.StandardOutput.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
       .Sum(line => long.Parse(line, System.Globalization.CultureInfo.InvariantCulture));
     var expectedSamples = cursor * 44100 / 1_000_000;
-    Assert.InRange(samples, expectedSamples, expectedSamples + sources.Count * 2048L);
+    Assert.Equal(expectedSamples, samples);
   }
 
   private static void WriteNoiseThenSilence(string path, int sampleCount, int seed)

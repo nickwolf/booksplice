@@ -13,7 +13,7 @@ namespace BookSplice.FFmpeg.Tests.Execution;
 public sealed class FFmpegConversionExecutorTests
 {
   [Fact]
-  public async Task SegmentsRunWithinPlanBoundAndFinalArgumentsPreserveOrder()
+  public async Task SourcesAreMeasuredThenRangesEncodedWithinPlanBoundAndFinalMuxReadsTheJoinedFile()
   {
     using var root = new TemporaryDirectory();
     var runner = new FakeRunner { Delay = TimeSpan.FromMilliseconds(20) };
@@ -23,16 +23,28 @@ public sealed class FFmpegConversionExecutorTests
 
     Assert.Equal(ExecutionStatus.Succeeded, result.Status);
     Assert.Equal(2, runner.MaximumActive);
-    var segmentSources = runner.Specs.Take(5).Select(spec => (Source: spec.Arguments[spec.Arguments.ToList().IndexOf("-i") + 1], Output: spec.Arguments[^1])).ToArray();
-    Assert.Equal(plan.SourcePaths.OrderBy(path => path), segmentSources.OrderBy(pair => pair.Source).Select(pair => pair.Source));
+    var measures = runner.Specs.Where(spec => spec.Arguments.Contains("null")).ToArray();
+    Assert.Equal(plan.SourcePaths.OrderBy(path => path), measures.Select(spec => spec.Arguments[spec.Arguments.ToList().IndexOf("-i") + 1]).OrderBy(path => path));
+    var ranges = runner.Specs.Where(spec => spec.Arguments.Contains("adts")).ToArray();
+    Assert.True(ranges.Length >= 4);
+    var job = Directory.GetDirectories(root.Path).Single();
+    Assert.Equal(Enumerable.Range(0, ranges.Length).Select(index => Path.Combine(job, $"segment-{index:D4}.aac")), ranges.Select(spec => spec.Arguments[^1]).OrderBy(path => path));
+    Assert.All(plan.SourcePaths, source => Assert.Contains(ranges, spec => spec.Arguments.Contains(source)));
+    Assert.All(ranges, spec => Assert.True(spec.Arguments.Count(argument => argument == "-i") <= 32));
+    var intermediate = Assert.Single(runner.Specs, spec => spec.Arguments.Contains("-itsoffset"));
+    Assert.Equal(Path.Combine(job, "joined.aac"), intermediate.Arguments[intermediate.Arguments.ToList().IndexOf("-i") + 1]);
     var final = runner.Specs[^1];
     Assert.Equal("copy", final.Arguments[final.Arguments.ToList().IndexOf("-c:a") + 1]);
     Assert.DoesNotContain(final.Arguments, value => value == "aac");
-    var manifest = final.Arguments[final.Arguments.ToList().IndexOf("-i") + 1];
-    Assert.Equal(Enumerable.Range(0, 5).Select(index => $"file '" + Path.Combine(Path.GetDirectoryName(manifest)!, $"segment-{index:D4}.m4a").Replace('\\', '/') + "'"), File.ReadAllLines(manifest));
+    Assert.Equal(Path.Combine(job, "intermediate.m4a"), final.Arguments[final.Arguments.ToList().IndexOf("-i") + 1]);
+    Assert.DoesNotContain("concat", final.Arguments);
+    Assert.Equal(["intermediate.m4a", "metadata.ffmeta", "output.m4b"], Directory.GetFiles(job).Select(Path.GetFileName).Order());
     Assert.True(progress.Zip(progress.Skip(1), (left, right) => (left.DisplayPercent ?? 0) <= (right.DisplayPercent ?? 0)).All(value => value));
     Assert.Equal(100, progress[^1].DisplayPercent);
     Assert.DoesNotContain(plan.OutputPath, runner.Specs.SelectMany(spec => spec.Arguments));
+    var elst = SegmentedFakeMedia.ReadElst(File.ReadAllBytes(Path.Combine(job, "intermediate.m4a")), 1);
+    var total = Enumerable.Range(0, 5).Sum(SegmentedFakeMedia.SamplesOf);
+    Assert.Equal((total * 640, 1024L), elst);
   }
 
   [Fact]
@@ -74,10 +86,11 @@ public sealed class FFmpegConversionExecutorTests
   {
     using var root = new TemporaryDirectory();
     var events = new List<ConversionProgress>();
-    var runner = new FakeRunner { ExitCode = 7, OnRun = (_, sink) => sink?.Report("progress=end") };
+    var runner = new FakeRunner { ExitCode = 7, FailWhen = spec => spec.Arguments.Contains("adts"), OnRun = (spec, sink) => { if (spec.Arguments.Contains("adts")) sink?.Report("progress=end"); } };
     var result = await Executor(runner, root.Path).ExecuteAsync(Plan(AudioStrategy.SegmentedTranscode, 1, 1, durations: [10_000_000]), CancellationToken.None, new InlineProgress<ConversionProgress>(events.Add));
 
     Assert.Equal(ExecutionStatus.Failed, result.Status);
+    Assert.Contains(events, item => item.Phase == ConversionPhase.Encoding);
     Assert.DoesNotContain(events, item => item.CompletedSources > 0);
     Assert.DoesNotContain(events, item => item.Phase is ConversionPhase.Assembly or ConversionPhase.MetadataWriting);
     Assert.DoesNotContain(events, item => item.State == "completed");
@@ -85,7 +98,7 @@ public sealed class FFmpegConversionExecutorTests
   }
 
   [Fact]
-  public async Task ParallelSegmentCallbacksUseDurationWeightedBookProgress()
+  public async Task ParallelRangeCallbacksUseDurationWeightedBookProgress()
   {
     using var root = new TemporaryDirectory();
     var events = new List<ConversionProgress>();
@@ -94,21 +107,22 @@ public sealed class FFmpegConversionExecutorTests
       Delay = TimeSpan.FromMilliseconds(30),
       OnRun = (spec, sink) =>
       {
-        var output = spec.Arguments[^1];
-        if (output.EndsWith("segment-0000.m4a", StringComparison.Ordinal)) sink?.Report("out_time_us=5000000");
-        if (output.EndsWith("segment-0001.m4a", StringComparison.Ordinal)) sink?.Report("out_time_us=15000000");
+        if (spec.Arguments.Contains("adts")) sink?.Report("out_time_us=1000000");
       }
     };
     var result = await Executor(runner, root.Path).ExecuteAsync(Plan(AudioStrategy.SegmentedTranscode, 2, 2, durations: [10_000_000, 30_000_000]), CancellationToken.None, new InlineProgress<ConversionProgress>(events.Add));
 
     Assert.Equal(ExecutionStatus.Succeeded, result.Status);
     Assert.Equal(2, runner.MaximumActive);
-    Assert.Contains(events, item => item.Phase == ConversionPhase.Encoding && item.PhasePercent == 50 && item.CompletedSources == 0);
+    var encoding = events.Where(item => item.Phase == ConversionPhase.Encoding && item.PhasePercent.HasValue).ToArray();
+    Assert.Contains(encoding, item => item.PhasePercent is > 0 and < 100);
+    Assert.All(encoding, item => Assert.Null(item.CompletedSources));
+    Assert.Equal(100, encoding[^1].PhasePercent);
     Assert.DoesNotContain(events.Where(item => item.Phase == ConversionPhase.Encoding), item => item.State == "completed");
   }
 
   [Fact]
-  public async Task ChapterDisabledSourcesWithoutDurationsKeepCountsAndNoNumericEstimate()
+  public async Task ChapterDisabledSourcesWithoutDurationsGetNumericProgressFromTheMeasuredRanges()
   {
     using var root = new TemporaryDirectory();
     var events = new List<ConversionProgress>();
@@ -118,10 +132,9 @@ public sealed class FFmpegConversionExecutorTests
 
     Assert.Equal(ExecutionStatus.Succeeded, result.Status);
     Assert.Equal(3, runner.MaximumActive);
-    var encoding = events.Where(item => item.Phase == ConversionPhase.Encoding).ToArray();
-    Assert.All(encoding, item => { Assert.Null(item.PhasePercent); Assert.False(item.ExpectsMeasurableUpdates); });
-    Assert.Equal(33, encoding[^1].CompletedSources);
-    Assert.Equal(33, encoding[^1].TotalSources);
+    var encoding = events.Where(item => item.Phase == ConversionPhase.Encoding && !item.IsPhaseEntry).ToArray();
+    Assert.All(encoding, item => { Assert.NotNull(item.PhasePercent); Assert.True(item.ExpectsMeasurableUpdates); Assert.Null(item.TotalSources); });
+    Assert.Equal(100, encoding[^1].PhasePercent);
   }
 
   [Fact]
@@ -136,7 +149,7 @@ public sealed class FFmpegConversionExecutorTests
     {
       OnRun = (spec, sink) =>
       {
-        if (spec.Arguments[^1].EndsWith("segment-0000.m4a", StringComparison.Ordinal)) oldCallback = sink;
+        if (spec.Arguments[^1].EndsWith("segment-0000.aac", StringComparison.Ordinal)) oldCallback = sink;
         if (spec.Arguments[^1].EndsWith("output.m4b", StringComparison.Ordinal))
         {
           countBeforeLate = events.Count;
@@ -152,6 +165,67 @@ public sealed class FFmpegConversionExecutorTests
     Assert.True(countBeforeLate >= 0);
     Assert.Equal(countBeforeLate, countAfterLate);
     Assert.DoesNotContain(events, item => item.Phase == ConversionPhase.Assembly && item.OutTimeMicroseconds == 99_999_999);
+  }
+
+  [Theory]
+  [InlineData("range")]
+  [InlineData("intermediate")]
+  [InlineData("final")]
+  public async Task FailureAtAnyStepRemovesEverySegmentedArtifact(string step)
+  {
+    using var root = new TemporaryDirectory();
+    Func<ProcessSpec, bool> fails = step switch
+    {
+      "range" => spec => spec.Arguments.Contains("adts") && spec.Arguments[^1].EndsWith("segment-0001.aac", StringComparison.Ordinal),
+      "intermediate" => spec => spec.Arguments.Contains("-itsoffset"),
+      _ => spec => spec.Arguments[^1].EndsWith("output.m4b", StringComparison.Ordinal),
+    };
+    var runner = new FakeRunner { ExitCode = 9, FailWhen = fails };
+    var result = await Executor(runner, root.Path).ExecuteAsync(Plan(AudioStrategy.SegmentedTranscode, 5, 1), CancellationToken.None);
+
+    Assert.Equal(ExecutionStatus.Failed, result.Status);
+    Assert.Equal("execution.process-failed", result.Diagnostics.Single().Code);
+    Assert.Empty(Directory.EnumerateFileSystemEntries(root.Path));
+  }
+
+  [Theory]
+  [InlineData("measure")]
+  [InlineData("range")]
+  [InlineData("intermediate")]
+  public async Task CancellationAtAnyStepRemovesEverySegmentedArtifact(string step)
+  {
+    using var root = new TemporaryDirectory();
+    using var cancellation = new CancellationTokenSource();
+    Func<ProcessSpec, bool> waits = step switch
+    {
+      "measure" => spec => spec.Arguments.Contains("null"),
+      "range" => spec => spec.Arguments.Contains("adts") && spec.Arguments[^1].EndsWith("segment-0001.aac", StringComparison.Ordinal),
+      _ => spec => spec.Arguments.Contains("-itsoffset"),
+    };
+    var runner = new FakeRunner { WaitWhen = waits };
+    var task = Executor(runner, root.Path).ExecuteAsync(Plan(AudioStrategy.SegmentedTranscode, 5, 5), cancellation.Token);
+    while (!runner.Specs.Any(spec => waits(spec))) await Task.Delay(5);
+    cancellation.Cancel();
+    var result = await task;
+
+    Assert.Equal(ExecutionStatus.Cancelled, result.Status);
+    Assert.Empty(Directory.EnumerateFileSystemEntries(root.Path));
+  }
+
+  [Theory]
+  [InlineData(1, false)]
+  [InlineData(-1, false)]
+  [InlineData(0, true)]
+  public async Task SegmentWithTheWrongFrameCountOrBrokenFramesFailsTheJoin(int frameDelta, bool corrupt)
+  {
+    using var root = new TemporaryDirectory();
+    var runner = new FakeRunner { SegmentFrameDelta = frameDelta, CorruptSegments = corrupt };
+    var result = await Executor(runner, root.Path).ExecuteAsync(Plan(AudioStrategy.SegmentedTranscode, 3, 2), CancellationToken.None);
+
+    Assert.Equal(ExecutionStatus.Failed, result.Status);
+    Assert.Equal("execution.segment-join-failed", result.Diagnostics.Single().Code);
+    Assert.DoesNotContain(runner.Specs, spec => spec.Arguments.Contains("-itsoffset"));
+    Assert.Empty(Directory.EnumerateFileSystemEntries(root.Path));
   }
 
   [Fact]
@@ -421,6 +495,10 @@ public sealed class FFmpegConversionExecutorTests
     public Exception? ExceptionToThrow { get; init; }
     public TimeSpan Delay { get; init; }
     public bool WaitForCancellation { get; init; }
+    public Func<ProcessSpec, bool>? FailWhen { get; init; }
+    public Func<ProcessSpec, bool>? WaitWhen { get; init; }
+    public int SegmentFrameDelta { get; init; }
+    public bool CorruptSegments { get; init; }
     public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public Action<ProcessSpec, IProgress<string>?>? OnRun { get; init; }
 
@@ -432,11 +510,14 @@ public sealed class FFmpegConversionExecutorTests
       Started.TrySetResult();
       OnRun?.Invoke(spec, progress);
       if (ExceptionToThrow is not null) throw ExceptionToThrow;
-      progress?.Report("out_time_us=5000000");
-      if (WaitForCancellation) await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+      var exitCode = FailWhen is null || FailWhen(spec) ? ExitCode : 0;
+      var standardError = StandardError;
+      if (exitCode != 0 || !SegmentedFakeMedia.TryHandle(spec, progress, out var simulated, SegmentFrameDelta, CorruptSegments)) progress?.Report("out_time_us=5000000");
+      else if (simulated is not null) standardError = simulated + Environment.NewLine + standardError;
+      if (WaitForCancellation || WaitWhen?.Invoke(spec) == true) await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
       if (Delay > TimeSpan.Zero) await Task.Delay(Delay, cancellationToken);
       Interlocked.Decrement(ref _active);
-      return new ProcessResult(ExitCode, string.Empty, StandardError);
+      return new ProcessResult(exitCode, string.Empty, standardError);
     }
   }
 

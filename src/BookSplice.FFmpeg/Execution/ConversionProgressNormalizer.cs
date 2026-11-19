@@ -9,12 +9,14 @@ internal sealed class ConversionProgressNormalizer
   private readonly LegacyDisplaySink? _sink;
   private readonly TimeProvider _clock;
   private readonly object _gate = new();
-  private readonly long[] _legacyDurations;
-  private readonly long[] _legacyProcessed;
-  private readonly long[] _processed;
-  private readonly bool[] _completed;
+  private long[] _legacyDurations;
+  private long[] _legacyProcessed;
+  private long[] _processed;
+  private bool[] _completed;
+  private long?[] _unitDurations;
+  private bool _unitsAreSources = true;
   private readonly Dictionary<(int Stage, int? Source), ProcessCallback> _processes = [];
-  private readonly long? _totalDuration;
+  private long? _totalDuration;
   private ConversionPhaseScope? _scope;
   private ConversionPhase? _phase;
   private long _phaseStarted;
@@ -30,6 +32,7 @@ internal sealed class ConversionProgressNormalizer
     _sink = sink is null ? null : new LegacyDisplaySink(this, sink);
     _clock = timeProvider ?? TimeProvider.System;
     _totalDuration = SourceDurationEvidence.TotalMicroseconds(plan.SourceDurationsMicroseconds);
+    _unitDurations = plan.SourceDurationsMicroseconds.ToArray();
     _processed = new long[plan.SourcePaths.Count];
     _completed = new bool[plan.SourcePaths.Count];
     _legacyDurations = LegacyDurations(plan);
@@ -56,6 +59,21 @@ internal sealed class ConversionProgressNormalizer
     }
   }
 
+  // Segmented encoding runs one process per range of the output, not per source. The ranges' durations are only known after the sources are measured.
+  public void UseEncodingRanges(IReadOnlyList<long> durationsMicroseconds)
+  {
+    lock (_gate)
+    {
+      _unitDurations = durationsMicroseconds.Select(duration => (long?)duration).ToArray();
+      _processed = new long[durationsMicroseconds.Count];
+      _completed = new bool[durationsMicroseconds.Count];
+      _legacyDurations = durationsMicroseconds.Select(duration => Math.Max(1, duration)).ToArray();
+      _legacyProcessed = new long[durationsMicroseconds.Count];
+      _totalDuration = durationsMicroseconds.Sum();
+      _unitsAreSources = false;
+    }
+  }
+
   public IProgress<string> ForProcess(int stageIndex, int? sourceIndex)
   {
     lock (_gate)
@@ -75,7 +93,7 @@ internal sealed class ConversionProgressNormalizer
       {
         _completed[index] = true;
         _completedSources++;
-        if (_plan.SourceDurationsMicroseconds[index] is { } duration) _processed[index] = duration;
+        if (_unitDurations[index] is { } duration) _processed[index] = duration;
         _legacyProcessed[index] = _legacyDurations[index];
       }
       else if (_totalDuration is { } total && _phase is ConversionPhase.Encoding or ConversionPhase.StreamCopy or ConversionPhase.Assembly)
@@ -117,7 +135,7 @@ internal sealed class ConversionProgressNormalizer
       {
         if (_phase == ConversionPhase.Encoding && _plan.Strategy == AudioStrategy.SegmentedTranscode && callback.SourceIndex is { } index && index >= 0 && index < _processed.Length)
         {
-          if (_plan.SourceDurationsMicroseconds[index] is { } duration) _processed[index] = Math.Max(_processed[index], Math.Clamp(time, 0, duration));
+          if (_unitDurations[index] is { } duration) _processed[index] = Math.Max(_processed[index], Math.Clamp(time, 0, duration));
           _legacyProcessed[index] = Math.Max(_legacyProcessed[index], Math.Clamp(time, 0, _legacyDurations[index]));
         }
         else
@@ -152,8 +170,8 @@ internal sealed class ConversionProgressNormalizer
       PhasePercent = percentage,
       PhaseSpeed = percentage is null ? null : _phaseSpeed,
       ExpectsMeasurableUpdates = IsMeasurable(_phase),
-      CompletedSources = _phase == ConversionPhase.Encoding && _plan.Strategy == AudioStrategy.SegmentedTranscode ? _completedSources : null,
-      TotalSources = _phase == ConversionPhase.Encoding && _plan.Strategy == AudioStrategy.SegmentedTranscode ? _plan.SourcePaths.Count : null
+      CompletedSources = _unitsAreSources && _phase == ConversionPhase.Encoding && _plan.Strategy == AudioStrategy.SegmentedTranscode ? _completedSources : null,
+      TotalSources = _unitsAreSources && _phase == ConversionPhase.Encoding && _plan.Strategy == AudioStrategy.SegmentedTranscode ? _plan.SourcePaths.Count : null
     });
   }
 

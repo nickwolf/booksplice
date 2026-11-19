@@ -211,6 +211,54 @@ internal static class Mp4MetadataBoxes
     stream.Flush(flushToDisk: true);
   }
 
+  // Rewrites the one edit list entry of a one-track file in place, so no offset moves: it starts at priming samples into the media
+  // and lasts samples of the movie. Fields are fixed-size, version 0 (32-bit) or version 1 (64-bit).
+  public static void PatchSingleEditList(string path, long priming, long samples, int sampleRate)
+  {
+    using var stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+    var moov = FindBox(stream, 0, stream.Length, "moov") ?? throw new InvalidDataException("The MP4 file has no moov box.");
+    var mvhd = Children(stream, moov).Where(box => box.Type == "mvhd").Cast<Box?>().FirstOrDefault() ?? throw new InvalidDataException("The MP4 file has no mvhd box.");
+    var traks = Children(stream, moov).Where(box => box.Type == "trak").ToArray();
+    if (traks.Length != 1) throw new InvalidDataException("The MP4 file does not have exactly one track.");
+    var mdia = FindBox(stream, traks[0].PayloadOffset, traks[0].EndOffset, "mdia") ?? throw new InvalidDataException("The MP4 track has no mdia box.");
+    var mdhd = FindBox(stream, mdia.PayloadOffset, mdia.EndOffset, "mdhd") ?? throw new InvalidDataException("The MP4 track has no mdhd box.");
+    var edts = FindBox(stream, traks[0].PayloadOffset, traks[0].EndOffset, "edts") ?? throw new InvalidDataException("The MP4 track has no edit list.");
+    var elst = FindBox(stream, edts.PayloadOffset, edts.EndOffset, "elst") ?? throw new InvalidDataException("The MP4 track has no edit list.");
+    var movieScale = ReadTimescale(stream, mvhd);
+    var mediaScale = ReadTimescale(stream, mdhd);
+    Span<byte> head = stackalloc byte[8];
+    stream.Position = elst.PayloadOffset;
+    stream.ReadExactly(head);
+    var version = head[0];
+    if (version > 1 || BinaryPrimitives.ReadUInt32BigEndian(head[4..]) != 1) throw new InvalidDataException("The edit list does not have exactly one entry.");
+    var width = version == 1 ? 8 : 4;
+    if (elst.PayloadLength < 8 + 2 * width + 4) throw new InvalidDataException("The edit list is truncated.");
+    var duration = checked((samples * movieScale + sampleRate / 2) / sampleRate);
+    if (checked(priming * mediaScale) % sampleRate != 0) throw new InvalidDataException("The priming does not fit the media timescale.");
+    var mediaTime = priming * mediaScale / sampleRate;
+    Span<byte> fields = stackalloc byte[16];
+    if (version == 1)
+    {
+      BinaryPrimitives.WriteUInt64BigEndian(fields, (ulong)duration);
+      BinaryPrimitives.WriteInt64BigEndian(fields[8..], mediaTime);
+    }
+    else
+    {
+      BinaryPrimitives.WriteUInt32BigEndian(fields, checked((uint)duration));
+      BinaryPrimitives.WriteInt32BigEndian(fields[4..], checked((int)mediaTime));
+    }
+    stream.Position = elst.PayloadOffset + 8;
+    stream.Write(fields[..(2 * width)]);
+    stream.Flush(flushToDisk: true);
+  }
+
+  private static long ReadTimescale(Stream stream, Box box)
+  {
+    var payload = ReadPayload(stream, box, 24);
+    var scale = BinaryPrimitives.ReadUInt32BigEndian(payload.AsSpan(payload[0] == 1 ? 20 : 12));
+    return scale > 0 ? scale : throw new InvalidDataException("The MP4 timescale is zero.");
+  }
+
   private static Mp4MetadataItem ReadItem(byte[] meta, Stream stream, Box item)
   {
     var raw = meta.AsSpan((int)item.Offset, (int)(item.EndOffset - item.Offset)).ToArray();
