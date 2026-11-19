@@ -120,7 +120,10 @@ public sealed partial class FFmpegConversionExecutor : IConversionExecutor
       string? manifest = null;
       string? filter = null;
       string? coverFile = null;
-      string[]? segments = null;
+      string? joined = null;
+      string? intermediate = null;
+      IReadOnlyList<SegmentRange>? ranges = null;
+      IReadOnlyList<string>? segments = null;
       using (normalizer.BeginPhase(ConversionPhase.Preparation))
       {
         ValidatePlanPaths(plan);
@@ -130,7 +133,7 @@ public sealed partial class FFmpegConversionExecutor : IConversionExecutor
         tags = plan.MetadataProfile.Apply(plan.Metadata);
         metadata = Register(artifacts, job, "metadata.ffmeta");
         WriteMetadata(metadata, tags, plan.Chapters);
-        if (plan.Strategy == AudioStrategy.SegmentedTranscode || plan.Strategy == AudioStrategy.AacStreamCopy && plan.SourcePaths.Count > 1)
+        if (plan.Strategy == AudioStrategy.AacStreamCopy && plan.SourcePaths.Count > 1)
         {
           manifest = Register(artifacts, job, "concat.txt");
           ConcatManifestWriter.WriteFile(manifest, plan.SourcePaths);
@@ -140,7 +143,11 @@ public sealed partial class FFmpegConversionExecutor : IConversionExecutor
           filter = Register(artifacts, job, "filter.txt");
           FilterGraphWriter.WriteFile(filter, plan.SourcePaths.Count, plan.SampleRate, plan.Channels);
         }
-        if (plan.Strategy == AudioStrategy.SegmentedTranscode) segments = plan.SourcePaths.Select((_, index) => Register(artifacts, job, $"segment-{index:D4}.m4a")).ToArray();
+        if (plan.Strategy == AudioStrategy.SegmentedTranscode)
+        {
+          joined = Register(artifacts, job, "joined.aac");
+          intermediate = Register(artifacts, job, "intermediate.m4a");
+        }
         if (plan.Cover is { Origin: CoverOrigin.EmbeddedPicture } embedded)
         {
           coverFile = Register(artifacts, job, embedded.ContentType.Equals("image/png", StringComparison.OrdinalIgnoreCase) ? "cover.png" : "cover.jpg");
@@ -149,18 +156,23 @@ public sealed partial class FFmpegConversionExecutor : IConversionExecutor
           processes.Add(extraction with { Executable = spec.FileName, Arguments = Array.AsReadOnly(spec.Arguments.ToArray()) });
           if (extraction.ExitCode != 0) throw new FFmpegProcessFailedException(extraction.ExitCode);
         }
+        if (plan.Strategy == AudioStrategy.SegmentedTranscode)
+        {
+          ranges = await MeasureAndPlanRangesAsync(plan, processes, cancellationToken).ConfigureAwait(false);
+          segments = ranges.Select(range => Register(artifacts, job, $"segment-{range.Index:D4}.aac")).ToArray();
+          normalizer.UseEncodingRanges(ranges.Select(range => (range.End - range.Start) * 1_000_000L / plan.SampleRate).ToArray());
+        }
       }
       if (plan.Strategy == AudioStrategy.SegmentedTranscode)
       {
         using (normalizer.BeginPhase(ConversionPhase.Encoding))
         {
-          var segmentResults = await RunSegmentsAsync(plan, segments!, normalizer, cancellationToken).ConfigureAwait(false);
-          processes.AddRange(segmentResults);
+          processes.AddRange(await EncodeRangesAsync(plan, ranges!, segments!, normalizer, cancellationToken).ConfigureAwait(false));
         }
         using (normalizer.BeginPhase(ConversionPhase.Assembly))
         {
-          ConcatManifestWriter.WriteFile(manifest!, segments!);
-          var finalAssembly = await RunStageAsync(_commands.CreateFinal(plan, output, manifest, filter, metadata, coverFile), normalizer, plan.SourcePaths.Count, null, cancellationToken).ConfigureAwait(false);
+          await JoinRangesAsync(plan, ranges!, segments!, joined!, intermediate!, processes, cancellationToken).ConfigureAwait(false);
+          var finalAssembly = await RunStageAsync(_commands.CreateFinal(plan, output, manifest, filter, metadata, coverFile, intermediate), normalizer, plan.SourcePaths.Count, null, cancellationToken).ConfigureAwait(false);
           processes.Add(finalAssembly);
           ThrowIfFinalFailed(finalAssembly);
         }
@@ -185,6 +197,7 @@ public sealed partial class FFmpegConversionExecutor : IConversionExecutor
     }
     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { CleanupFailure(normalizer, artifacts, job); return Cancelled(processes); }
     catch (FFmpegProcessFailedException exception) { CleanupFailure(normalizer, artifacts, job); return Failed(processes, "execution.process-failed", $"FFmpeg exited with code {exception.ExitCode.ToString(System.Globalization.CultureInfo.InvariantCulture)}."); }
+    catch (SegmentedAssemblyException) { CleanupFailure(normalizer, artifacts, job); return Failed(processes, "execution.segment-join-failed", "The audio could not be measured or joined."); }
     catch (InvalidDurationException) { CleanupFailure(normalizer, artifacts, job); return Failed(processes, "execution.invalid-duration", "FFmpeg could not time part of the output."); }
     catch (MetadataWriteException) { CleanupFailure(normalizer, artifacts, job); return Failed(processes, "execution.metadata-write-failed", "The converted file metadata could not be written."); }
     catch (ProcessExecutionException) { CleanupFailure(normalizer, artifacts, job); return Failed(processes, "execution.process-start-failed", "FFmpeg could not be started."); }
@@ -208,36 +221,6 @@ public sealed partial class FFmpegConversionExecutor : IConversionExecutor
   private static void CleanupFailure(ConversionProgressNormalizer normalizer, IEnumerable<string> artifacts, string? job)
   {
     using (normalizer.BeginPhase(ConversionPhase.Cleanup)) Cleanup(artifacts, job);
-  }
-
-  private async Task<ProcessResult[]> RunSegmentsAsync(ConversionPlan plan, string[] segments, ConversionProgressNormalizer normalizer, CancellationToken cancellationToken)
-  {
-    var results = new ProcessResult[plan.SourcePaths.Count];
-    using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-    using var gate = new SemaphoreSlim(Math.Max(1, Math.Min(plan.ConversionJobs, plan.SourcePaths.Count)));
-    var tasks = plan.SourcePaths.Select((source, index) => RunSegmentAsync(source, index, segments[index], plan, results, gate, normalizer, linked.Token)).ToArray();
-    try { await Task.WhenAll(tasks).ConfigureAwait(false); }
-    catch
-    {
-      linked.Cancel();
-      try { await Task.WhenAll(tasks).ConfigureAwait(false); } catch { }
-      var processFailure = tasks.Select(task => task.Exception?.GetBaseException()).OfType<FFmpegProcessFailedException>().FirstOrDefault();
-      if (processFailure is not null) throw processFailure;
-      throw;
-    }
-    return results;
-  }
-
-  private async Task RunSegmentAsync(string source, int index, string output, ConversionPlan plan, ProcessResult[] results, SemaphoreSlim gate, ConversionProgressNormalizer normalizer, CancellationToken cancellationToken)
-  {
-    await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-    try
-    {
-      var result = await RunStageAsync(_commands.CreateSegment(plan, source, output), normalizer, index, index, cancellationToken).ConfigureAwait(false);
-      if (result.ExitCode != 0) throw new FFmpegProcessFailedException(result.ExitCode);
-      results[index] = result;
-    }
-    finally { gate.Release(); }
   }
 
   private async Task<ProcessResult> RunStageAsync(ProcessSpec spec, ConversionProgressNormalizer normalizer, int stageIndex, int? sourceIndex, CancellationToken cancellationToken)

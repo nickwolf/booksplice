@@ -6,13 +6,18 @@ namespace BookSplice.FFmpeg.Commands;
 
 public sealed class FFmpegCommandFactory(MediaToolSet tools)
 {
-  public ProcessSpec CreateFinal(ConversionPlan plan, string temporaryOutput, string? concatManifest = null, string? filterGraph = null, string? metadataFile = null, string? coverFile = null)
+  public ProcessSpec CreateFinal(ConversionPlan plan, string temporaryOutput, string? concatManifest = null, string? filterGraph = null, string? metadataFile = null, string? coverFile = null, string? intermediateAudio = null)
   {
     ArgumentNullException.ThrowIfNull(plan);
     var args = BaseArguments();
-    var useConcat = plan.Strategy == AudioStrategy.SegmentedTranscode || plan.Strategy == AudioStrategy.AacStreamCopy && plan.SourcePaths.Count > 1;
-    var sourceInputs = useConcat ? 1 : plan.SourcePaths.Count;
-    if (useConcat)
+    var useConcat = plan.Strategy == AudioStrategy.AacStreamCopy && plan.SourcePaths.Count > 1;
+    var segmented = plan.Strategy == AudioStrategy.SegmentedTranscode;
+    var sourceInputs = useConcat || segmented ? 1 : plan.SourcePaths.Count;
+    if (segmented)
+    {
+      args.AddRange(["-i", intermediateAudio ?? throw new ArgumentException("The joined audio file is required.", nameof(intermediateAudio))]);
+    }
+    else if (useConcat)
     {
       args.AddRange(["-f", "concat", "-safe", "0", "-i", concatManifest ?? throw new ArgumentException("A concat manifest is required.", nameof(concatManifest))]);
     }
@@ -59,14 +64,25 @@ public sealed class FFmpegCommandFactory(MediaToolSet tools)
     var index = cover.EmbeddedPictureIndex.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
     return new ProcessSpec(tools.FFmpegPath, ["-hide_banner", "-loglevel", "error", "-nostdin", "-i", cover.SourcePath, "-map", $"0:{index}", "-c:v", "copy", "-frames:v", "1", "-f", "image2pipe", "-y", output]);
   }
-  public ProcessSpec CreateSegment(ConversionPlan plan, string source, string output)
+  // Decodes one source through the same chain the encoder sees. The verbose summary on stderr gives the sample count.
+  public ProcessSpec CreateMeasure(ConversionPlan plan, string source)
+    => new(tools.FFmpegPath, ["-hide_banner", "-loglevel", "verbose", "-nostdin", "-i", source, "-map", "0:a:0", "-vn", "-af", FilterGraphWriter.SourceChain(plan.SampleRate, plan.Channels), "-c:a", "pcm_s16le", "-f", "null", "-"]);
+  public ProcessSpec CreateRange(ConversionPlan plan, IReadOnlyList<string> sources, long trimStart, long trimEnd, string output)
   {
     var args = BaseArguments();
-    args.AddRange(["-i", source, "-map", "0:a:0"]);
+    foreach (var source in sources) args.AddRange(["-i", source]);
+    args.AddRange(["-filter_complex", FilterGraphWriter.WriteRange(sources.Count, plan.SampleRate, plan.Channels, trimStart, trimEnd), "-map", "[aout]"]);
     AddEncode(args, plan);
-    args.AddRange(["-f", "ipod", "-y", output]);
+    args.AddRange(["-f", "adts", "-y", output]);
     return new ProcessSpec(tools.FFmpegPath, args);
   }
+  // The offset puts the encoder's priming frame before time zero. Muxing ADTS straight into the final file would give the chapter track the ADTS time base.
+  public ProcessSpec CreateIntermediate(ConversionPlan plan, string joined, string output)
+  {
+    var offset = (-FrameSamples / (double)plan.SampleRate).ToString("F6", System.Globalization.CultureInfo.InvariantCulture);
+    return new ProcessSpec(tools.FFmpegPath, [.. BaseArguments(), "-itsoffset", offset, "-i", joined, "-c", "copy", "-f", "ipod", "-y", output]);
+  }
+  private const int FrameSamples = SegmentRangePlanner.FrameSamples;
   private static List<string> BaseArguments() =>
   [
     "-hide_banner", "-loglevel", "error", "-nostdin", "-progress", "pipe:1", "-nostats"

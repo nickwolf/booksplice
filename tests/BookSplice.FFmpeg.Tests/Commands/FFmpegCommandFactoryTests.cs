@@ -107,12 +107,39 @@ public sealed class FFmpegCommandFactoryTests
   }
 
   [Fact]
-  public void CreateSegmentUsesFrozenSampleRateAndChannels()
+  public void MeasureDecodesThroughTheEncodersSourceChain()
   {
-    var spec = Factory().CreateSegment(Plan(AudioStrategy.SegmentedTranscode, sampleRate: 48000, channels: 1), @"C:\input\one.mp3", @"C:\temp\segment.m4a");
-    Assert.Equal("48000", spec.Arguments[spec.Arguments.ToList().IndexOf("-ar") + 1]);
-    Assert.Equal("1", spec.Arguments[spec.Arguments.ToList().IndexOf("-ac") + 1]);
-    Assert.Equal("ipod", spec.Arguments[spec.Arguments.ToList().IndexOf("-f") + 1]);
+    var spec = Factory().CreateMeasure(Plan(AudioStrategy.SegmentedTranscode, sampleRate: 48000, channels: 1), @"C:\input\one.mp3");
+    Assert.Equal(["-hide_banner", "-loglevel", "verbose", "-nostdin", "-i", @"C:\input\one.mp3", "-map", "0:a:0", "-vn", "-af", "aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=mono", "-c:a", "pcm_s16le", "-f", "null", "-"], spec.Arguments);
+  }
+
+  [Fact]
+  public void RangeEncodesTheTrimmedConcatAsAdtsWithFrozenSampleRateAndChannels()
+  {
+    var spec = Factory().CreateRange(Plan(AudioStrategy.SegmentedTranscode, sampleRate: 48000, channels: 1), [@"C:\input\one.mp3", @"C:\input\two.mp3"], 1000, 5000, @"C:\temp\segment.aac");
+    var arguments = spec.Arguments.ToList();
+    Assert.Equal(["-i", @"C:\input\one.mp3", "-i", @"C:\input\two.mp3"], arguments.Skip(7).Take(4));
+    var graph = arguments[arguments.IndexOf("-filter_complex") + 1];
+    Assert.Equal("[0:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=mono[a0];[1:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=mono[a1];[a0][a1]concat=n=2:v=0:a=1[cat];[cat]atrim=start_sample=1000:end_sample=5000,asetpts=N/SR/TB[aout]", graph);
+    Assert.Equal("[aout]", arguments[arguments.IndexOf("-map") + 1]);
+    Assert.Equal("48000", arguments[arguments.IndexOf("-ar") + 1]);
+    Assert.Equal("1", arguments[arguments.IndexOf("-ac") + 1]);
+    Assert.Equal(["-f", "adts", "-y", @"C:\temp\segment.aac"], arguments.TakeLast(4));
+  }
+
+  [Fact]
+  public void RangeOfOneInputSkipsTheConcat()
+  {
+    Assert.Equal("[0:a]aresample=44100,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[a0];[a0]atrim=start_sample=0:end_sample=900,asetpts=N/SR/TB[aout]", FilterGraphWriter.WriteRange(1, 44_100, 2, 0, 900));
+  }
+
+  [Theory]
+  [InlineData(44_100, "-0.023220")]
+  [InlineData(48_000, "-0.021333")]
+  public void IntermediatePutsThePrimingFrameBeforeZeroAndCopiesIntoAnMp4(int sampleRate, string offset)
+  {
+    var spec = Factory().CreateIntermediate(Plan(AudioStrategy.SegmentedTranscode, sampleRate: sampleRate), @"C:\temp\joined.aac", @"C:\temp\intermediate.m4a");
+    Assert.Equal(["-itsoffset", offset, "-i", @"C:\temp\joined.aac", "-c", "copy", "-f", "ipod", "-y", @"C:\temp\intermediate.m4a"], spec.Arguments.Skip(7));
   }
 
   [Fact]
@@ -133,7 +160,8 @@ public sealed class FFmpegCommandFactoryTests
     Assert.Equal(prefix.Concat(["-f", "concat", "-safe", "0", "-i", @"C:\temp\concat.txt", "-map", "0:a:0", "-c:a", "copy", "-movflags", "+faststart", "-f", "ipod", "-y", @"C:\temp\copy-many.m4b"]), Factory().CreateFinal(Plan(AudioStrategy.AacStreamCopy, 2), @"C:\temp\copy-many.m4b", @"C:\temp\concat.txt").Arguments);
     Assert.Equal(prefix.Concat(["-i", @"C:\input\one.mp3", "-map", "0:a:0", "-c:a", "aac", "-profile:a", "aac_low", "-b:a", "96k", "-ar", "44100", "-ac", "2", "-movflags", "+faststart", "-f", "ipod", "-y", @"C:\temp\direct.m4b"]), Factory().CreateFinal(Plan(AudioStrategy.DirectTranscode), @"C:\temp\direct.m4b").Arguments);
     Assert.Equal(prefix.Concat(["-i", @"C:\input\one.mp3", "-i", @"C:\input\later1.mp3", "-/filter_complex", @"C:\temp\filter.txt", "-map", "[aout]", "-c:a", "aac", "-profile:a", "aac_low", "-b:a", "96k", "-ar", "44100", "-ac", "2", "-movflags", "+faststart", "-f", "ipod", "-y", @"C:\temp\filter.m4b"]), Factory().CreateFinal(Plan(AudioStrategy.FilterConcatTranscode, 2), @"C:\temp\filter.m4b", filterGraph: @"C:\temp\filter.txt").Arguments);
-    Assert.Equal(prefix.Concat(["-f", "concat", "-safe", "0", "-i", @"C:\temp\segments.txt", "-map", "0:a:0", "-c:a", "copy", "-movflags", "+faststart", "-f", "ipod", "-y", @"C:\temp\segmented.m4b"]), Factory().CreateFinal(Plan(AudioStrategy.SegmentedTranscode, 2), @"C:\temp\segmented.m4b", @"C:\temp\segments.txt").Arguments);
+    Assert.Equal(prefix.Concat(["-i", @"C:\temp\intermediate.m4a", "-map", "0:a:0", "-c:a", "copy", "-movflags", "+faststart", "-f", "ipod", "-y", @"C:\temp\segmented.m4b"]), Factory().CreateFinal(Plan(AudioStrategy.SegmentedTranscode, 2), @"C:\temp\segmented.m4b", intermediateAudio: @"C:\temp\intermediate.m4a").Arguments);
+    Assert.Throws<ArgumentException>(() => Factory().CreateFinal(Plan(AudioStrategy.SegmentedTranscode, 2), @"C:\temp\segmented.m4b"));
   }
 
   private static FFmpegCommandFactory Factory() => new(new MediaToolSet("ffmpeg.exe", "ffprobe.exe", "pinned", "pinned"));
